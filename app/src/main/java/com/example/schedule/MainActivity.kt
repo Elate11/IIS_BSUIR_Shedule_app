@@ -916,26 +916,35 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 }
 
                 // Header row: group number + arrow
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { expanded = !expanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) { expanded = !expanded },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        if (styleType == StyleType.Techno) "> _" else (displayTitle ?: selectedGroup),
-                        fontSize = 33.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MinTextPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(
-                        if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                        contentDescription = null,
-                        tint = MinTextSecondary,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = if (styleType == StyleType.Techno) "> _" else (displayTitle ?: selectedGroup),
+                            fontSize = 33.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MinTextPrimary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MinTextSecondary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
 
                 // Expandable panel
