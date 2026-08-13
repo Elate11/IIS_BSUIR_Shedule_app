@@ -1,6 +1,9 @@
 ﻿@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.schedule
 
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Request
+
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.onGloballyPositioned
 
@@ -1579,7 +1582,7 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                 }
 
                 if (shouldUpdate || cachedBody == null) {
-                    val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                    val client = com.example.schedule.NetworkClient.client
                     val request = okhttp3.Request.Builder()
                         .url("https://iis.bsuir.by/api/v1/omissions")
                         .addHeader("Cookie", token)
@@ -1710,7 +1713,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
             try {
                 val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                val client = com.example.schedule.NetworkClient.client
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/omissions")
                     .addHeader("Cookie", token)
@@ -1908,7 +1911,7 @@ fun MinGroupScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                     return@withContext
                 }
 
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                val client = com.example.schedule.NetworkClient.client
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/grade-book/group-students")
                     .addHeader("Cookie", token)
@@ -2104,7 +2107,7 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
                     }
                 }
 
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                val client = com.example.schedule.NetworkClient.client
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/markbook")
                     .addHeader("Cookie", token)
@@ -2382,7 +2385,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     parseMarkbook(cachedMarkbook)
                 }
                 
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                val client = com.example.schedule.NetworkClient.client
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/markbook")
                     .addHeader("Cookie", token)
@@ -2742,7 +2745,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             if (cachedGroup != null) {
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                        val client = com.example.schedule.NetworkClient.client
                         val request = okhttp3.Request.Builder().url("https://iis.bsuir.by/api/v1/student-groups").build()
                         val response = client.newCall(request).execute()
                         if (response.isSuccessful) {
@@ -2801,7 +2804,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 }
 
                 try {
-                    val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                    val client = com.example.schedule.NetworkClient.client
                     val request = okhttp3.Request.Builder()
                         .url("https://iis.bsuir.by/api/v1/markbook")
                         .addHeader("Cookie", token)
@@ -3112,7 +3115,7 @@ fun MinGenericApiScreen(
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val token = prefs.getString("auth_token", "") ?: ""
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+                val client = com.example.schedule.NetworkClient.client
                 val request = okhttp3.Request.Builder().url(url).addHeader("Cookie", token).addHeader("User-Agent", "Mozilla/5.0").build()
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string()
@@ -4196,17 +4199,19 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                         isLoading = true
                         errorMessage = null
                         scope.launch(Dispatchers.IO) {
-                            val client = OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
-                            val json = org.json.JSONObject()
-                            json.put("username", gradebookNumber)
-                            json.put("password", password)
-                            val body = RequestBody.create("application/json; charset=utf-8".toMediaTypeOrNull(), json.toString())
-                            val request = Request.Builder()
-                                .url("https://iis.bsuir.by/api/v1/auth/login") 
-                                .post(body)
-                                .build()
                             try {
-                                client.newCall(request).execute().use { response ->
+                                val loginJson = org.json.JSONObject()
+                                loginJson.put("username", gradebookNumber)
+                                loginJson.put("password", password)
+                                val body = loginJson.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                                val request = Request.Builder()
+                                    .url("https://iis.bsuir.by/api/v1/auth/login")
+                                    .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14)")
+                                    .addHeader("Accept", "application/json")
+                                    .addHeader("Content-Type", "application/json")
+                                    .post(body)
+                                    .build()
+                                NetworkClient.client.newCall(request).execute().use { response ->
                                     val responseBody = response.body?.string()
                                     withContext(Dispatchers.Main) {
                                         isLoading = false
@@ -4231,12 +4236,17 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                                                 }
                                             }
                                             if (extractedToken.isEmpty()) extractedToken = responseBody ?: ""
+                                            // Save password for auto re-login on 401
+                                            prefs.edit()
+                                                .putString("saved_password", password)
+                                                .putString("gradebook_number", gradebookNumber)
+                                                .apply()
                                             onLoginSuccess(gradebookNumber, extractedToken)
                                         } else {
                                             when (response.code) {
                                                 400, 401, 403, 404 -> errorMessage = "Неверный логин или пароль"
                                                 500, 502, 503 -> errorMessage = "Ошибка сервера (${response.code}). Попробуйте позже."
-                                                else -> errorMessage = "Неверный логин или пароль"
+                                                else -> errorMessage = "Ошибка: ${response.code} ${response.message}"
                                             }
                                         }
                                     }
