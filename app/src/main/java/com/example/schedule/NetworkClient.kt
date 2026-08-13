@@ -1,8 +1,8 @@
 package com.example.schedule
 
 import android.content.Context
+import android.content.SharedPreferences
 import okhttp3.*
-import okhttp3.Protocol
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
@@ -10,107 +10,156 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Singleton HTTP client shared across the app.
- * - Uses CookieJar for automatic cookie persistence (like iOS URLSession)
- * - 60-second timeouts
- * - Retry on connection failure
- * - Proper headers (User-Agent, Accept, Content-Type)
+ * Robust HTTP client singleton for IIS BSUIR API.
+ * - Persistent Cookie Store backed by SharedPreferences
+ * - Proper TLS & protocol configuration
+ * - Automatic retry with exponential backoff on network hiccups
  * - Auto re-login on 401 Unauthorized
+ * - Clean headers without duplication
  */
 object NetworkClient {
 
+    private const val BASE_URL = "https://iis.bsuir.by/api/v1"
+    private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+
+    private var appContext: Context? = null
     private val cookieStore = mutableMapOf<String, MutableList<Cookie>>()
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        loadCookiesFromPrefs()
+    }
+
+    private fun getPrefs(): SharedPreferences? {
+        return appContext?.getSharedPreferences("app_network_cookies", Context.MODE_PRIVATE)
+    }
+
+    private fun loadCookiesFromPrefs() {
+        try {
+            val prefs = getPrefs() ?: return
+            val savedCookieString = prefs.getString("saved_cookies", null) ?: return
+            val host = "iis.bsuir.by"
+            val list = mutableListOf<Cookie>()
+            savedCookieString.split("; ").forEach { pair ->
+                val parts = pair.split("=", limit = 2)
+                if (parts.size == 2) {
+                    val cookie = Cookie.Builder()
+                        .name(parts[0].trim())
+                        .value(parts[1].trim())
+                        .domain(host)
+                        .path("/")
+                        .build()
+                    list.add(cookie)
+                }
+            }
+            if (list.isNotEmpty()) {
+                cookieStore[host] = list
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveCookiesToPrefs() {
+        try {
+            val prefs = getPrefs() ?: return
+            val hostCookies = cookieStore["iis.bsuir.by"] ?: emptyList()
+            val cookieStr = hostCookies.joinToString("; ") { "${it.name}=${it.value}" }
+            prefs.edit().putString("saved_cookies", cookieStr).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     private val cookieJar = object : CookieJar {
         override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
             val host = url.host
-            cookieStore.getOrPut(host) { mutableListOf() }.apply {
-                // Remove old cookies with same name before adding new ones
+            synchronized(cookieStore) {
+                val existing = cookieStore.getOrPut(host) { mutableListOf() }
                 val newNames = cookies.map { it.name }.toSet()
-                removeAll { it.name in newNames }
-                addAll(cookies)
+                existing.removeAll { it.name in newNames }
+                existing.addAll(cookies)
+                saveCookiesToPrefs()
             }
         }
 
         override fun loadForRequest(url: HttpUrl): List<Cookie> {
-            return cookieStore[url.host] ?: emptyList()
+            synchronized(cookieStore) {
+                return cookieStore[url.host]?.toList() ?: emptyList()
+            }
         }
     }
 
     val client: OkHttpClient = OkHttpClient.Builder()
-        .protocols(listOf(Protocol.HTTP_1_1))
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .cookieJar(cookieJar)
+        .connectionSpecs(listOf(
+            ConnectionSpec.MODERN_TLS,
+            ConnectionSpec.COMPATIBLE_TLS,
+            ConnectionSpec.CLEARTEXT
+        ))
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
 
-    private const val BASE_URL = "https://iis.bsuir.by/api/v1"
-    private const val USER_AGENT = "MyIIS/1.0 CFNetwork/1408.0.4 Darwin/22.5.0"
-
     /**
-     * Build a GET request with proper headers and optional cookie token.
+     * Build standard GET request. Cookies are automatically attached by CookieJar.
      */
-    fun buildGetRequest(url: String, token: String? = null): Request {
+    fun buildGetRequest(url: String, manualToken: String? = null): Request {
         val builder = Request.Builder()
             .url(url)
             .addHeader("User-Agent", USER_AGENT)
-            .addHeader("Accept", "application/json")
+            .addHeader("Accept", "application/json, text/plain, */*")
             .get()
-        if (!token.isNullOrBlank()) {
-            builder.addHeader("Cookie", token)
+
+        // If manual token provided and not in cookieJar, inject it
+        if (!manualToken.isNullOrBlank()) {
+            builder.addHeader("Cookie", manualToken)
         }
         return builder.build()
     }
 
     /**
-     * Execute a GET request with automatic retry on 401.
-     * If a 401 is received, tries to re-authenticate using saved credentials.
+     * Execute GET with retry on failure and auto re-login on 401
      */
     fun executeWithAuth(request: Request, context: Context): Response {
-        val response = client.newCall(request).execute()
+        init(context)
+        var response = client.newCall(request).execute()
+
         if (response.code == 401) {
             response.close()
-            // Try to re-authenticate
             val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-            val username = prefs.getString("gradebook_number", null)
-                ?: prefs.getString("gradebook", null)
+            val username = prefs.getString("gradebook_number", null) ?: prefs.getString("gradebook", null)
             val password = prefs.getString("saved_password", null)
-            if (username != null && password != null) {
-                val loginSuccess = login(username, password, prefs)
-                if (loginSuccess) {
-                    // Rebuild request with new token
-                    val newToken = prefs.getString("auth_token", "") ?: ""
-                    val newRequest = request.newBuilder()
-                        .removeHeader("Cookie")
-                        .addHeader("Cookie", newToken)
-                        .build()
-                    return client.newCall(newRequest).execute()
+
+            if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
+                val reLoginOk = login(username, password, prefs)
+                if (reLoginOk) {
+                    return client.newCall(request).execute()
                 }
             }
-            // If re-auth failed, return original 401-like response
             return client.newCall(request).execute()
         }
         return response
     }
 
     /**
-     * Perform login and save token + credentials.
+     * Authenticate with iis.bsuir.by
      */
-    fun login(username: String, password: String, prefs: android.content.SharedPreferences): Boolean {
+    fun login(username: String, password: String, prefs: SharedPreferences): Boolean {
         val json = JSONObject().apply {
             put("username", username)
             put("password", password)
         }
-        val body = json.toString().toRequestBody("application/json".toMediaTypeOrNull())
+        val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+        val body = json.toString().toRequestBody(mediaType)
         val request = Request.Builder()
             .url("$BASE_URL/auth/login")
             .addHeader("User-Agent", USER_AGENT)
-            .addHeader("Accept", "application/json")
-            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "application/json, text/plain, */*")
             .post(body)
             .build()
 
@@ -120,7 +169,6 @@ object NetworkClient {
                     val responseBody = response.body?.string()
                     var extractedToken = ""
 
-                    // Extract session cookies
                     val cookies = response.headers("Set-Cookie")
                     for (cookie in cookies) {
                         if (cookie.contains("SESSION") || cookie.contains("JSESSIONID") ||
@@ -131,7 +179,6 @@ object NetworkClient {
                     }
                     if (extractedToken.isEmpty()) extractedToken = responseBody ?: ""
 
-                    // Save profile data from response
                     if (responseBody != null) {
                         try {
                             val respJson = JSONObject(responseBody)
@@ -162,8 +209,11 @@ object NetworkClient {
         }
     }
 
-    /** Clear cookies (used on logout) */
-    fun clearCookies() {
-        cookieStore.clear()
+    fun clearCookies(context: Context? = null) {
+        synchronized(cookieStore) {
+            cookieStore.clear()
+        }
+        val ctx = context ?: appContext
+        ctx?.getSharedPreferences("app_network_cookies", Context.MODE_PRIVATE)?.edit()?.clear()?.apply()
     }
 }

@@ -1,4 +1,4 @@
-﻿@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.schedule
 
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -114,6 +114,7 @@ val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        NetworkClient.init(applicationContext)
         setContent {
             MaterialTheme {
                 MinimalistApp()
@@ -2746,7 +2747,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val client = com.example.schedule.NetworkClient.client
-                        val request = okhttp3.Request.Builder().url("https://iis.bsuir.by/api/v1/student-groups").build()
+                        val request = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/student-groups")
                         val response = client.newCall(request).execute()
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: ""
@@ -3116,7 +3117,7 @@ fun MinGenericApiScreen(
             try {
                 val token = prefs.getString("auth_token", "") ?: ""
                 val client = com.example.schedule.NetworkClient.client
-                val request = okhttp3.Request.Builder().url(url).addHeader("Cookie", token).addHeader("User-Agent", "Mozilla/5.0").build()
+                val request = NetworkClient.buildGetRequest(url, token)
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string()
                     if (response.isSuccessful && body != null) {
@@ -4200,15 +4201,15 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                         errorMessage = null
                         scope.launch(Dispatchers.IO) {
                             try {
+                                NetworkClient.init(context)
                                 val loginJson = org.json.JSONObject()
-                                loginJson.put("username", gradebookNumber)
+                                loginJson.put("username", gradebookNumber.trim())
                                 loginJson.put("password", password)
-                                val body = loginJson.toString().toRequestBody("application/json".toMediaTypeOrNull())
+                                val body = loginJson.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
                                 val request = Request.Builder()
                                     .url("https://iis.bsuir.by/api/v1/auth/login")
-                                    .addHeader("User-Agent", "MyIIS/1.0 CFNetwork/1408.0.4 Darwin/22.5.0")
-                                    .addHeader("Accept", "application/json")
-                                    .addHeader("Content-Type", "application/json")
+                                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                                    .addHeader("Accept", "application/json, text/plain, */*")
                                     .post(body)
                                     .build()
                                 NetworkClient.client.newCall(request).execute().use { response ->

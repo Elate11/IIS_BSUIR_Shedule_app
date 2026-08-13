@@ -12,6 +12,7 @@
         android:icon="@drawable/bsuir_logo"
         android:roundIcon="@drawable/bsuir_logo"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Transparent">
         <activity
             android:name=".MainActivity"
