@@ -661,7 +661,7 @@ fun MinimalistApp() {
                         when (page) {
                             0 -> MinScheduleScreen(MinBg, actualBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent, isDarkTheme, selectedGroup, { selectedGroup = it }, selectedSubgroup, { selectedSubgroup = it; groupPrefs.edit().putInt("subgroup", it).apply() })
                             1 -> MinMarksScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent, isDarkTheme, onBack = {})
-                            2 -> MinNotesScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent)
+                            2 -> MinNotesScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent, selectedGroup = selectedGroup)
                             3 -> MinProfileScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, isDarkTheme, MinAccent, particlesEnabled, particleSizeMultiplier, transitionsEnabled, transitionType, transitionSpeedMultiplier, fontFamily, textSizeMultiplier, bgMode, bgImageUri, bgBlur, bgDim, bgEmoji, customParticleColor, { isDarkTheme = !isDarkTheme; customPrimaryColor = null; customBackgroundColor = null; customParticleColor = null; sharedPreferences.edit().remove("customPrimaryColor").remove("customBackgroundColor").remove("customParticleColor").apply() }, { customPrimaryColor = it }, { particlesEnabled = it }, { particleSizeMultiplier = it }, { transitionsEnabled = it }, { transitionType = it }, { transitionSpeedMultiplier = it }, { fontFamily = it }, { textSizeMultiplier = it }, { customPrimaryColor = it }, { 
                                 customBackgroundColor = it
                                 if (it != null) {
@@ -3202,30 +3202,29 @@ fun MinMarksScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color) {
+fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "114001") {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE) }
     val gson = remember { com.google.gson.Gson() }
 
     var predefinedSubjects by remember { mutableStateOf<List<String>>(emptyList()) }
     
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+    androidx.compose.runtime.LaunchedEffect(selectedGroup) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                val loginGroup = appPrefs.getString("login_group", "").takeIf { !it.isNullOrBlank() }
-                    ?: appPrefs.getString("selectedGroup", "") ?: ""
+                val targetGroup = if (selectedGroup.isNotBlank()) selectedGroup else appPrefs.getString("login_group", "114001") ?: "114001"
                 val token = appPrefs.getString("auth_token", "") ?: ""
 
                 val sessionSubjects = mutableSetOf<String>()
 
                 // 1. Fetch from group schedule exam session (расписание сессии)
-                if (loginGroup.isNotBlank()) {
+                if (targetGroup.isNotBlank()) {
                     try {
-                        val scheduleResp = if (loginGroup.any { it.isLetter() }) {
-                            com.example.schedule.BsuirApi.getEmployeeSchedule(loginGroup)
+                        val scheduleResp = if (targetGroup.any { it.isLetter() }) {
+                            com.example.schedule.BsuirApi.getEmployeeSchedule(targetGroup)
                         } else {
-                            com.example.schedule.BsuirApi.getGroupSchedule(loginGroup)
+                            com.example.schedule.BsuirApi.getGroupSchedule(targetGroup)
                         }
                         
                         scheduleResp?.exams?.forEach { examLesson ->
@@ -3235,13 +3234,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             }
                         }
 
-                        // If exams list in schedule was empty, also pull unique subjects from schedule
-                        if (sessionSubjects.isEmpty()) {
-                            scheduleResp?.schedules?.values?.flatten()?.forEach { lesson ->
-                                val sName = lesson.subjectFullName?.takeIf { it.isNotBlank() } ?: lesson.subject
-                                if (!sName.isNullOrBlank()) {
-                                    sessionSubjects.add(sName.trim())
-                                }
+                        // Also pull all subjects from regular schedule
+                        scheduleResp?.schedules?.values?.flatten()?.forEach { lesson ->
+                            val sName = lesson.subjectFullName?.takeIf { it.isNotBlank() } ?: lesson.subject
+                            if (!sName.isNullOrBlank()) {
+                                sessionSubjects.add(sName.trim())
                             }
                         }
                     } catch (e: Exception) {
@@ -3249,26 +3246,23 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
 
-                // 2. Fetch from markbook (экзамены и зачеты текущего семестра / сессии)
+                // 2. Fetch from markbook (экзамены и зачеты всех семестров / текущей сессии)
                 val parseMarkbook: (String) -> Unit = { bodyStr ->
                     try {
                         val jsonObj = org.json.JSONObject(bodyStr)
                         val markPages = jsonObj.optJSONObject("markPages")
                         if (markPages != null) {
-                            var maxSem = 1
                             val keys = markPages.keys()
                             while (keys.hasNext()) {
-                                val semNum = keys.next().toIntOrNull() ?: 1
-                                if (semNum > maxSem) maxSem = semNum
-                            }
-                            
-                            val currentSemObj = markPages.optJSONObject(maxSem.toString()) ?: markPages.optJSONObject("1")
-                            val marksArray = currentSemObj?.optJSONArray("marks") ?: org.json.JSONArray()
-                            for (i in 0 until marksArray.length()) {
-                                val markObj = marksArray.optJSONObject(i) ?: continue
-                                val subject = markObj.optString("subject", "")
-                                if (subject.isNotBlank()) {
-                                    sessionSubjects.add(subject.trim())
+                                val semKey = keys.next()
+                                val semObj = markPages.optJSONObject(semKey)
+                                val marksArray = semObj?.optJSONArray("marks") ?: org.json.JSONArray()
+                                for (i in 0 until marksArray.length()) {
+                                    val markObj = marksArray.optJSONObject(i) ?: continue
+                                    val subject = markObj.optString("subject", "")
+                                    if (subject.isNotBlank()) {
+                                        sessionSubjects.add(subject.trim())
+                                    }
                                 }
                             }
                         }
@@ -3373,7 +3367,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     fun saveNotes(list: List<Note>) { notes = list; prefs.edit().putString("notes_data", gson.toJson(list)).apply() }
 
-    val allSubjects = remember(notes) { (predefinedSubjects + notes.map { it.subject }.distinct()).distinct() }
+    val allSubjects = remember(notes, predefinedSubjects) { (predefinedSubjects + notes.map { it.subject }.distinct()).distinct() }
     val subjects = listOf("Все") + allSubjects
     val highlightedDates = remember(notes, selectedSubject) {
         (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).map { it.date }.toSet()
