@@ -3213,51 +3213,94 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                val cachedMarkbook = appPrefs.getString("cached_gradebook", null)
+                val loginGroup = appPrefs.getString("login_group", "").takeIf { !it.isNullOrBlank() }
+                    ?: appPrefs.getString("selectedGroup", "") ?: ""
                 val token = appPrefs.getString("auth_token", "") ?: ""
 
-                val parseMarkbook: suspend (String) -> Unit = { bodyStr ->
-                    val jsonObj = org.json.JSONObject(bodyStr)
-                    val markPages = jsonObj.optJSONObject("markPages")
-                    val subs = mutableSetOf<String>()
-                    if (markPages != null) {
-                        val page1 = markPages.optJSONObject("1")
-                        if (page1 != null) {
-                            val marksArray = page1.optJSONArray("marks") ?: org.json.JSONArray()
-                            for (i in 0 until marksArray.length()) {
-                                val markObj = marksArray.optJSONObject(i)
-                                if (markObj != null) {
-                                    val subject = markObj.optString("subject", "")
-                                    val rawMark = markObj.optString("mark", "")
-                                    if (subject.isNotBlank() && (rawMark.isBlank() || rawMark == "null" || rawMark == "-")) {
-                                        subs.add(subject)
-                                    }
+                val sessionSubjects = mutableSetOf<String>()
+
+                // 1. Fetch from group schedule exam session (расписание сессии)
+                if (loginGroup.isNotBlank()) {
+                    try {
+                        val scheduleResp = if (loginGroup.any { it.isLetter() }) {
+                            com.example.schedule.BsuirApi.getEmployeeSchedule(loginGroup)
+                        } else {
+                            com.example.schedule.BsuirApi.getGroupSchedule(loginGroup)
+                        }
+                        
+                        scheduleResp?.exams?.forEach { examLesson ->
+                            val sName = examLesson.subjectFullName?.takeIf { it.isNotBlank() } ?: examLesson.subject
+                            if (!sName.isNullOrBlank()) {
+                                sessionSubjects.add(sName.trim())
+                            }
+                        }
+
+                        // If exams list in schedule was empty, also pull unique subjects from schedule
+                        if (sessionSubjects.isEmpty()) {
+                            scheduleResp?.schedules?.values?.flatten()?.forEach { lesson ->
+                                val sName = lesson.subjectFullName?.takeIf { it.isNotBlank() } ?: lesson.subject
+                                if (!sName.isNullOrBlank()) {
+                                    sessionSubjects.add(sName.trim())
                                 }
                             }
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
-                    if (subs.isNotEmpty()) {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            predefinedSubjects = subs.sorted()
+                }
+
+                // 2. Fetch from markbook (экзамены и зачеты текущего семестра / сессии)
+                val parseMarkbook: (String) -> Unit = { bodyStr ->
+                    try {
+                        val jsonObj = org.json.JSONObject(bodyStr)
+                        val markPages = jsonObj.optJSONObject("markPages")
+                        if (markPages != null) {
+                            var maxSem = 1
+                            val keys = markPages.keys()
+                            while (keys.hasNext()) {
+                                val semNum = keys.next().toIntOrNull() ?: 1
+                                if (semNum > maxSem) maxSem = semNum
+                            }
+                            
+                            val currentSemObj = markPages.optJSONObject(maxSem.toString()) ?: markPages.optJSONObject("1")
+                            val marksArray = currentSemObj?.optJSONArray("marks") ?: org.json.JSONArray()
+                            for (i in 0 until marksArray.length()) {
+                                val markObj = marksArray.optJSONObject(i) ?: continue
+                                val subject = markObj.optString("subject", "")
+                                if (subject.isNotBlank()) {
+                                    sessionSubjects.add(subject.trim())
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                val cachedMarkbook = appPrefs.getString("cached_gradebook", null)
+                if (cachedMarkbook != null) {
+                    parseMarkbook(cachedMarkbook)
+                }
+
+                if (token.isNotBlank()) {
+                    val client = com.example.schedule.NetworkClient.client
+                    val request = okhttp3.Request.Builder()
+                        .url("https://iis.bsuir.by/api/v1/markbook")
+                        .addHeader("Cookie", token)
+                        .get()
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            val body = response.body?.string() ?: ""
+                            appPrefs.edit().putString("cached_gradebook", body).apply()
+                            parseMarkbook(body)
                         }
                     }
                 }
 
-                if (cachedMarkbook != null) {
-                    parseMarkbook(cachedMarkbook)
-                }
-                
-                val client = com.example.schedule.NetworkClient.client
-                val request = okhttp3.Request.Builder()
-                    .url("https://iis.bsuir.by/api/v1/markbook")
-                    .addHeader("Cookie", token)
-                    .get()
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string() ?: ""
-                        appPrefs.edit().putString("cached_gradebook", body).apply()
-                        parseMarkbook(body)
+                if (sessionSubjects.isNotEmpty()) {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        predefinedSubjects = sessionSubjects.toList().sorted()
                     }
                 }
             } catch (e: Exception) {
