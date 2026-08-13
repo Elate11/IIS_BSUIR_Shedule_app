@@ -51,11 +51,20 @@ object BsuirApi {
     private val gson = Gson()
     private const val BASE_URL = "https://iis.bsuir.by/api/v1"
 
+    private val client = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
     private fun fetchJson(urlString: String): String {
-        val connection = java.net.URL(urlString).openConnection()
-        connection.connectTimeout = 3000
-        connection.readTimeout = 3000
-        return connection.getInputStream().bufferedReader().use { it.readText() }
+        val request = okhttp3.Request.Builder()
+            .url(urlString)
+            .addHeader("User-Agent", "Mozilla/5.0")
+            .build()
+        val response = client.newCall(request).execute()
+        return response.body?.string() ?: throw java.io.IOException("Empty response body")
     }
 
     suspend fun getGroupSchedule(groupNumber: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {

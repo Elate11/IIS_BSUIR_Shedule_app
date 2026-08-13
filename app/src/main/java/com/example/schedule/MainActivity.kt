@@ -1579,7 +1579,7 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                 }
 
                 if (shouldUpdate || cachedBody == null) {
-                    val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                    val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                     val request = okhttp3.Request.Builder()
                         .url("https://iis.bsuir.by/api/v1/omissions")
                         .addHeader("Cookie", token)
@@ -1710,7 +1710,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
             try {
                 val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/omissions")
                     .addHeader("Cookie", token)
@@ -1908,7 +1908,7 @@ fun MinGroupScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                     return@withContext
                 }
 
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/grade-book/group-students")
                     .addHeader("Cookie", token)
@@ -2104,7 +2104,7 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
                     }
                 }
 
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/markbook")
                     .addHeader("Cookie", token)
@@ -2382,7 +2382,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     parseMarkbook(cachedMarkbook)
                 }
                 
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/markbook")
                     .addHeader("Cookie", token)
@@ -2742,7 +2742,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             if (cachedGroup != null) {
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
                     try {
-                        val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                        val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                         val request = okhttp3.Request.Builder().url("https://iis.bsuir.by/api/v1/student-groups").build()
                         val response = client.newCall(request).execute()
                         if (response.isSuccessful) {
@@ -2801,7 +2801,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 }
 
                 try {
-                    val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                    val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                     val request = okhttp3.Request.Builder()
                         .url("https://iis.bsuir.by/api/v1/markbook")
                         .addHeader("Cookie", token)
@@ -3112,7 +3112,7 @@ fun MinGenericApiScreen(
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val token = prefs.getString("auth_token", "") ?: ""
-                val client = okhttp3.OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                val client = okhttp3.OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                 val request = okhttp3.Request.Builder().url(url).addHeader("Cookie", token).addHeader("User-Agent", "Mozilla/5.0").build()
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string()
@@ -4196,7 +4196,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                         isLoading = true
                         errorMessage = null
                         scope.launch(Dispatchers.IO) {
-                            val client = OkHttpClient.Builder().connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS).readTimeout(30, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+                            val client = OkHttpClient.Builder().connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS).readTimeout(60, java.util.concurrent.TimeUnit.SECONDS).writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
                             val json = org.json.JSONObject()
                             json.put("username", gradebookNumber)
                             json.put("password", password)
