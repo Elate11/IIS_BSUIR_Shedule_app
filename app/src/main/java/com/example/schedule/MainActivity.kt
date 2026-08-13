@@ -1103,34 +1103,42 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             .width(58.dp)
                             .height(80.dp)
                             .clip(RoundedCornerShape(22.dp))
-                            // Multi-layer iOS 26 Liquid Glass with fluid morphing
+                            // Multi-layer iOS 26 Liquid Glass with fluid morphing (only on selection)
                             .background(
-                                androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    colors = if (isDarkTheme) {
-                                        listOf(
-                                            Color.White.copy(alpha = (0.05f + 0.23f * safeProgress).coerceIn(0f, 1f)),
-                                            MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = (0.03f + 0.09f * safeProgress).coerceIn(0f, 1f))
-                                        )
-                                    } else {
-                                        listOf(
-                                            Color.White.copy(alpha = (0.15f + 0.79f * safeProgress).coerceIn(0f, 1f)),
-                                            MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = (0.10f + 0.60f * safeProgress).coerceIn(0f, 1f))
-                                        )
-                                    }
-                                )
-                            )
-                            .border(
-                                width = (1f + 0.8f * safeProgress).dp,
-                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    colors = listOf(
-                                        Color.White.copy(alpha = (0.12f + 0.86f * safeProgress).coerceIn(0f, 1f)),
-                                        MinAccent.copy(alpha = (0.85f * safeProgress).coerceIn(0f, 1f)),
-                                        Color.White.copy(alpha = (if (isDarkTheme) (0.05f + 0.30f * safeProgress) else (0.15f + 0.55f * safeProgress)).coerceIn(0f, 1f))
+                                if (safeProgress > 0.01f) {
+                                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = if (isDarkTheme) {
+                                            listOf(
+                                                Color.White.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
+                                                Color.White.copy(alpha = (0.12f * safeProgress).coerceIn(0f, 1f))
+                                            )
+                                        } else {
+                                            listOf(
+                                                Color.White.copy(alpha = (0.94f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
+                                                Color.White.copy(alpha = (0.70f * safeProgress).coerceIn(0f, 1f))
+                                            )
+                                        }
                                     )
-                                ),
-                                shape = RoundedCornerShape(22.dp)
+                                } else {
+                                    androidx.compose.ui.graphics.SolidColor(Color.Transparent)
+                                }
+                            )
+                            .then(
+                                if (safeProgress > 0.01f) {
+                                    Modifier.border(
+                                        width = (1.8f * safeProgress).dp,
+                                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = (0.98f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.85f * safeProgress).coerceIn(0f, 1f)),
+                                                Color.White.copy(alpha = ((if (isDarkTheme) 0.35f else 0.70f) * safeProgress).coerceIn(0f, 1f))
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(22.dp)
+                                    )
+                                } else Modifier
                             )
                             .drawWithContent {
                                 if (safeProgress > 0.01f) {
