@@ -3218,7 +3218,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
                 val sessionSubjects = mutableSetOf<String>()
 
-                // 1. Fetch from group schedule exam session (расписание сессии)
+                // 1. Fetch from group schedule (текущий семестр: расписание и экзамены сессии)
                 if (targetGroup.isNotBlank()) {
                     try {
                         val scheduleResp = if (targetGroup.any { it.isLetter() }) {
@@ -3227,6 +3227,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             com.example.schedule.BsuirApi.getGroupSchedule(targetGroup)
                         }
                         
+                        // Экзамены и зачеты сессии текущего семестра
                         scheduleResp?.exams?.forEach { examLesson ->
                             val sName = examLesson.subjectFullName?.takeIf { it.isNotBlank() } ?: examLesson.subject
                             if (!sName.isNullOrBlank()) {
@@ -3234,7 +3235,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             }
                         }
 
-                        // Also pull all subjects from regular schedule
+                        // Предметы текущего семестра из расписания
                         scheduleResp?.schedules?.values?.flatten()?.forEach { lesson ->
                             val sName = lesson.subjectFullName?.takeIf { it.isNotBlank() } ?: lesson.subject
                             if (!sName.isNullOrBlank()) {
@@ -3246,22 +3247,29 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
 
-                // 2. Fetch from markbook (экзамены и зачеты всех семестров / текущей сессии)
-                val parseMarkbook: (String) -> Unit = { bodyStr ->
+                // 2. Fetch from markbook ONLY for the current (latest) semester
+                val parseMarkbookCurrentSemester: (String) -> Unit = { bodyStr ->
                     try {
                         val jsonObj = org.json.JSONObject(bodyStr)
                         val markPages = jsonObj.optJSONObject("markPages")
                         if (markPages != null) {
+                            val semesterNumbers = mutableListOf<Int>()
                             val keys = markPages.keys()
                             while (keys.hasNext()) {
-                                val semKey = keys.next()
-                                val semObj = markPages.optJSONObject(semKey)
-                                val marksArray = semObj?.optJSONArray("marks") ?: org.json.JSONArray()
+                                keys.next().toIntOrNull()?.let { semesterNumbers.add(it) }
+                            }
+                            
+                            val currentSemester = semesterNumbers.maxOrNull()
+                            if (currentSemester != null) {
+                                val currentSemObj = markPages.optJSONObject(currentSemester.toString())
+                                val marksArray = currentSemObj?.optJSONArray("marks") ?: org.json.JSONArray()
                                 for (i in 0 until marksArray.length()) {
                                     val markObj = marksArray.optJSONObject(i) ?: continue
                                     val subject = markObj.optString("subject", "")
                                     if (subject.isNotBlank()) {
-                                        sessionSubjects.add(subject.trim())
+                                        if (sessionSubjects.isEmpty()) {
+                                            sessionSubjects.add(subject.trim())
+                                        }
                                     }
                                 }
                             }
@@ -3272,11 +3280,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 }
 
                 val cachedMarkbook = appPrefs.getString("cached_gradebook", null)
-                if (cachedMarkbook != null) {
-                    parseMarkbook(cachedMarkbook)
+                if (cachedMarkbook != null && sessionSubjects.isEmpty()) {
+                    parseMarkbookCurrentSemester(cachedMarkbook)
                 }
 
-                if (token.isNotBlank()) {
+                if (token.isNotBlank() && sessionSubjects.isEmpty()) {
                     val client = com.example.schedule.NetworkClient.client
                     val request = okhttp3.Request.Builder()
                         .url("https://iis.bsuir.by/api/v1/markbook")
@@ -3287,7 +3295,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         if (response.isSuccessful) {
                             val body = response.body?.string() ?: ""
                             appPrefs.edit().putString("cached_gradebook", body).apply()
-                            parseMarkbook(body)
+                            parseMarkbookCurrentSemester(body)
                         }
                     }
                 }
