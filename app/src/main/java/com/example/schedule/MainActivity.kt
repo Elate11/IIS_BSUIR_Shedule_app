@@ -1,3 +1,4 @@
+﻿@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.schedule
 
 import androidx.compose.ui.graphics.nativeCanvas
@@ -106,6 +107,7 @@ val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.
 
 
 
+@kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -319,7 +321,8 @@ fun MinimalistApp() {
             MinTextSecondary = Color(0xFF888888),
             isDarkTheme = true,
             onLoginSuccess = { gradebook, token ->
-                val groupStr = if (gradebook.length >= 6) gradebook.take(6) else gradebook
+                val realGroup = sharedPreferences.getString("login_group", null)
+                val groupStr = realGroup ?: (if (gradebook.length >= 6) gradebook.take(6) else gradebook)
                 sharedPreferences.edit().putBoolean("is_logged_in", true)
                      .putString("gradebook", gradebook)
                      .putString("auth_token", token)
@@ -602,6 +605,18 @@ fun MinimalistApp() {
                                         scaleX = s
                                         scaleY = s
                                         alpha = (1f - kotlin.math.abs(pageOffset)).coerceIn(0f, 1f)
+                                        translationX = pageOffset * size.width
+                                    }
+                                    TransitionType.Cube -> {
+                                        rotationY = pageOffset * 90f
+                                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
+                                            pivotFractionX = if (pageOffset > 0) 0f else 1f,
+                                            pivotFractionY = 0.5f
+                                        )
+                                    }
+                                    TransitionType.Flip -> {
+                                        rotationY = pageOffset * 180f
+                                        alpha = if (kotlin.math.abs(pageOffset) > 0.5f) 0f else 1f
                                         translationX = pageOffset * size.width
                                     }
                                 }
@@ -995,47 +1010,99 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             val hPadding = (screenWidth / 2) - 24.dp
             val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = selectedDayIndex)
 
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+            LaunchedEffect(listState) {
+                var lastIndex = listState.firstVisibleItemIndex
+                androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
+                    if (index != lastIndex) {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        lastIndex = index
+                    }
+                }
+            }
+
+            @Suppress("OPT_IN_USAGE")
+            val defaultFling = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(lazyListState = listState)
+            val flingBehavior = remember(defaultFling, listState) {
+                object : androidx.compose.foundation.gestures.FlingBehavior {
+                    override suspend fun androidx.compose.foundation.gestures.ScrollScope.performFling(initialVelocity: Float): Float {
+                        if (kotlin.math.abs(initialVelocity) > 4000f) {
+                            listState.animateScrollToItem(7)
+                            selectedDayIndex = 7
+                            return 0f
+                        }
+                        return with(defaultFling) {
+                            performFling(initialVelocity)
+                        }
+                    }
+                }
+            }
+
             LaunchedEffect(selectedDayIndex) {
                 listState.animateScrollToItem(selectedDayIndex)
             }
 
-            androidx.compose.foundation.lazy.LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(28.dp),
-                contentPadding = PaddingValues(horizontal = hPadding),
-                state = listState
-            ) {
-                items(validDayIndices.size) { arrIndex ->
-                    val index = validDayIndices[arrIndex]
-                    val day = weekDays[index]
-                    val isSelected = index == selectedDayIndex
-                    val isToday = index == 7
-                    val targetTextColor = if (styleType == StyleType.Techno) {
-                        if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.5f)
-                    } else if (isSelected) {
-                        MinAccent
-                    } else if (isToday) {
-                        Color(0xFF8B0000) // Dark Red
-                    } else if (isDarkTheme) {
-                        Color.White.copy(alpha = 0.5f)
-                    } else {
-                        Color.Black.copy(alpha = 0.5f)
-                    }
-                    val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(300))
+            Box {
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(horizontal = hPadding),
+                    state = listState,
+                    flingBehavior = flingBehavior
+                ) {
+                    items(validDayIndices.size) { arrIndex ->
+                        val index = validDayIndices[arrIndex]
+                        val day = weekDays[index]
+                        val isSelected = index == selectedDayIndex
+                        val isToday = index == 7
+                        val targetTextColor = if (styleType == StyleType.Techno) {
+                            if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.5f)
+                        } else if (isSelected) {
+                            MinAccent
+                        } else if (isToday) {
+                            MinTextPrimary
+                        } else if (isDarkTheme) {
+                            Color.White.copy(alpha = 0.5f)
+                        } else {
+                            Color.Black.copy(alpha = 0.5f)
+                        }
+                        val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(300))
 
-                    Column(
-                        modifier = Modifier
-                            .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null
-                            ) { selectedDayIndex = index }
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(days[index].toString(), fontSize = 25.sp, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(day, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
+                        Column(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { selectedDayIndex = index }
+                                .padding(horizontal = 14.dp, vertical = 14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(days[index].toString(), fontSize = 25.sp, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(day, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
+                        }
                     }
+                }
+                
+                val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex)
+                val selectedItemInfo by remember { androidx.compose.runtime.derivedStateOf { listState.layoutInfo.visibleItemsInfo.find { it.index == arrIndexForSelected } } }
+                
+                val targetOffset = selectedItemInfo?.offset?.toFloat() ?: -1000f
+                val targetWidth = selectedItemInfo?.size?.toFloat() ?: 0f
+                
+                val animatedOffset by androidx.compose.animation.core.animateFloatAsState(targetOffset, tween(400, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                val animatedWidth by androidx.compose.animation.core.animateFloatAsState(targetWidth, tween(400, easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                
+                if (animatedWidth > 0f) {
+                    Box(modifier = Modifier
+                        .matchParentSize()
+                        .padding(vertical = 4.dp)
+                        .offset { androidx.compose.ui.unit.IntOffset(animatedOffset.toInt(), 0) }
+                        .width(with(androidx.compose.ui.platform.LocalDensity.current) { animatedWidth.toInt().dp })
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.White.copy(alpha = if (isDarkTheme) 0.15f else 0.4f))
+                        .border(1.dp, Color.White.copy(alpha = if (isDarkTheme) 0.3f else 0.6f), RoundedCornerShape(20.dp))
+                    )
                 }
             }
         }
@@ -3613,6 +3680,14 @@ fun TransitionDemoBox(type: TransitionType, speedMultiplier: Float, isSelected: 
                          this.scaleY = s
                          this.alpha = progress
                      }
+                     TransitionType.Cube -> {
+                         this.rotationY = (1f - progress) * 90f
+                         this.transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0.5f)
+                     }
+                     TransitionType.Flip -> {
+                         this.rotationY = (1f - progress) * 180f
+                         this.alpha = if (progress < 0.5f) 0f else 1f
+                     }
                  }
              }.background(MinTextPrimary))
         }
@@ -3827,7 +3902,7 @@ fun SplashScreen(MinBg: Color, MinTextPrimary: Color, onSplashFinished: () -> Un
 
 }
 
-enum class TransitionType(val title: String) { Slide("Сдвиг"), Fade("Затухание"), Scale("Масштаб") }
+enum class TransitionType(val title: String) { Slide("Слайд"), Fade("Выцветание"), Scale("Масштаб"), Cube("Куб"), Flip("Вращение") }
 
 
 enum class StyleType(val title: String) { Minimal("Минимализм"), Techno("Техно") }
@@ -4027,8 +4102,27 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var passwordVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.SideEffect {
+            var contextActivity = view.context
+            while (contextActivity is android.content.ContextWrapper) {
+                if (contextActivity is android.app.Activity) break
+                contextActivity = contextActivity.baseContext
+            }
+            val window = (contextActivity as? android.app.Activity)?.window
+            if (window != null) {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+                window.statusBarColor = android.graphics.Color.TRANSPARENT
+                window.navigationBarColor = android.graphics.Color.TRANSPARENT
+                androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDarkTheme
+                androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !isDarkTheme
+            }
+        }
+    }
     Box(modifier = Modifier.fillMaxSize()) {
         DynamicGradientBackground(accentColor = Color(0xFF8B5CF6), bgColor = MinBg, isDarkTheme = isDarkTheme)
         
@@ -4047,7 +4141,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                     onValueChange = { gradebookNumber = it },
                     label = { Text("Номер зачетки", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary),
+                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MinTextPrimary,
                         unfocusedTextColor = MinTextPrimary,
@@ -4065,9 +4159,15 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                     value = password,
                     onValueChange = { password = it },
                     label = { Text("Пароль", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary),
+                    trailingIcon = {
+                        val icon = if (passwordVisible) androidx.compose.material.icons.Icons.Outlined.Visibility else androidx.compose.material.icons.Icons.Outlined.VisibilityOff
+                        androidx.compose.material3.IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            androidx.compose.material3.Icon(icon, contentDescription = null, tint = MinTextSecondary)
+                        }
+                    },
+                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MinTextPrimary,
                         unfocusedTextColor = MinTextPrimary,
@@ -4144,7 +4244,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                             } catch (e: java.io.IOException) {
                                 withContext(Dispatchers.Main) {
                                     isLoading = false
-                                    errorMessage = "Отсутствует подключение к сети"
+                                    errorMessage = "Отсутствует подключение к сети: ${e.message}"
                                 }
                             } catch (e: Exception) {
                                 withContext(Dispatchers.Main) {
@@ -4172,3 +4272,19 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
             }
         }
     }
+
+
+fun copyUriToInternalStorage(context: android.content.Context, uri: android.net.Uri, filename: String): String? {
+    try {
+        val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+        val file = java.io.File(context.filesDir, filename)
+        val outputStream = java.io.FileOutputStream(file)
+        inputStream.copyTo(outputStream)
+        inputStream.close()
+        outputStream.close()
+        return android.net.Uri.fromFile(file).toString()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
