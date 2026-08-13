@@ -1112,62 +1112,79 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             .width(58.dp)
                             .height(80.dp)
                             .clip(RoundedCornerShape(22.dp))
-                            // Multi-layer iOS 26 Liquid Glass with fluid morphing (only on selection)
-                            .background(
+                            .drawWithContent {
                                 if (safeProgress > 0.01f) {
-                                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    val w = size.width
+                                    val h = size.height
+                                    val r = 22.dp.toPx()
+                                    val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
+
+                                    // 1. Ambient Subsurface Glass Bloom Glow
+                                    drawRoundRect(
+                                        color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.35f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
+                                        topLeft = androidx.compose.ui.geometry.Offset(-3.dp.toPx(), -3.dp.toPx()),
+                                        size = androidx.compose.ui.geometry.Size(w + 6.dp.toPx(), h + 6.dp.toPx()),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 3.dp.toPx(), r + 3.dp.toPx())
+                                    )
+
+                                    // 2. Multi-stop Directional 3D Liquid Glass Body (135 deg refraction)
+                                    val baseGlassBrush = androidx.compose.ui.graphics.Brush.linearGradient(
                                         colors = if (isDarkTheme) {
                                             listOf(
-                                                Color.White.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
-                                                Color.White.copy(alpha = (0.12f * safeProgress).coerceIn(0f, 1f))
+                                                Color.White.copy(alpha = (0.32f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.26f * safeProgress).coerceIn(0f, 1f)),
+                                                Color.White.copy(alpha = (0.08f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.18f * safeProgress).coerceIn(0f, 1f))
                                             )
                                         } else {
                                             listOf(
-                                                Color.White.copy(alpha = (0.94f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
-                                                Color.White.copy(alpha = (0.70f * safeProgress).coerceIn(0f, 1f))
+                                                Color.White.copy(alpha = (0.96f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
+                                                Color.White.copy(alpha = (0.75f * safeProgress).coerceIn(0f, 1f)),
+                                                MinAccent.copy(alpha = (0.22f * safeProgress).coerceIn(0f, 1f))
                                             )
-                                        }
+                                        },
+                                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(w, h)
                                     )
-                                } else {
-                                    androidx.compose.ui.graphics.SolidColor(Color.Transparent)
-                                }
-                            )
-                            .then(
-                                if (safeProgress > 0.01f) {
-                                    Modifier.border(
-                                        width = (1.8f * safeProgress).dp,
-                                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.White.copy(alpha = (0.98f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.85f * safeProgress).coerceIn(0f, 1f)),
-                                                Color.White.copy(alpha = ((if (isDarkTheme) 0.35f else 0.70f) * safeProgress).coerceIn(0f, 1f))
-                                            )
-                                        ),
-                                        shape = RoundedCornerShape(22.dp)
+                                    drawRoundRect(
+                                        brush = baseGlassBrush,
+                                        cornerRadius = cornerR
                                     )
-                                } else Modifier
-                            )
-                            .drawWithContent {
-                                if (safeProgress > 0.01f) {
-                                    // 1. Upper 3D Convex Lens Specular Reflection (iOS 26 glass dome)
-                                    val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
+
+                                    // 3. Upper 3D Convex Dome Specular Glare (Apple visionOS curved lens)
+                                    val convexDomeHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
                                         colors = listOf(
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.60f else 0.95f) * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.20f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.75f else 0.98f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.25f else 0.50f) * safeProgress).coerceIn(0f, 1f)),
                                             Color.Transparent
                                         ),
                                         startY = 0f,
-                                        endY = size.height * 0.52f
+                                        endY = h * 0.48f
                                     )
                                     drawRoundRect(
-                                        brush = lensHighlight,
-                                        size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.52f),
-                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                        brush = convexDomeHighlight,
+                                        size = androidx.compose.ui.geometry.Size(w, h * 0.48f),
+                                        cornerRadius = cornerR
                                     )
 
-                                    // 2. Diagonal fluid shimmer beam
+                                    // 4. Bottom Depth / Caustic Shadow
+                                    val bottomCaustic = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            MinAccent.copy(alpha = (0.30f * safeProgress).coerceIn(0f, 1f))
+                                        ),
+                                        startY = h * 0.52f,
+                                        endY = h
+                                    )
+                                    drawRoundRect(
+                                        brush = bottomCaustic,
+                                        topLeft = androidx.compose.ui.geometry.Offset(0f, h * 0.52f),
+                                        size = androidx.compose.ui.geometry.Size(w, h * 0.48f),
+                                        cornerRadius = cornerR
+                                    )
+
+                                    // 5. Dynamic Prismatic Light Wave / Shimmer Beam
                                     val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
                                         colors = listOf(
                                             Color.Transparent,
@@ -1175,11 +1192,45 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             Color.Transparent
                                         ),
                                         start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height)
+                                        end = androidx.compose.ui.geometry.Offset(w, h)
                                     )
                                     drawRoundRect(
                                         brush = shimmerBrush,
-                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                        cornerRadius = cornerR
+                                    )
+
+                                    // 6. Prismatic Chromatic Bevel Rim (Diamond Cut Edge)
+                                    val rimBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = (1.0f * safeProgress).coerceIn(0f, 1f)),
+                                            MinAccent.copy(alpha = (0.90f * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.40f else 0.80f) * safeProgress).coerceIn(0f, 1f))
+                                        ),
+                                        startY = 0f,
+                                        endY = h
+                                    )
+                                    drawRoundRect(
+                                        brush = rimBrush,
+                                        cornerRadius = cornerR,
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
+                                    )
+
+                                    // 7. Inner Sub-surface Fresnel Ring
+                                    val innerFresnel = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = (0.50f * safeProgress).coerceIn(0f, 1f)),
+                                            Color.Transparent,
+                                            Color.White.copy(alpha = (0.20f * safeProgress).coerceIn(0f, 1f))
+                                        ),
+                                        startY = 1.5.dp.toPx(),
+                                        endY = h - 1.5.dp.toPx()
+                                    )
+                                    drawRoundRect(
+                                        brush = innerFresnel,
+                                        topLeft = androidx.compose.ui.geometry.Offset(1.2.dp.toPx(), 1.2.dp.toPx()),
+                                        size = androidx.compose.ui.geometry.Size(w - 2.4.dp.toPx(), h - 2.4.dp.toPx()),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius((r - 1.2.dp.toPx()).coerceAtLeast(0f), (r - 1.2.dp.toPx()).coerceAtLeast(0f)),
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.8.dp.toPx())
                                     )
                                 }
                                 drawContent()
