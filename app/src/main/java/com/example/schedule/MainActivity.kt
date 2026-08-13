@@ -1043,28 +1043,10 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 }
             }
 
-            val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex).coerceAtLeast(0)
-            
-            // Continuous animated float index for fluid gliding between dates
-            val animatedTargetIndex by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = arrIndexForSelected.toFloat(),
-                animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.65f, // Bouncy liquid feel
-                    stiffness = 260f      // Smooth fluid flow
-                )
-            )
-            
-            // Stretch factor: when flowing fast across items, the droplet elongates dynamically
-            val stretchAmount by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = kotlin.math.abs(animatedTargetIndex - arrIndexForSelected.toFloat()),
-                animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f)
-            )
-
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            val pillBaseH = with(density) { 80.dp.toPx() }
-            val pillBaseW = with(density) { 58.dp.toPx() }
-            val cornerR = with(density) { 22.dp.toPx() }
-            val strokeW = with(density) { 1.8.dp.toPx() }
+            LaunchedEffect(selectedDayIndex) {
+                val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex).coerceAtLeast(0)
+                listState.animateScrollToItem(arrIndexForSelected)
+            }
 
             val transition = rememberInfiniteTransition(label = "glassShimmer")
             val shimmerAlpha by transition.animateFloat(
@@ -1080,120 +1062,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             androidx.compose.foundation.lazy.LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .drawBehind {
-                        val visibleItems = listState.layoutInfo.visibleItemsInfo
-                        if (visibleItems.isEmpty()) return@drawBehind
-                        
-                        val floorIdx = animatedTargetIndex.toInt().coerceIn(0, validDayIndices.size - 1)
-                        val ceilIdx = (floorIdx + 1).coerceIn(0, validDayIndices.size - 1)
-                        val frac = (animatedTargetIndex - floorIdx).coerceIn(0f, 1f)
-                        
-                        val itemA = visibleItems.find { it.index == floorIdx }
-                        val itemB = visibleItems.find { it.index == ceilIdx }
-                        
-                        val currentX: Float = when {
-                            itemA != null && itemB != null -> {
-                                itemA.offset.toFloat() + frac * (itemB.offset - itemA.offset).toFloat()
-                            }
-                            itemA != null -> itemA.offset.toFloat()
-                            itemB != null -> itemB.offset.toFloat()
-                            else -> return@drawBehind
-                        }
-                        
-                        val baseWidth = (itemA?.size ?: itemB?.size)?.toFloat() ?: pillBaseW
-                        val dynamicExtraWidth = (stretchAmount * 24f * density.density).coerceAtMost(32f * density.density)
-                        val pillWidth = baseWidth + dynamicExtraWidth
-                        val pillHeight = pillBaseH
-                        val pillTop = ((this.size.height - pillHeight) / 2f).coerceAtLeast(0f)
-                        val pillLeft = currentX - (dynamicExtraWidth / 2f)
-                        val cRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR)
-                        
-                        // 1. Outer Diffuse Bloom Glow (Liquid Glow)
-                        drawRoundRect(
-                            color = MinAccent.copy(alpha = if (isDarkTheme) 0.25f else 0.35f),
-                            topLeft = androidx.compose.ui.geometry.Offset(pillLeft - 3f, pillTop - 3f),
-                            size = androidx.compose.ui.geometry.Size(pillWidth + 6f, pillHeight + 6f),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR + 2f, cornerR + 2f)
-                        )
-
-                        // 2. Base Liquid Glass Translucent Body
-                        val glassBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = if (isDarkTheme) {
-                                listOf(
-                                    Color.White.copy(alpha = 0.28f),
-                                    MinAccent.copy(alpha = 0.35f),
-                                    Color.White.copy(alpha = 0.12f)
-                                )
-                            } else {
-                                listOf(
-                                    Color.White.copy(alpha = 0.94f),
-                                    MinAccent.copy(alpha = 0.35f),
-                                    Color.White.copy(alpha = 0.70f)
-                                )
-                            },
-                            startY = pillTop,
-                            endY = pillTop + pillHeight
-                        )
-                        drawRoundRect(
-                            brush = glassBrush,
-                            topLeft = androidx.compose.ui.geometry.Offset(pillLeft, pillTop),
-                            size = androidx.compose.ui.geometry.Size(pillWidth, pillHeight),
-                            cornerRadius = cRadius
-                        )
-
-                        // 3. Upper 3D Convex Lens Specular Reflection (iOS 26 glass dome)
-                        val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = if (isDarkTheme) 0.60f else 0.95f),
-                                Color.White.copy(alpha = if (isDarkTheme) 0.20f else 0.45f),
-                                Color.Transparent
-                            ),
-                            startY = pillTop,
-                            endY = pillTop + pillHeight * 0.52f
-                        )
-                        drawRoundRect(
-                            brush = lensHighlight,
-                            topLeft = androidx.compose.ui.geometry.Offset(pillLeft, pillTop),
-                            size = androidx.compose.ui.geometry.Size(pillWidth, pillHeight * 0.52f),
-                            cornerRadius = cRadius
-                        )
-
-                        // 4. Diagonal fluid shimmer beam
-                        val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.White.copy(alpha = shimmerAlpha),
-                                Color.Transparent
-                            ),
-                            start = androidx.compose.ui.geometry.Offset(pillLeft, pillTop),
-                            end = androidx.compose.ui.geometry.Offset(pillLeft + pillWidth, pillTop + pillHeight)
-                        )
-                        drawRoundRect(
-                            brush = shimmerBrush,
-                            topLeft = androidx.compose.ui.geometry.Offset(pillLeft, pillTop),
-                            size = androidx.compose.ui.geometry.Size(pillWidth, pillHeight),
-                            cornerRadius = cRadius
-                        )
-
-                        // 5. Prismatic Chromatic Rim Light (Borders with glowing specular edge)
-                        val rimBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = if (isDarkTheme) 0.98f else 1.0f),
-                                MinAccent.copy(alpha = 0.85f),
-                                Color.White.copy(alpha = if (isDarkTheme) 0.35f else 0.70f)
-                            ),
-                            startY = pillTop,
-                            endY = pillTop + pillHeight
-                        )
-                        drawRoundRect(
-                            brush = rimBrush,
-                            topLeft = androidx.compose.ui.geometry.Offset(pillLeft, pillTop),
-                            size = androidx.compose.ui.geometry.Size(pillWidth, pillHeight),
-                            cornerRadius = cRadius,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeW)
-                        )
-                    },
+                    .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(horizontal = hPadding),
                 state = listState,
@@ -1205,8 +1074,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     val isSelected = index == selectedDayIndex
                     val isToday = index == 7
                     
-                    val scale by androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = if (isSelected) 1.08f else 1.0f,
+                    // Smooth spring morphing for selection
+                    val animProgress by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = if (isSelected) 1f else 0f,
                         animationSpec = androidx.compose.animation.core.spring(
                             dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
                             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
@@ -1225,14 +1095,77 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Box(
                         modifier = Modifier
                             .graphicsLayer {
+                                val scale = 1f + 0.08f * animProgress
                                 scaleX = scale
                                 scaleY = scale
                             }
                             .width(58.dp)
                             .height(80.dp)
                             .clip(RoundedCornerShape(22.dp))
-                            .background(Color.White.copy(alpha = if (isDarkTheme) 0.04f else 0.10f))
-                            .border(1.dp, Color.White.copy(alpha = if (isDarkTheme) 0.08f else 0.18f), RoundedCornerShape(22.dp))
+                            // Multi-layer iOS 26 Liquid Glass with fluid morphing
+                            .background(
+                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = if (isDarkTheme) {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.05f + 0.23f * animProgress),
+                                            MinAccent.copy(alpha = 0.35f * animProgress),
+                                            Color.White.copy(alpha = 0.03f + 0.09f * animProgress)
+                                        )
+                                    } else {
+                                        listOf(
+                                            Color.White.copy(alpha = 0.15f + 0.79f * animProgress),
+                                            MinAccent.copy(alpha = 0.35f * animProgress),
+                                            Color.White.copy(alpha = 0.10f + 0.60f * animProgress)
+                                        )
+                                    }
+                                )
+                            )
+                            .border(
+                                width = (1f + 0.8f * animProgress).dp,
+                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.12f + 0.86f * animProgress),
+                                        MinAccent.copy(alpha = 0.85f * animProgress),
+                                        Color.White.copy(alpha = if (isDarkTheme) (0.05f + 0.30f * animProgress) else (0.15f + 0.55f * animProgress))
+                                    )
+                                ),
+                                shape = RoundedCornerShape(22.dp)
+                            )
+                            .drawWithContent {
+                                if (animProgress > 0.01f) {
+                                    // 1. Upper 3D Convex Lens Specular Reflection (iOS 26 glass dome)
+                                    val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.White.copy(alpha = (if (isDarkTheme) 0.60f else 0.95f) * animProgress),
+                                            Color.White.copy(alpha = (if (isDarkTheme) 0.20f else 0.45f) * animProgress),
+                                            Color.Transparent
+                                        ),
+                                        startY = 0f,
+                                        endY = size.height * 0.52f
+                                    )
+                                    drawRoundRect(
+                                        brush = lensHighlight,
+                                        size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.52f),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                    )
+
+                                    // 2. Diagonal fluid shimmer beam
+                                    val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.White.copy(alpha = shimmerAlpha * animProgress),
+                                            Color.Transparent
+                                        ),
+                                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(size.width, size.height)
+                                    )
+                                    drawRoundRect(
+                                        brush = shimmerBrush,
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                    )
+                                }
+                                drawContent()
+                            }
                             .clickable(
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                 indication = null
