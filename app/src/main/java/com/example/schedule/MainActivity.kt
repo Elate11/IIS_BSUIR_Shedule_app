@@ -1975,6 +1975,25 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
     }
 }
 
+data class RealOmissionLesson(
+    val subject: String,
+    val lessonType: String,
+    val dateString: String,
+    val hours: Int,
+    val isRespectful: Boolean,
+    val note: String,
+    val teacher: String,
+    val monthName: String
+)
+
+data class RealExcuseDocument(
+    val title: String,
+    val note: String,
+    val hoursClosed: Int,
+    val dates: List<String>,
+    val subjects: List<String>
+)
+
 @Composable
 fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, currentAccent: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean = true, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -1982,9 +2001,12 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     var unexcusedHours by remember { mutableStateOf(0) }
     var monthlyData by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var monthlyUnexcusedData by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var allLessons by remember { mutableStateOf<List<RealOmissionLesson>>(emptyList()) }
+    var excuseDocuments by remember { mutableStateOf<List<RealExcuseDocument>>(emptyList()) }
     var selectedMonth by remember { mutableStateOf<String?>(null) }
-    var statusText by remember { mutableStateOf("Загрузка...") }
+    var statusText by remember { mutableStateOf("Загрузка данных из ИИС БГУИР...") }
     var isLoading by remember { mutableStateOf(true) }
+    var isNotAuthorized by remember { mutableStateOf(false) }
     var showGuidelines by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -1992,6 +2014,15 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
             try {
                 val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
+                if (token.isBlank()) {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        isNotAuthorized = true
+                        statusText = "Войдите в аккаунт ИИС БГУИР в профиле, чтобы загрузить ваши реальные пропуски и справки."
+                        isLoading = false
+                    }
+                    return@withContext
+                }
+
                 val client = com.example.schedule.NetworkClient.client
                 val request = okhttp3.Request.Builder()
                     .url("https://iis.bsuir.by/api/v1/omissions")
@@ -2008,6 +2039,8 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 var uHours = 0
                                 val mData = mutableMapOf<String, Int>()
                                 val muData = mutableMapOf<String, Int>()
+                                val parsedLessons = mutableListOf<RealOmissionLesson>()
+
                                 for (i in 0 until jsonArray.length()) {
                                     val entry = jsonArray.optJSONObject(i) ?: continue
                                     val student = entry.optJSONObject("student")
@@ -2018,37 +2051,82 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                         for (j in 0 until lessonsArray.length()) {
                                             lessonsArray.optJSONObject(j)?.let { items.add(it) }
                                         }
-                                    } else if (entry.has("gradeBookOmissions") || entry.has("missedHours")) {
+                                    } else if (entry.has("gradeBookOmissions") || entry.has("missedHours") || entry.has("nameLesson") || entry.has("subject")) {
                                         items.add(entry)
                                     }
                                     
                                     for (lesson in items) {
-                                        val omissions = lesson.optInt("gradeBookOmissions", lesson.optInt("missedHours", 0))
-                                        val isRespectful = lesson.optBoolean("isRespectfulOmission", false)
+                                        val omissions = lesson.optInt("gradeBookOmissions", lesson.optInt("missedHours", lesson.optInt("omissions", 0)))
+                                        val isRespectful = lesson.optBoolean("isRespectfulOmission", lesson.optBoolean("respectful", false))
                                         val dateString = lesson.optString("dateString", lesson.optString("date", ""))
+                                        val subject = lesson.optString("nameLesson", lesson.optString("subject", lesson.optString("lessonName", "Учебное занятие")))
+                                        val lessonType = lesson.optString("lessonType", lesson.optString("type", "ПЗ"))
+                                        val note = lesson.optString("note", lesson.optString("reason", lesson.optString("comment", "")))
+                                        val teacher = lesson.optString("teacher", lesson.optString("employee", ""))
+
                                         tHours += omissions
                                         if (!isRespectful) uHours += omissions
                                         
-                                        if (omissions > 0 && dateString.length >= 5) {
-                                            val parts = dateString.split(".")
-                                            if (parts.size >= 2) {
-                                                val monthIndex = parts[1].toIntOrNull()
-                                                if (monthIndex != null) {
-                                                    val monthNames = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
-                                                    val monthName = if (monthIndex in 1..12) monthNames[monthIndex - 1] else "Неизв"
-                                                    mData[monthName] = (mData[monthName] ?: 0) + omissions
-                                                    if (!isRespectful) {
-                                                        muData[monthName] = (muData[monthName] ?: 0) + omissions
-                                                    }
+                                        var mName = "Другое"
+                                        if (dateString.length >= 5) {
+                                            val parts = dateString.split(".", "-")
+                                            val monthIndex = if (parts.size >= 2) {
+                                                if (parts[0].length == 4) parts[1].toIntOrNull() else parts[1].toIntOrNull()
+                                            } else null
+                                            if (monthIndex != null && monthIndex in 1..12) {
+                                                val monthNames = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
+                                                mName = monthNames[monthIndex - 1]
+                                                mData[mName] = (mData[mName] ?: 0) + omissions
+                                                if (!isRespectful) {
+                                                    muData[mName] = (muData[mName] ?: 0) + omissions
                                                 }
                                             }
                                         }
+
+                                        if (omissions > 0) {
+                                            parsedLessons.add(
+                                                RealOmissionLesson(
+                                                    subject = subject,
+                                                    lessonType = lessonType,
+                                                    dateString = dateString,
+                                                    hours = omissions,
+                                                    isRespectful = isRespectful,
+                                                    note = note,
+                                                    teacher = teacher,
+                                                    monthName = mName
+                                                )
+                                            )
+                                        }
                                     }
                                 }
+
+                                // Extract real excuse documents from respectful omissions
+                                val respectfulList = parsedLessons.filter { it.isRespectful }
+                                val docsMap = mutableMapOf<String, MutableList<RealOmissionLesson>>()
+                                for (rl in respectfulList) {
+                                    val key = if (rl.note.isNotBlank()) rl.note else "Справка / Заявление в деканат"
+                                    docsMap.getOrPut(key) { mutableListOf() }.add(rl)
+                                }
+
+                                val parsedDocs = docsMap.map { (key, list) ->
+                                    val docHours = list.sumOf { it.hours }
+                                    val docDates = list.map { it.dateString }.distinct().take(4)
+                                    val docSubjects = list.map { it.subject }.distinct().take(3)
+                                    RealExcuseDocument(
+                                        title = if (key.contains("справ", ignoreCase = true) || key.contains("095", ignoreCase = true)) "Медицинская справка" else if (key.contains("заявл", ignoreCase = true)) "Заявление деканата" else "Оправдательный документ",
+                                        note = key,
+                                        hoursClosed = docHours,
+                                        dates = docDates,
+                                        subjects = docSubjects
+                                    )
+                                }
+
                                 totalHours = tHours
                                 unexcusedHours = uHours
                                 monthlyData = mData
                                 monthlyUnexcusedData = muData
+                                allLessons = parsedLessons
+                                excuseDocuments = parsedDocs
                                 statusText = ""
                                 isLoading = false
                             } catch (e: Exception) {
@@ -2056,10 +2134,11 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 isLoading = false
                             }
                         } else {
-                            if (response.code == 404 || response.code == 403) {
-                                statusText = ""
+                            if (response.code == 401 || response.code == 403) {
+                                isNotAuthorized = true
+                                statusText = "Сессия ИИС БГУИР устарела. Пожалуйста, перезайдите в профиле."
                             } else {
-                                statusText = "Ошибка: ${response.code} ${response.message}"
+                                statusText = "Ошибка сервера: ${response.code} ${response.message}"
                             }
                             isLoading = false
                         }
@@ -2067,7 +2146,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    statusText = "Исключение: ${e.message}"
+                    statusText = "Ошибка сети: ${e.message}"
                     isLoading = false
                 }
             }
@@ -2075,6 +2154,9 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     }
 
     val excusedHours = (totalHours - unexcusedHours).coerceAtLeast(0)
+    val filteredByMonthLessons = remember(allLessons, selectedMonth) {
+        if (selectedMonth == null) allLessons else allLessons.filter { it.monthName == selectedMonth }
+    }
 
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = androidx.compose.ui.Modifier
@@ -2115,6 +2197,39 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     contentAlignment = androidx.compose.ui.Alignment.Center
                 ) {
                     androidx.compose.material3.CircularProgressIndicator(color = currentAccent)
+                }
+            }
+        } else if (isNotAuthorized) {
+            item {
+                androidx.compose.foundation.layout.Column(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MinCardBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(18.dp))
+                        .padding(24.dp),
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                ) {
+                    androidx.compose.material3.Icon(
+                        Icons.Outlined.Lock,
+                        contentDescription = null,
+                        tint = currentAccent,
+                        modifier = androidx.compose.ui.Modifier.size(42.dp)
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(14.dp))
+                    androidx.compose.material3.Text(
+                        "Авторизация в ИИС БГУИР",
+                        fontSize = 18.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextPrimary
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+                    androidx.compose.material3.Text(
+                        statusText,
+                        fontSize = 13.sp,
+                        color = MinTextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
                 }
             }
         } else {
@@ -2229,10 +2344,11 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                             val selTotal = monthlyData[selectedMonth] ?: 0
                             val selUn = monthlyUnexcusedData[selectedMonth] ?: 0
                             androidx.compose.material3.Text(
-                                "$selectedMonth: $selTotal ч ($selUn без ув.)",
+                                "$selectedMonth: $selTotal ч ($selUn без ув.) [Сброс]",
                                 fontSize = 12.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                color = currentAccent
+                                color = currentAccent,
+                                modifier = androidx.compose.ui.Modifier.clickable { selectedMonth = null }
                             )
                         }
                     }
@@ -2252,9 +2368,8 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         academicMonths.forEach { m ->
                             val t = monthlyData[m] ?: 0
                             val u = monthlyUnexcusedData[m] ?: 0
-                            val e = (t - u).coerceAtLeast(0)
                             val isSel = selectedMonth == m
-                            val heightRatio = (t.toFloat() / maxVal).coerceIn(0.06f, 1f)
+                            val heightRatio = if (t > 0) (t.toFloat() / maxVal).coerceIn(0.12f, 1f) else 0.05f
 
                             androidx.compose.foundation.layout.Column(
                                 modifier = androidx.compose.ui.Modifier
@@ -2281,10 +2396,10 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 // Stacked Bar
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
-                                        .width(if (isSel) 20.dp else 16.dp)
+                                        .width(if (isSel) 22.dp else 16.dp)
                                         .height((120 * heightRatio).dp)
                                         .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-                                        .background(if (t == 0) MinBorder.copy(alpha = 0.3f) else androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                                        .background(if (t == 0) MinBorder.copy(alpha = 0.25f) else androidx.compose.ui.graphics.Color(0xFF4CAF50))
                                 ) {
                                     if (u > 0 && t > 0) {
                                         val unexcusedRatio = (u.toFloat() / t).coerceIn(0f, 1f)
@@ -2341,7 +2456,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 }
             }
 
-            // Excusing Documents Section ("Документы, которые убирают пропуски")
+            // Real Excusing Documents Section ("Оправдательные документы")
             item {
                 androidx.compose.foundation.layout.Column(
                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
@@ -2370,173 +2485,106 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         )
                     }
 
-                    // Document Type 1: Medical Certificate
-                    androidx.compose.foundation.layout.Column(
-                        modifier = androidx.compose.ui.Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                            .padding(16.dp)
-                    ) {
-                        androidx.compose.foundation.layout.Row(
-                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    if (excuseDocuments.isEmpty() && totalHours > 0) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MinCardBg)
+                                .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                                .padding(16.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
                         ) {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f)),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                androidx.compose.material3.Icon(
-                                    androidx.compose.material.icons.Icons.Outlined.CheckCircle,
-                                    contentDescription = null,
-                                    tint = androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                                    modifier = androidx.compose.ui.Modifier.size(22.dp)
-                                )
-                            }
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
-                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                                androidx.compose.material3.Text(
-                                    "Медицинская справка (Форма 095/у)",
-                                    fontSize = 15.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = MinTextPrimary
-                                )
-                                androidx.compose.material3.Text(
-                                    "33-я городская студенческая поликлиника",
-                                    fontSize = 12.sp,
-                                    color = MinTextSecondary
-                                )
-                            }
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                androidx.compose.material3.Text(
-                                    "Списано",
-                                    fontSize = 11.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = androidx.compose.ui.graphics.Color(0xFF4CAF50)
-                                )
-                            }
+                            androidx.compose.material3.Text(
+                                "Все пропуски на текущий момент без уважительной причины. Сдайте справку в деканат для списания часов.",
+                                fontSize = 13.sp,
+                                color = MinTextSecondary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
-                    }
-
-                    // Document Type 2: Dean Statement
-                    androidx.compose.foundation.layout.Column(
-                        modifier = androidx.compose.ui.Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                            .padding(16.dp)
-                    ) {
-                        androidx.compose.foundation.layout.Row(
-                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    } else if (totalHours == 0) {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MinCardBg)
+                                .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                                .padding(16.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
                         ) {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(currentAccent.copy(alpha = 0.15f)),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                androidx.compose.material3.Icon(
-                                    androidx.compose.material.icons.Icons.Outlined.Description,
-                                    contentDescription = null,
-                                    tint = currentAccent,
-                                    modifier = androidx.compose.ui.Modifier.size(22.dp)
-                                )
-                            }
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
-                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                                androidx.compose.material3.Text(
-                                    "Заявление по уважительной причине",
-                                    fontSize = 15.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = MinTextPrimary
-                                )
-                                androidx.compose.material3.Text(
-                                    "Согласовано деканатом факультета",
-                                    fontSize = 12.sp,
-                                    color = MinTextSecondary
-                                )
-                            }
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(currentAccent.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                androidx.compose.material3.Text(
-                                    "Принято",
-                                    fontSize = 11.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = currentAccent
-                                )
-                            }
+                            androidx.compose.material3.Text(
+                                "Отлично! У вас 0 пропусков в базе данных ИИС БГУИР.",
+                                fontSize = 14.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
                         }
-                    }
+                    } else {
+                        excuseDocuments.forEach { doc ->
+                            androidx.compose.foundation.layout.Column(
+                                modifier = androidx.compose.ui.Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MinCardBg)
+                                    .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                                    .padding(16.dp)
+                            ) {
+                                androidx.compose.foundation.layout.Row(
+                                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.foundation.layout.Box(
+                                        modifier = androidx.compose.ui.Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f)),
+                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                                    ) {
+                                        androidx.compose.material3.Icon(
+                                            Icons.Outlined.CheckCircle,
+                                            contentDescription = null,
+                                            tint = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                            modifier = androidx.compose.ui.Modifier.size(22.dp)
+                                        )
+                                    }
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                                    androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                        androidx.compose.material3.Text(
+                                            doc.title,
+                                            fontSize = 15.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = MinTextPrimary
+                                        )
+                                        androidx.compose.material3.Text(
+                                            doc.note,
+                                            fontSize = 12.sp,
+                                            color = MinTextSecondary
+                                        )
+                                    }
+                                    androidx.compose.foundation.layout.Box(
+                                        modifier = androidx.compose.ui.Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            "${doc.hoursClosed} ч списано",
+                                            fontSize = 11.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                        )
+                                    }
+                                }
 
-                    // Document Type 3: Donor / Official summons
-                    androidx.compose.foundation.layout.Column(
-                        modifier = androidx.compose.ui.Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                            .padding(16.dp)
-                    ) {
-                        androidx.compose.foundation.layout.Row(
-                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                        ) {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(MinTextSecondary.copy(alpha = 0.15f)),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                androidx.compose.material3.Icon(
-                                    androidx.compose.material.icons.Icons.Outlined.Verified,
-                                    contentDescription = null,
-                                    tint = MinTextPrimary,
-                                    modifier = androidx.compose.ui.Modifier.size(22.dp)
-                                )
-                            }
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
-                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                                androidx.compose.material3.Text(
-                                    "Справка донора / Повестка / Сборы",
-                                    fontSize = 15.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = MinTextPrimary
-                                )
-                                androidx.compose.material3.Text(
-                                    "Официальное освобождение от занятий",
-                                    fontSize = 12.sp,
-                                    color = MinTextSecondary
-                                )
-                            }
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(MinTextSecondary.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                androidx.compose.material3.Text(
-                                    "Основание",
-                                    fontSize = 11.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = MinTextSecondary
-                                )
+                                if (doc.subjects.isNotEmpty()) {
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+                                    androidx.compose.material3.Text(
+                                        "Предметы: " + doc.subjects.joinToString(", "),
+                                        fontSize = 11.sp,
+                                        color = MinTextSecondary.copy(alpha = 0.8f)
+                                    )
+                                }
                             }
                         }
                     }
@@ -2565,6 +2613,99 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 fontSize = 13.sp,
                                 color = MinTextSecondary,
                                 lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Real Detailed Missed Lessons List
+            if (filteredByMonthLessons.isNotEmpty()) {
+                item {
+                    androidx.compose.material3.Text(
+                        if (selectedMonth != null) "Пропуски за $selectedMonth" else "Детализация пропущенных занятий",
+                        fontSize = 19.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextPrimary
+                    )
+                }
+
+                items(filteredByMonthLessons.size) { index ->
+                    val lesson = filteredByMonthLessons[index]
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(14.dp))
+                            .padding(14.dp)
+                    ) {
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.foundation.layout.Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                modifier = androidx.compose.ui.Modifier.weight(1f)
+                            ) {
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(MinBorder.copy(alpha = 0.5f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                    androidx.compose.material3.Text(
+                                        lesson.lessonType,
+                                        fontSize = 11.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        color = MinTextPrimary
+                                    )
+                                }
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
+                                androidx.compose.material3.Text(
+                                    lesson.subject,
+                                    fontSize = 14.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = MinTextPrimary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                            
+                            androidx.compose.material3.Text(
+                                "${lesson.hours} ч",
+                                fontSize = 14.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                                color = if (lesson.isRespectful) androidx.compose.ui.graphics.Color(0xFF4CAF50) else currentAccent
+                            )
+                        }
+
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.Text(
+                                lesson.dateString + if (lesson.teacher.isNotBlank()) " • ${lesson.teacher}" else "",
+                                fontSize = 12.sp,
+                                color = MinTextSecondary
+                            )
+                            androidx.compose.material3.Text(
+                                if (lesson.isRespectful) "Уважительная" else "Без уважительной",
+                                fontSize = 11.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = if (lesson.isRespectful) androidx.compose.ui.graphics.Color(0xFF4CAF50) else currentAccent
+                            )
+                        }
+
+                        if (lesson.note.isNotBlank()) {
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                            androidx.compose.material3.Text(
+                                "Основание: ${lesson.note}",
+                                fontSize = 11.sp,
+                                color = MinTextSecondary.copy(alpha = 0.8f)
                             )
                         }
                     }
