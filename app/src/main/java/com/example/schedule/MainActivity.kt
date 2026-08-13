@@ -1720,10 +1720,17 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
             modifier = androidx.compose.ui.Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())
         ) {
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
-            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.KeyboardArrowLeft, contentDescription = "Назад", tint = MinTextPrimary, modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() })
-                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
-                androidx.compose.material3.Text("Текущие отметки", fontSize = 28.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                androidx.compose.material3.Text(
+                    "Текущие отметки",
+                    fontSize = 26.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    color = MinTextPrimary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
             }
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(32.dp))
             
