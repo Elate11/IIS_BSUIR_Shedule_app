@@ -1046,144 +1046,155 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 listState.animateScrollToItem(selectedDayIndex)
             }
 
-            Box(modifier = Modifier.fillMaxWidth().height(86.dp), contentAlignment = Alignment.CenterStart) {
-                val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex).coerceAtLeast(0)
-                val selectedItemInfo by remember { androidx.compose.runtime.derivedStateOf { listState.layoutInfo.visibleItemsInfo.find { it.index == arrIndexForSelected } } }
-                
-                val targetOffset = selectedItemInfo?.offset?.toFloat() ?: (hPadding.value * 2.5f)
-                val targetWidth = selectedItemInfo?.size?.toFloat() ?: 68f
-                
-                val springSpec = androidx.compose.animation.core.spring<Float>(
-                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                )
-                
-                val animatedOffset by androidx.compose.animation.core.animateFloatAsState(targetOffset, springSpec)
-                val animatedWidth by androidx.compose.animation.core.animateFloatAsState(targetWidth, springSpec)
-                
-                // Infinite gentle fluid shimmer across the liquid glass
-                val transition = rememberInfiniteTransition(label = "glassShimmer")
-                val shimmerAlpha by transition.animateFloat(
-                    initialValue = 0.20f,
-                    targetValue = 0.50f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(2200, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "shimmerAlpha"
-                )
+            val transition = rememberInfiniteTransition(label = "glassShimmer")
+            val shimmerAlpha by transition.animateFloat(
+                initialValue = 0.18f,
+                targetValue = 0.45f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(2200, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "shimmerAlpha"
+            )
 
-                // Render Liquid Glass Pill behind items
-                val density = androidx.compose.ui.platform.LocalDensity.current
-                val pillWidthDp = with(density) { (if (animatedWidth > 20f) animatedWidth else 68f).toDp() }
-                
-                Box(
-                    modifier = Modifier
-                        .offset { androidx.compose.ui.unit.IntOffset(animatedOffset.toInt(), 0) }
-                        .width(pillWidthDp)
-                        .height(82.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(
-                            androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = if (isDarkTheme) {
-                                    listOf(
-                                        Color.White.copy(alpha = 0.22f),
-                                        MinAccent.copy(alpha = 0.25f),
-                                        Color.White.copy(alpha = 0.08f)
-                                    )
+            androidx.compose.foundation.lazy.LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = hPadding),
+                state = listState,
+                flingBehavior = flingBehavior
+            ) {
+                items(validDayIndices.size) { arrIndex ->
+                    val index = validDayIndices[arrIndex]
+                    val day = weekDays[index]
+                    val isSelected = index == selectedDayIndex
+                    val isToday = index == 7
+                    
+                    val scale by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = if (isSelected) 1.08f else 1.0f,
+                        animationSpec = androidx.compose.animation.core.spring(
+                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                        )
+                    )
+                    
+                    val targetTextColor = when {
+                        styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
+                        isSelected -> if (isDarkTheme) Color.White else MinAccent
+                        isToday -> MinTextPrimary
+                        isDarkTheme -> Color.White.copy(alpha = 0.90f)
+                        else -> Color.Black.copy(alpha = 0.90f)
+                    }
+                    val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(250))
+
+                    Box(
+                        modifier = Modifier
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                            .width(58.dp)
+                            .height(80.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .then(
+                                if (isSelected) {
+                                    Modifier
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                colors = if (isDarkTheme) {
+                                                    listOf(
+                                                        Color.White.copy(alpha = 0.28f),
+                                                        MinAccent.copy(alpha = 0.35f),
+                                                        Color.White.copy(alpha = 0.12f)
+                                                    )
+                                                } else {
+                                                    listOf(
+                                                        Color.White.copy(alpha = 0.94f),
+                                                        MinAccent.copy(alpha = 0.35f),
+                                                        Color.White.copy(alpha = 0.70f)
+                                                    )
+                                                }
+                                            )
+                                        )
+                                        .border(
+                                            width = 1.8.dp,
+                                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = if (isDarkTheme) 0.98f else 1.0f),
+                                                    MinAccent.copy(alpha = 0.85f),
+                                                    Color.White.copy(alpha = if (isDarkTheme) 0.35f else 0.70f)
+                                                )
+                                            ),
+                                            shape = RoundedCornerShape(22.dp)
+                                        )
+                                        .drawWithContent {
+                                            // 1. Upper Convex Lens Specular Reflection (iOS 26 3D glass dome)
+                                            val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = if (isDarkTheme) 0.60f else 0.95f),
+                                                    Color.White.copy(alpha = if (isDarkTheme) 0.20f else 0.45f),
+                                                    Color.Transparent
+                                                ),
+                                                startY = 0f,
+                                                endY = size.height * 0.52f
+                                            )
+                                            drawRoundRect(
+                                                brush = lensHighlight,
+                                                size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.52f),
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                            )
+
+                                            // 2. Diagonal fluid shimmer beam
+                                            val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    Color.White.copy(alpha = shimmerAlpha),
+                                                    Color.Transparent
+                                                ),
+                                                start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                                end = androidx.compose.ui.geometry.Offset(size.width, size.height)
+                                            )
+                                            drawRoundRect(
+                                                brush = shimmerBrush,
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                            )
+                                            
+                                            drawContent()
+                                        }
                                 } else {
-                                    listOf(
-                                        Color.White.copy(alpha = 0.85f),
-                                        MinAccent.copy(alpha = 0.30f),
-                                        Color.White.copy(alpha = 0.55f)
-                                    )
+                                    Modifier
+                                        .background(Color.White.copy(alpha = if (isDarkTheme) 0.05f else 0.14f))
+                                        .border(1.dp, Color.White.copy(alpha = if (isDarkTheme) 0.10f else 0.22f), RoundedCornerShape(22.dp))
                                 }
                             )
-                        )
-                        .border(
-                            width = 1.8.dp,
-                            brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = if (isDarkTheme) 0.95f else 0.98f),
-                                    MinAccent.copy(alpha = 0.70f),
-                                    Color.White.copy(alpha = if (isDarkTheme) 0.30f else 0.60f)
-                                )
-                            ),
-                            shape = RoundedCornerShape(22.dp)
-                        )
-                        .drawWithContent {
-                            // Upper 3D Convex Lens Specular Reflection (iOS 26 glass dome)
-                            val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.White.copy(alpha = if (isDarkTheme) 0.55f else 0.90f),
-                                    Color.White.copy(alpha = if (isDarkTheme) 0.20f else 0.40f),
-                                    Color.Transparent
-                                ),
-                                startY = 0f,
-                                endY = size.height * 0.52f
-                            )
-                            drawRoundRect(
-                                brush = lensHighlight,
-                                size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.52f),
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
-                            )
-
-                            // Diagonal fluid shimmer beam
-                            val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.White.copy(alpha = shimmerAlpha),
-                                    Color.Transparent
-                                ),
-                                start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                end = androidx.compose.ui.geometry.Offset(size.width, size.height)
-                            )
-                            drawRoundRect(
-                                brush = shimmerBrush,
-                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
-                            )
-                            
-                            drawContent()
-                        }
-                )
-
-                androidx.compose.foundation.lazy.LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    contentPadding = PaddingValues(horizontal = hPadding),
-                    state = listState,
-                    flingBehavior = flingBehavior
-                ) {
-                    items(validDayIndices.size) { arrIndex ->
-                        val index = validDayIndices[arrIndex]
-                        val day = weekDays[index]
-                        val isSelected = index == selectedDayIndex
-                        val isToday = index == 7
-                        val targetTextColor = if (styleType == StyleType.Techno) {
-                            if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.5f)
-                        } else if (isSelected) {
-                            MinAccent
-                        } else if (isToday) {
-                            MinTextPrimary
-                        } else if (isDarkTheme) {
-                            Color.White.copy(alpha = 0.5f)
-                        } else {
-                            Color.Black.copy(alpha = 0.5f)
-                        }
-                        val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(300))
-
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) { 
+                                selectedDayIndex = index
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Column(
-                            modifier = Modifier
-                                .clickable(
-                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                    indication = null
-                                ) { selectedDayIndex = index }
-                                .padding(horizontal = 14.dp, vertical = 14.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
-                            Text(days[index].toString(), fontSize = 25.sp, fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(day, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
+                            Text(
+                                text = days[index].toString(),
+                                fontSize = 24.sp,
+                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                                color = textColor,
+                                fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = day.uppercase(),
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                color = textColor,
+                                fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                            )
                         }
                     }
                 }
