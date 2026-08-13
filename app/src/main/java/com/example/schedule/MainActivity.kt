@@ -1082,6 +1082,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
                         )
                     )
+                    val safeProgress = animProgress.coerceIn(0f, 1f)
                     
                     val targetTextColor = when {
                         styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
@@ -1095,7 +1096,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Box(
                         modifier = Modifier
                             .graphicsLayer {
-                                val scale = 1f + 0.08f * animProgress
+                                val scale = 1f + 0.08f * safeProgress
                                 scaleX = scale
                                 scaleY = scale
                             }
@@ -1107,37 +1108,37 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                 androidx.compose.ui.graphics.Brush.verticalGradient(
                                     colors = if (isDarkTheme) {
                                         listOf(
-                                            Color.White.copy(alpha = 0.05f + 0.23f * animProgress),
-                                            MinAccent.copy(alpha = 0.35f * animProgress),
-                                            Color.White.copy(alpha = 0.03f + 0.09f * animProgress)
+                                            Color.White.copy(alpha = (0.05f + 0.23f * safeProgress).coerceIn(0f, 1f)),
+                                            MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = (0.03f + 0.09f * safeProgress).coerceIn(0f, 1f))
                                         )
                                     } else {
                                         listOf(
-                                            Color.White.copy(alpha = 0.15f + 0.79f * animProgress),
-                                            MinAccent.copy(alpha = 0.35f * animProgress),
-                                            Color.White.copy(alpha = 0.10f + 0.60f * animProgress)
+                                            Color.White.copy(alpha = (0.15f + 0.79f * safeProgress).coerceIn(0f, 1f)),
+                                            MinAccent.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = (0.10f + 0.60f * safeProgress).coerceIn(0f, 1f))
                                         )
                                     }
                                 )
                             )
                             .border(
-                                width = (1f + 0.8f * animProgress).dp,
+                                width = (1f + 0.8f * safeProgress).dp,
                                 brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.12f + 0.86f * animProgress),
-                                        MinAccent.copy(alpha = 0.85f * animProgress),
-                                        Color.White.copy(alpha = if (isDarkTheme) (0.05f + 0.30f * animProgress) else (0.15f + 0.55f * animProgress))
+                                        Color.White.copy(alpha = (0.12f + 0.86f * safeProgress).coerceIn(0f, 1f)),
+                                        MinAccent.copy(alpha = (0.85f * safeProgress).coerceIn(0f, 1f)),
+                                        Color.White.copy(alpha = (if (isDarkTheme) (0.05f + 0.30f * safeProgress) else (0.15f + 0.55f * safeProgress)).coerceIn(0f, 1f))
                                     )
                                 ),
                                 shape = RoundedCornerShape(22.dp)
                             )
                             .drawWithContent {
-                                if (animProgress > 0.01f) {
+                                if (safeProgress > 0.01f) {
                                     // 1. Upper 3D Convex Lens Specular Reflection (iOS 26 glass dome)
                                     val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
                                         colors = listOf(
-                                            Color.White.copy(alpha = (if (isDarkTheme) 0.60f else 0.95f) * animProgress),
-                                            Color.White.copy(alpha = (if (isDarkTheme) 0.20f else 0.45f) * animProgress),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.60f else 0.95f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.20f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
                                             Color.Transparent
                                         ),
                                         startY = 0f,
@@ -1153,7 +1154,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
                                         colors = listOf(
                                             Color.Transparent,
-                                            Color.White.copy(alpha = shimmerAlpha * animProgress),
+                                            Color.White.copy(alpha = (shimmerAlpha * safeProgress).coerceIn(0f, 1f)),
                                             Color.Transparent
                                         ),
                                         start = androidx.compose.ui.geometry.Offset(0f, 0f),
