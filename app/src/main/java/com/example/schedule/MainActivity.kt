@@ -1642,30 +1642,294 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
     
     if (showScheduleSettings) {
-        AlertDialog(
+        androidx.compose.ui.window.Dialog(
             onDismissRequest = { showScheduleSettings = false },
-            title = {
-                Text("Настройки расписания", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Все", "1 подгр.", "2 подгр.").forEachIndexed { index, title ->
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) { showScheduleSettings = false },
+                contentAlignment = Alignment.Center
+            ) {
+                val transition = rememberInfiniteTransition(label = "glassSettingsShimmer")
+                val shimmerAlpha by transition.animateFloat(
+                    initialValue = 0.20f,
+                    targetValue = 0.50f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(2200, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "settingsShimmerAlpha"
+                )
+
+                Column(
+                    modifier = Modifier
+                        .padding(horizontal = 24.dp)
+                        .fillMaxWidth(0.92f)
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(if (styleType == StyleType.Techno) Color(0xFF0A0A0A) else if (isDarkTheme) Color(0xFF14151C).copy(alpha = 0.95f) else Color(0xFFF7F8FC).copy(alpha = 0.96f))
+                        .border(
+                            1.dp,
+                            if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.6f) else Color.White.copy(alpha = if (isDarkTheme) 0.16f else 0.45f),
+                            RoundedCornerShape(32.dp)
+                        )
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) { /* prevent dismiss when clicking dialog body */ }
+                        .padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Header
+                    Text(
+                        if (styleType == StyleType.Techno) "> НАСТРОЙКИ РАСПИСАНИЯ_" else "Настройки расписания",
+                        fontSize = if (styleType == StyleType.Techno) 22.sp else 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MinTextPrimary,
+                        textAlign = TextAlign.Center,
+                        fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        if (styleType == StyleType.Techno) "ВЫБЕРИТЕ ПОДГРУППУ:" else "Выберите учебную подгруппу",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MinTextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    val subgroups = listOf(
+                        Triple(0, "Все подгруппы", "Показывать все занятия потока"),
+                        Triple(1, "1-я подгруппа", "Только занятия 1-й подгруппы"),
+                        Triple(2, "2-я подгруппа", "Только занятия 2-й подгруппы")
+                    )
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        subgroups.forEach { (index, title, desc) ->
                             val isSelected = selectedSubgroup == index
-                            Box(modifier = Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(Color.Transparent).border(2.dp, if (isSelected) androidx.compose.ui.graphics.Color.White else MinBorder, androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).clickable { 
-                                onSubgroupChange(index)
-                            }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                                Text(title, fontSize = 24.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
+
+                            val animProgress by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (isSelected) 1f else 0f,
+                                animationSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                                ),
+                                label = "subgroupGlassAnim"
+                            )
+                            val safeProgress = animProgress.coerceIn(0f, 1f)
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .graphicsLayer {
+                                        val scale = 1f + 0.03f * safeProgress
+                                        scaleX = scale
+                                        scaleY = scale
+                                        translationX = tiltX * 3.5.dp.toPx() * safeProgress
+                                        translationY = tiltY * 2.5.dp.toPx() * safeProgress
+                                    }
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .drawWithContent {
+                                        val w = size.width
+                                        val h = size.height
+                                        val r = 22.dp.toPx()
+                                        val lightOffsetX = tiltX * 20.dp.toPx()
+                                        val lightOffsetY = tiltY * 16.dp.toPx()
+
+                                        if (safeProgress > 0.01f && styleType != StyleType.Techno) {
+                                            // 1. Ambient Subsurface Glass Bloom Glow
+                                            drawRoundRect(
+                                                color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.30f else 0.38f) * safeProgress).coerceIn(0f, 1f)),
+                                                topLeft = androidx.compose.ui.geometry.Offset(-2.dp.toPx() + lightOffsetX * 0.15f, -2.dp.toPx() + lightOffsetY * 0.15f),
+                                                size = androidx.compose.ui.geometry.Size(w + 4.dp.toPx(), h + 4.dp.toPx()),
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 2.dp.toPx(), r + 2.dp.toPx())
+                                            )
+
+                                            // 2. Multi-stop Directional 3D Liquid Glass Body (135 deg refraction)
+                                            val baseGlassBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                                colors = if (isDarkTheme) {
+                                                    listOf(
+                                                        Color.White.copy(alpha = (0.32f * safeProgress).coerceIn(0f, 1f)),
+                                                        MinAccent.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
+                                                        Color.White.copy(alpha = (0.10f * safeProgress).coerceIn(0f, 1f)),
+                                                        MinAccent.copy(alpha = (0.22f * safeProgress).coerceIn(0f, 1f))
+                                                    )
+                                                } else {
+                                                    listOf(
+                                                        Color.White.copy(alpha = (0.92f * safeProgress).coerceIn(0f, 1f)),
+                                                        MinAccent.copy(alpha = (0.24f * safeProgress).coerceIn(0f, 1f)),
+                                                        Color.White.copy(alpha = (0.75f * safeProgress).coerceIn(0f, 1f)),
+                                                        MinAccent.copy(alpha = (0.18f * safeProgress).coerceIn(0f, 1f))
+                                                    )
+                                                },
+                                                start = androidx.compose.ui.geometry.Offset(lightOffsetX, lightOffsetY),
+                                                end = androidx.compose.ui.geometry.Offset(w - lightOffsetX, h - lightOffsetY)
+                                            )
+                                            drawRoundRect(brush = baseGlassBrush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+
+                                            // 3. Upper 3D Convex Dome Specular Glare (Physical Lens Reflection)
+                                            val glareBrush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = ((if (isDarkTheme) 0.65f else 0.90f) * safeProgress).coerceIn(0f, 1f)),
+                                                    Color.White.copy(alpha = ((if (isDarkTheme) 0.20f else 0.35f) * safeProgress).coerceIn(0f, 1f)),
+                                                    Color.Transparent
+                                                ),
+                                                center = androidx.compose.ui.geometry.Offset(w * 0.45f + lightOffsetX * 1.2f, h * 0.25f + lightOffsetY * 1.2f),
+                                                radius = w * 0.70f
+                                            )
+                                            drawRoundRect(brush = glareBrush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+
+                                            // 4. Dynamic Liquid Shimmer Beam
+                                            val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    Color.White.copy(alpha = (shimmerAlpha * safeProgress).coerceIn(0f, 1f)),
+                                                    Color.Transparent
+                                                ),
+                                                start = androidx.compose.ui.geometry.Offset(w * 0.1f + lightOffsetX, 0f),
+                                                end = androidx.compose.ui.geometry.Offset(w * 0.8f + lightOffsetX, h)
+                                            )
+                                            drawRoundRect(brush = shimmerBrush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
+
+                                            // 5. Prismatic Diamond-Cut Bevel Rim (Chromatic Dispersion Effect)
+                                            val angleRad = kotlin.math.atan2(tiltY, tiltX)
+                                            val hueShift = ((angleRad * 180 / kotlin.math.PI + 360) % 360).toFloat()
+                                            val prismColor = androidx.compose.ui.graphics.Color.hsl(hueShift, 0.65f, if (isDarkTheme) 0.75f else 0.50f)
+                                            val rimBrush = androidx.compose.ui.graphics.Brush.sweepGradient(
+                                                colors = listOf(
+                                                    Color.White.copy(alpha = (0.95f * safeProgress).coerceIn(0f, 1f)),
+                                                    prismColor.copy(alpha = (0.55f * safeProgress).coerceIn(0f, 1f)),
+                                                    Color.White.copy(alpha = (0.40f * safeProgress).coerceIn(0f, 1f)),
+                                                    prismColor.copy(alpha = (0.45f * safeProgress).coerceIn(0f, 1f)),
+                                                    Color.White.copy(alpha = (0.95f * safeProgress).coerceIn(0f, 1f))
+                                                ),
+                                                center = androidx.compose.ui.geometry.Offset(w / 2f + lightOffsetX, h / 2f + lightOffsetY)
+                                            )
+                                            drawRoundRect(
+                                                brush = rimBrush,
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
+                                            )
+                                        } else if (styleType == StyleType.Techno) {
+                                            if (isSelected) {
+                                                drawRoundRect(
+                                                    color = Color(0xFF00FF41).copy(alpha = 0.15f),
+                                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                                                )
+                                                drawRoundRect(
+                                                    color = Color(0xFF00FF41),
+                                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                                                )
+                                            } else {
+                                                drawRoundRect(
+                                                    color = Color(0xFF00FF41).copy(alpha = 0.3f),
+                                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                                )
+                                            }
+                                        } else {
+                                            // Unselected Glass Container
+                                            drawRoundRect(
+                                                color = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.03f),
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+                                            )
+                                            drawRoundRect(
+                                                color = if (isDarkTheme) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f),
+                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                            )
+                                        }
+
+                                        drawContent()
+                                    }
+                                    .clickable {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        onSubgroupChange(index)
+                                    }
+                                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            title,
+                                            fontSize = 17.sp,
+                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                            color = if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else MinTextPrimary,
+                                            fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            desc,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Normal,
+                                            color = if (isSelected) (if (isDarkTheme) Color.White.copy(alpha = 0.85f) else MinAccent.copy(alpha = 0.85f)) else MinTextSecondary
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else Color.Transparent)
+                                            .border(
+                                                2.dp,
+                                                if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else MinTextSecondary.copy(alpha = 0.4f),
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Outlined.Check,
+                                                contentDescription = null,
+                                                tint = if (styleType == StyleType.Techno) Color.Black else if (isDarkTheme) Color(0xFF101116) else Color.White,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // Done Button with Liquid Glass Accent
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinAccent)
+                            .clickable { showScheduleSettings = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (styleType == StyleType.Techno) "[ ГОТОВО ]" else "Готово",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (styleType == StyleType.Techno) Color.Black else if (isDarkTheme) Color.Black else Color.White,
+                            fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                        )
+                    }
                 }
-            },
-            confirmButton = {},
-            containerColor = androidx.compose.ui.graphics.Color.Transparent
-        )
+            }
+        }
     }
     }
 }
