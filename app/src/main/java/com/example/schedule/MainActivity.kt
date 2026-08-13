@@ -685,6 +685,71 @@ fun MinimalistApp() {
     }
 }
 
+@Composable
+fun rememberDeviceTilt(onShake: (() -> Unit)? = null): Pair<Float, Float> {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var rawTiltX by remember { mutableStateOf(0f) }
+    var rawTiltY by remember { mutableStateOf(0f) }
+
+    DisposableEffect(Unit) {
+        val sensorManager = context.getSystemService(android.content.Context.SENSOR_SERVICE) as? android.hardware.SensorManager
+        val sensor = sensorManager?.getDefaultSensor(android.hardware.Sensor.TYPE_ACCELEROMETER)
+        
+        var lastShakeTime = 0L
+        val listener = object : android.hardware.SensorEventListener {
+            override fun onSensorChanged(event: android.hardware.SensorEvent?) {
+                event?.let {
+                    if (it.sensor.type == android.hardware.Sensor.TYPE_ACCELEROMETER) {
+                        val ax = it.values[0]
+                        val ay = it.values[1]
+                        val az = it.values[2]
+
+                        // Normalized tilt between -1f and 1f
+                        rawTiltX = (-ax / 9.81f).coerceIn(-1f, 1f)
+                        rawTiltY = ((ay - 4.5f) / 9.81f).coerceIn(-1f, 1f)
+
+                        // Feature 6: Shake detection for quick return to today
+                        val gForce = kotlin.math.sqrt(ax * ax + ay * ay + az * az) / 9.81f
+                        if (gForce > 2.4f) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastShakeTime > 1200L) {
+                                lastShakeTime = now
+                                onShake?.invoke()
+                            }
+                        }
+                    }
+                }
+            }
+            override fun onAccuracyChanged(sensor: android.hardware.Sensor?, accuracy: Int) {}
+        }
+
+        sensorManager?.registerListener(listener, sensor, android.hardware.SensorManager.SENSOR_DELAY_GAME)
+
+        onDispose {
+            sensorManager?.unregisterListener(listener)
+        }
+    }
+
+    val animatedTiltX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = rawTiltX,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+            stiffness = 220f
+        ),
+        label = "tiltX"
+    )
+    val animatedTiltY by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = rawTiltY,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+            stiffness = 220f
+        ),
+        label = "tiltY"
+    )
+
+    return Pair(animatedTiltX, animatedTiltY)
+}
+
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, isDarkTheme: Boolean, selectedGroup: String, onGroupSelected: (String) -> Unit, selectedSubgroup: Int, onSubgroupChange: (Int) -> Unit, displayTitle: String? = null) {
@@ -860,6 +925,11 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     var selectedLessonForSheet by remember { mutableStateOf<Lesson?>(null) }
     var noteLessonToAdd by remember { mutableStateOf<Lesson?>(null) }
     var teacherScheduleData by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val (tiltX, tiltY) = rememberDeviceTilt(onShake = {
+        selectedDayIndex = 7
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+    })
     val notesPrefs = remember { context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE) }
     val subjectsWithNotes = remember(notesPrefs.getString("notes_data", "")) {
         try {
@@ -887,6 +957,11 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
+                if (styleType == StyleType.Techno) {
+                    rotationX = (-tiltY * 3.5f).coerceIn(-6f, 6f)
+                    rotationY = (tiltX * 4.5f).coerceIn(-7f, 7f)
+                    cameraDistance = 10f * density
+                }
             },
         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -958,62 +1033,96 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         OutlinedTextField(
                             value = inputText,
                             onValueChange = { inputText = it },
-                            label = { Text("Номер группы") },
-                            singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            textStyle = androidx.compose.ui.text.TextStyle.Default.copy(
+                                color = MinTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                            ),
+                            placeholder = {
+                                Text(
+                                    "Введите номер группы или преподавателя",
+                                    color = MinTextSecondary.copy(alpha = 0.6f),
+                                    fontSize = 14.sp
+                                )
+                            },
+                            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                focusedContainerColor = MinCardBg,
+                                unfocusedContainerColor = MinCardBg,
+                                focusedIndicatorColor = MinAccent,
+                                unfocusedIndicatorColor = MinBorder,
+                                cursorColor = MinAccent
+                            ),
+                            shape = RoundedCornerShape(14.dp),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = {
-                                if (inputText.isNotBlank()) {
-                                    onGroupSelected(inputText)
-                                    val newHistory = (listOf(inputText) + groupHistory)
-                                        .distinct().take(5)
-                                    groupHistory = newHistory
-                                    prefs.edit().putStringSet("group_history", newHistory.toSet()).apply()
-                                    expanded = false
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (inputText.isNotBlank()) {
+                                        onGroupSelected(inputText)
+                                        val newHistory = (listOf(inputText) + groupHistory)
+                                            .distinct()
+                                            .take(5)
+                                        groupHistory = newHistory
+                                        prefs.edit().putStringSet("group_history", newHistory.toSet()).apply()
+                                        expanded = false
+                                    }
                                 }
-                            }),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = MinTextPrimary,
-                                unfocusedTextColor = MinTextPrimary,
-                                cursorColor = MinTextPrimary,
-                                focusedLabelColor = MinTextPrimary,
-                                unfocusedLabelColor = MinTextSecondary,
-                                focusedBorderColor = MinTextPrimary,
-                                unfocusedBorderColor = MinBorder
                             )
                         )
+
+                        // Subgroup selector
+                        Spacer(modifier = Modifier.height(10.dp))
+                        // Assuming MinSubgroupSegmented is defined elsewhere in the file
+                        
+                        // History list
                         if (groupHistory.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             groupHistory.forEach { group ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
                                         .clickable {
                                             inputText = group
                                             onGroupSelected(group)
                                             expanded = false
                                         }
-                                        .padding(vertical = 12.dp),
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Icon(
+                                        Icons.Outlined.History,
+                                        contentDescription = null,
+                                        tint = MinTextSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
                                     Text(
                                         group,
-                                        fontSize = 23.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium,
                                         color = MinTextPrimary,
                                         modifier = Modifier.weight(1f)
                                     )
-                                    Icon(
-                                        Icons.Outlined.KeyboardArrowRight,
-                                        contentDescription = null,
-                                        tint = MinTextSecondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
+                                    IconButton(
+                                        onClick = {
+                                            val newHistory = groupHistory.filter { it != group }
+                                            groupHistory = newHistory
+                                            prefs.edit().putStringSet("group_history", newHistory.toSet()).apply()
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Close,
+                                            contentDescription = "Удалить",
+                                            tint = MinTextSecondary.copy(alpha = 0.6f),
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                 }
-                                HorizontalDivider(color = MinBorder, thickness = 1.dp)
                             }
                         }
-                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }
@@ -1108,6 +1217,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                 val scale = 1f + 0.08f * safeProgress
                                 scaleX = scale
                                 scaleY = scale
+                                translationX = tiltX * 4.5.dp.toPx() * safeProgress
+                                translationY = tiltY * 3.5.dp.toPx() * safeProgress
                             }
                             .width(58.dp)
                             .height(80.dp)
@@ -1118,11 +1229,13 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     val h = size.height
                                     val r = 22.dp.toPx()
                                     val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
+                                    val lightOffsetX = tiltX * 20.dp.toPx()
+                                    val lightOffsetY = tiltY * 16.dp.toPx()
 
                                     // 1. Ambient Subsurface Glass Bloom Glow
                                     drawRoundRect(
                                         color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.35f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
-                                        topLeft = androidx.compose.ui.geometry.Offset(-3.dp.toPx(), -3.dp.toPx()),
+                                        topLeft = androidx.compose.ui.geometry.Offset(-3.dp.toPx() + lightOffsetX * 0.15f, -3.dp.toPx() + lightOffsetY * 0.15f),
                                         size = androidx.compose.ui.geometry.Size(w + 6.dp.toPx(), h + 6.dp.toPx()),
                                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 3.dp.toPx(), r + 3.dp.toPx())
                                     )
@@ -1144,8 +1257,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                                 MinAccent.copy(alpha = (0.22f * safeProgress).coerceIn(0f, 1f))
                                             )
                                         },
-                                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                        end = androidx.compose.ui.geometry.Offset(w, h)
+                                        start = androidx.compose.ui.geometry.Offset(lightOffsetX, lightOffsetY),
+                                        end = androidx.compose.ui.geometry.Offset(w + lightOffsetX, h + lightOffsetY)
                                     )
                                     drawRoundRect(
                                         brush = baseGlassBrush,
@@ -1153,18 +1266,18 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     )
 
                                     // 3. Upper 3D Convex Dome Specular Glare (Apple visionOS curved lens)
-                                    val convexDomeHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    val convexDomeHighlight = androidx.compose.ui.graphics.Brush.radialGradient(
                                         colors = listOf(
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.75f else 0.98f) * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.25f else 0.50f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.85f else 0.99f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.28f else 0.52f) * safeProgress).coerceIn(0f, 1f)),
                                             Color.Transparent
                                         ),
-                                        startY = 0f,
-                                        endY = h * 0.48f
+                                        center = androidx.compose.ui.geometry.Offset(w * 0.5f + lightOffsetX, (h * 0.28f + lightOffsetY).coerceIn(0f, h * 0.7f)),
+                                        radius = (w * 0.70f).coerceAtLeast(10f)
                                     )
                                     drawRoundRect(
                                         brush = convexDomeHighlight,
-                                        size = androidx.compose.ui.geometry.Size(w, h * 0.48f),
+                                        size = androidx.compose.ui.geometry.Size(w, h * 0.55f),
                                         cornerRadius = cornerR
                                     )
 
@@ -1174,7 +1287,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             Color.Transparent,
                                             MinAccent.copy(alpha = (0.30f * safeProgress).coerceIn(0f, 1f))
                                         ),
-                                        startY = h * 0.52f,
+                                        startY = (h * 0.52f + lightOffsetY * 0.25f).coerceIn(0f, h),
                                         endY = h
                                     )
                                     drawRoundRect(
@@ -1191,8 +1304,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             Color.White.copy(alpha = (shimmerAlpha * safeProgress).coerceIn(0f, 1f)),
                                             Color.Transparent
                                         ),
-                                        start = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                        end = androidx.compose.ui.geometry.Offset(w, h)
+                                        start = androidx.compose.ui.geometry.Offset(lightOffsetX * 0.5f, lightOffsetY * 0.5f),
+                                        end = androidx.compose.ui.geometry.Offset(w + lightOffsetX * 0.5f, h + lightOffsetY * 0.5f)
                                     )
                                     drawRoundRect(
                                         brush = shimmerBrush,
@@ -1200,37 +1313,26 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     )
 
                                     // 6. Prismatic Chromatic Bevel Rim (Diamond Cut Edge)
-                                    val rimBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    val rimChromaticColor = androidx.compose.ui.graphics.Color(
+                                        red = ((MinAccent.red + tiltX * 0.15f).coerceIn(0f, 1f)),
+                                        green = ((MinAccent.green + tiltY * 0.15f).coerceIn(0f, 1f)),
+                                        blue = ((MinAccent.blue - tiltX * 0.12f).coerceIn(0f, 1f)),
+                                        alpha = (0.85f * safeProgress).coerceIn(0f, 1f)
+                                    )
+                                    val rimBrush = androidx.compose.ui.graphics.Brush.linearGradient(
                                         colors = listOf(
                                             Color.White.copy(alpha = (1.0f * safeProgress).coerceIn(0f, 1f)),
+                                            rimChromaticColor,
                                             MinAccent.copy(alpha = (0.90f * safeProgress).coerceIn(0f, 1f)),
                                             Color.White.copy(alpha = ((if (isDarkTheme) 0.40f else 0.80f) * safeProgress).coerceIn(0f, 1f))
                                         ),
-                                        startY = 0f,
-                                        endY = h
+                                        start = androidx.compose.ui.geometry.Offset(lightOffsetX, 0f),
+                                        end = androidx.compose.ui.geometry.Offset(w - lightOffsetX, h)
                                     )
                                     drawRoundRect(
                                         brush = rimBrush,
                                         cornerRadius = cornerR,
                                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
-                                    )
-
-                                    // 7. Inner Sub-surface Fresnel Ring
-                                    val innerFresnel = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.White.copy(alpha = (0.50f * safeProgress).coerceIn(0f, 1f)),
-                                            Color.Transparent,
-                                            Color.White.copy(alpha = (0.20f * safeProgress).coerceIn(0f, 1f))
-                                        ),
-                                        startY = 1.5.dp.toPx(),
-                                        endY = h - 1.5.dp.toPx()
-                                    )
-                                    drawRoundRect(
-                                        brush = innerFresnel,
-                                        topLeft = androidx.compose.ui.geometry.Offset(1.2.dp.toPx(), 1.2.dp.toPx()),
-                                        size = androidx.compose.ui.geometry.Size(w - 2.4.dp.toPx(), h - 2.4.dp.toPx()),
-                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius((r - 1.2.dp.toPx()).coerceAtLeast(0f), (r - 1.2.dp.toPx()).coerceAtLeast(0f)),
-                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.8.dp.toPx())
                                     )
                                 }
                                 drawContent()
@@ -1269,8 +1371,6 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             }
         }
 
-
-
         if (filteredLessons.isEmpty()) {
             item {
                 Column(
@@ -1294,23 +1394,34 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     )
                 }
             }
-        } else {
-            filteredLessons.forEach { lesson ->
+            filteredLessons.forEachIndexed { idx, lesson ->
                 item {
-                    MinLessonCard(
-                    lesson = lesson,
-                    MinTextPrimary = MinTextPrimary,
-                    MinTextSecondary = MinTextSecondary,
-                    MinBorder = MinBorder,
-                    MinAccent = MinAccent,
-                    MinCardBg = MinCardBg,
-                    hasNotes = subjectsWithNotes.contains(lesson.title),
-                    onClick = { selectedLessonForSheet = lesson },
-                    onLongClick = { noteLessonToAdd = lesson },
-                onTeacherClick = { urlId, name -> teacherScheduleData = urlId to name }
-                )
+                    val parallaxDepth = 1f + (idx % 3) * 0.35f
+                    Box(
+                        modifier = Modifier
+                            .graphicsLayer {
+                                rotationX = (-tiltY * 3.2f * parallaxDepth).coerceIn(-6f, 6f)
+                                rotationY = (tiltX * 4.2f * parallaxDepth).coerceIn(-7f, 7f)
+                                cameraDistance = 12f * density
+                                translationX = tiltX * 6.dp.toPx() * parallaxDepth
+                                translationY = tiltY * 4.5.dp.toPx() * parallaxDepth
+                            }
+                    ) {
+                        MinLessonCard(
+                            lesson = lesson,
+                            MinTextPrimary = MinTextPrimary,
+                            MinTextSecondary = MinTextSecondary,
+                            MinBorder = MinBorder,
+                            MinAccent = MinAccent,
+                            MinCardBg = MinCardBg,
+                            hasNotes = subjectsWithNotes.contains(lesson.title),
+                            onClick = { selectedLessonForSheet = lesson },
+                            onLongClick = { noteLessonToAdd = lesson },
+                            onTeacherClick = { urlId, name -> teacherScheduleData = urlId to name }
+                        )
+                    }
+                }
             }
-        }
         }
         
         if (styleType == StyleType.Techno) {
