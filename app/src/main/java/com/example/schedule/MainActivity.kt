@@ -1046,7 +1046,118 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 listState.animateScrollToItem(selectedDayIndex)
             }
 
-            Box {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex)
+                val selectedItemInfo by remember { androidx.compose.runtime.derivedStateOf { listState.layoutInfo.visibleItemsInfo.find { it.index == arrIndexForSelected } } }
+                
+                val targetOffset = selectedItemInfo?.offset?.toFloat() ?: -1000f
+                val targetWidth = selectedItemInfo?.size?.toFloat() ?: 0f
+                
+                val springSpec = androidx.compose.animation.core.spring<Float>(
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                )
+                
+                val animatedOffset by androidx.compose.animation.core.animateFloatAsState(targetOffset, springSpec)
+                val animatedWidth by androidx.compose.animation.core.animateFloatAsState(targetWidth, springSpec)
+                
+                // Infinite gentle fluid shimmer across the liquid glass
+                val transition = rememberInfiniteTransition(label = "glassShimmer")
+                val shimmerAlpha by transition.animateFloat(
+                    initialValue = 0.15f,
+                    targetValue = 0.35f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(2200, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "shimmerAlpha"
+                )
+
+                // Render Liquid Glass Pill behind items
+                if (animatedWidth > 0f && animatedOffset > -500f) {
+                    val density = androidx.compose.ui.platform.LocalDensity.current
+                    val pillWidthDp = with(density) { (animatedWidth - 4f).coerceAtLeast(0f).toDp() }
+                    
+                    Box(
+                        modifier = Modifier
+                            .padding(vertical = 4.dp)
+                            .offset { androidx.compose.ui.unit.IntOffset((animatedOffset + 2f).toInt(), 0) }
+                            .width(pillWidthDp)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(22.dp))
+                            // Multi-layer iOS 26 Liquid Glass styling
+                            .drawWithContent {
+                                // 1. Base translucent glass body
+                                val glassBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = if (isDarkTheme) {
+                                        listOf(
+                                            Color(0xFFFFFFFF).copy(alpha = 0.20f),
+                                            MinAccent.copy(alpha = 0.15f),
+                                            Color(0xFFFFFFFF).copy(alpha = 0.06f)
+                                        )
+                                    } else {
+                                        listOf(
+                                            Color(0xFFFFFFFF).copy(alpha = 0.75f),
+                                            MinAccent.copy(alpha = 0.22f),
+                                            Color(0xFFFFFFFF).copy(alpha = 0.45f)
+                                        )
+                                    }
+                                )
+                                drawRoundRect(
+                                    brush = glassBrush,
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                )
+
+                                // 2. Upper convex lens specular reflection (iOS iconic 3D gloss arc)
+                                val lensHighlight = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = if (isDarkTheme) 0.45f else 0.85f),
+                                        Color.White.copy(alpha = if (isDarkTheme) 0.15f else 0.35f),
+                                        Color.Transparent
+                                    ),
+                                    startY = 0f,
+                                    endY = size.height * 0.55f
+                                )
+                                drawRoundRect(
+                                    brush = lensHighlight,
+                                    size = androidx.compose.ui.geometry.Size(size.width, size.height * 0.55f),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                )
+
+                                // 3. Diagonal liquid shimmer light beam
+                                val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        Color.White.copy(alpha = shimmerAlpha),
+                                        Color.Transparent
+                                    ),
+                                    start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                    end = androidx.compose.ui.geometry.Offset(size.width, size.height)
+                                )
+                                drawRoundRect(
+                                    brush = shimmerBrush,
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx())
+                                )
+
+                                // 4. Prismatic Chromatic Rim Light (Borders with glowing top specular edge)
+                                val rimBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = if (isDarkTheme) 0.90f else 0.95f),
+                                        MinAccent.copy(alpha = 0.55f),
+                                        Color.White.copy(alpha = if (isDarkTheme) 0.20f else 0.50f)
+                                    )
+                                )
+                                drawRoundRect(
+                                    brush = rimBrush,
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(22.dp.toPx(), 22.dp.toPx()),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
+                                )
+                                
+                                drawContent()
+                            }
+                    )
+                }
+
                 androidx.compose.foundation.lazy.LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -1086,27 +1197,6 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             Text(day, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = textColor, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
                         }
                     }
-                }
-                
-                val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex)
-                val selectedItemInfo by remember { androidx.compose.runtime.derivedStateOf { listState.layoutInfo.visibleItemsInfo.find { it.index == arrIndexForSelected } } }
-                
-                val targetOffset = selectedItemInfo?.offset?.toFloat() ?: -1000f
-                val targetWidth = selectedItemInfo?.size?.toFloat() ?: 0f
-                
-                val animatedOffset by androidx.compose.animation.core.animateFloatAsState(targetOffset, tween(400, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-                val animatedWidth by androidx.compose.animation.core.animateFloatAsState(targetWidth, tween(400, easing = androidx.compose.animation.core.FastOutSlowInEasing))
-                
-                if (animatedWidth > 0f) {
-                    Box(modifier = Modifier
-                        .matchParentSize()
-                        .padding(vertical = 4.dp)
-                        .offset { androidx.compose.ui.unit.IntOffset(animatedOffset.toInt(), 0) }
-                        .width(with(androidx.compose.ui.platform.LocalDensity.current) { animatedWidth.toInt().dp })
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color.White.copy(alpha = if (isDarkTheme) 0.15f else 0.4f))
-                        .border(1.dp, Color.White.copy(alpha = if (isDarkTheme) 0.3f else 0.6f), RoundedCornerShape(20.dp))
-                    )
                 }
             }
         }
