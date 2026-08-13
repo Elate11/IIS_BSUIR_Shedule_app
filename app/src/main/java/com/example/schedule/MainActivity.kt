@@ -459,6 +459,33 @@ fun MinimalistApp() {
     val coroutineScope = rememberCoroutineScope()
     val selectedItem = pagerState.currentPage
 
+    // Multi-level Back Navigation System:
+    // Level 1: If on Оценки (1), Заметки (2), or Профиль (3), return to Расписание (0)
+    // Level 0: Double-tap back on Schedule tab to exit cleanly
+    var lastBackPressTime by remember { mutableStateOf(0L) }
+    androidx.activity.compose.BackHandler(enabled = true) {
+        if (pagerState.currentPage != 0) {
+            coroutineScope.launch {
+                if (transitionsEnabled) {
+                    pagerState.animateScrollToPage(
+                        page = 0,
+                        animationSpec = tween((400 / transitionSpeedMultiplier).toInt())
+                    )
+                } else {
+                    pagerState.scrollToPage(0)
+                }
+            }
+        } else {
+            val now = System.currentTimeMillis()
+            if (now - lastBackPressTime < 2000L) {
+                (context as? android.app.Activity)?.finish()
+            } else {
+                lastBackPressTime = now
+                android.widget.Toast.makeText(context, "Нажмите назад еще раз для выхода", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val appContent = @Composable {
         Box(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -951,6 +978,19 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
 
     val styleType = LocalStyleType.current
     val isDialogOpen = selectedLessonForSheet != null || showScheduleSettings || noteLessonToAdd != null
+
+    androidx.activity.compose.BackHandler(enabled = isDialogOpen || teacherScheduleData != null) {
+        if (selectedLessonForSheet != null) {
+            selectedLessonForSheet = null
+        } else if (noteLessonToAdd != null) {
+            noteLessonToAdd = null
+        } else if (showScheduleSettings) {
+            showScheduleSettings = false
+        } else if (teacherScheduleData != null) {
+            teacherScheduleData = null
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().let { if (isDialogOpen) it.blur(16.dp) else it }) {
         LazyColumn(
             modifier = Modifier.fillMaxSize()
@@ -3250,6 +3290,16 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     var isCalendarExpanded by remember { mutableStateOf(false) }
     var radialExpanded by remember { mutableStateOf(false) }
 
+    androidx.activity.compose.BackHandler(enabled = noteToDelete != null || radialExpanded || isCalendarExpanded) {
+        if (noteToDelete != null) {
+            noteToDelete = null
+        } else if (radialExpanded) {
+            radialExpanded = false
+        } else if (isCalendarExpanded) {
+            isCalendarExpanded = false
+        }
+    }
+
     fun formatDate(d: Int, m: Int, y: Int) = "%02d.%02d.%04d".format(d, m + 1, y)
 
     fun scheduleAlarm(context: android.content.Context, note: Note, d: Int, m: Int, y: Int) {
@@ -3663,6 +3713,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     }
 
     if (showCustomization) {
+        androidx.activity.compose.BackHandler(onBack = { showCustomization = false })
         MinCustomizationView(MinBg, MinBorder, MinTextPrimary, MinTextSecondary, isDarkTheme, currentAccent, particlesEnabled, particleSizeMultiplier, transitionsEnabled, transitionType, transitionSpeedMultiplier, fontFamily, textSizeMultiplier, bgMode, bgImageUri, bgBlur, bgDim, bgEmoji, customParticleColor, onThemeToggle, onAccentChange, onParticlesToggle, onParticleSizeChange, onTransitionsToggle, onTransitionTypeChange, onTransitionSpeedChange, onFontChange, onTextSizeChange, onPrimaryColorChange, onBackgroundColorChange, onBgModeChange, onBgImageUriChange, onBgBlurChange, onBgDimChange, onBgEmojiChange, onParticleColorChange, onStyleChange) {
             showCustomization = false
         }
