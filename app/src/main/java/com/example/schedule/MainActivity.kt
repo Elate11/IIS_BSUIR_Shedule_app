@@ -1642,80 +1642,35 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
     
     if (showScheduleSettings) {
-        androidx.compose.ui.window.Dialog(
+        val transition = rememberInfiniteTransition(label = "glassSettingsShimmer")
+        val shimmerAlpha by transition.animateFloat(
+            initialValue = 0.20f,
+            targetValue = 0.50f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "settingsShimmerAlpha"
+        )
+
+        AlertDialog(
             onDismissRequest = { showScheduleSettings = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.65f))
-                    .clickable(
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                        indication = null
-                    ) { showScheduleSettings = false },
-                contentAlignment = Alignment.Center
-            ) {
-                val transition = rememberInfiniteTransition(label = "glassSettingsShimmer")
-                val shimmerAlpha by transition.animateFloat(
-                    initialValue = 0.20f,
-                    targetValue = 0.50f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(2200, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "settingsShimmerAlpha"
+            title = {
+                Text(
+                    "Настройки расписания",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
                 )
-
-                Column(
-                    modifier = Modifier
-                        .padding(horizontal = 24.dp)
-                        .fillMaxWidth(0.92f)
-                        .clip(RoundedCornerShape(32.dp))
-                        .background(if (styleType == StyleType.Techno) Color(0xFF0A0A0A) else if (isDarkTheme) Color(0xFF14151C).copy(alpha = 0.95f) else Color(0xFFF7F8FC).copy(alpha = 0.96f))
-                        .border(
-                            1.dp,
-                            if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.6f) else Color.White.copy(alpha = if (isDarkTheme) 0.16f else 0.45f),
-                            RoundedCornerShape(32.dp)
-                        )
-                        .clickable(
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null
-                        ) { /* prevent dismiss when clicking dialog body */ }
-                        .padding(28.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Header
-                    Text(
-                        if (styleType == StyleType.Techno) "> НАСТРОЙКИ РАСПИСАНИЯ_" else "Настройки расписания",
-                        fontSize = if (styleType == StyleType.Techno) 22.sp else 22.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = MinTextPrimary,
-                        textAlign = TextAlign.Center,
-                        fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        if (styleType == StyleType.Techno) "ВЫБЕРИТЕ ПОДГРУППУ:" else "Выберите учебную подгруппу",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MinTextSecondary,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    val subgroups = listOf(
-                        Triple(0, "Все подгруппы", "Показывать все занятия потока"),
-                        Triple(1, "1-я подгруппа", "Только занятия 1-й подгруппы"),
-                        Triple(2, "2-я подгруппа", "Только занятия 2-й подгруппы")
-                    )
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        subgroups.forEach { (index, title, desc) ->
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf("Все", "1 подгр.", "2 подгр.").forEachIndexed { index, title ->
                             val isSelected = selectedSubgroup == index
 
                             val animProgress by androidx.compose.animation.core.animateFloatAsState(
@@ -1724,7 +1679,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
                                     stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
                                 ),
-                                label = "subgroupGlassAnim"
+                                label = "subgroupAnim"
                             )
                             val safeProgress = animProgress.coerceIn(0f, 1f)
 
@@ -1732,24 +1687,24 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .graphicsLayer {
-                                        val scale = 1f + 0.03f * safeProgress
+                                        val scale = 1f + 0.04f * safeProgress
                                         scaleX = scale
                                         scaleY = scale
-                                        translationX = tiltX * 3.5.dp.toPx() * safeProgress
-                                        translationY = tiltY * 2.5.dp.toPx() * safeProgress
+                                        translationX = tiltX * 4.dp.toPx() * safeProgress
+                                        translationY = tiltY * 3.dp.toPx() * safeProgress
                                     }
-                                    .clip(RoundedCornerShape(22.dp))
+                                    .clip(RoundedCornerShape(16.dp))
                                     .drawWithContent {
                                         val w = size.width
                                         val h = size.height
-                                        val r = 22.dp.toPx()
+                                        val r = 16.dp.toPx()
                                         val lightOffsetX = tiltX * 20.dp.toPx()
                                         val lightOffsetY = tiltY * 16.dp.toPx()
 
                                         if (safeProgress > 0.01f && styleType != StyleType.Techno) {
                                             // 1. Ambient Subsurface Glass Bloom Glow
                                             drawRoundRect(
-                                                color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.30f else 0.38f) * safeProgress).coerceIn(0f, 1f)),
+                                                color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.35f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
                                                 topLeft = androidx.compose.ui.geometry.Offset(-2.dp.toPx() + lightOffsetX * 0.15f, -2.dp.toPx() + lightOffsetY * 0.15f),
                                                 size = androidx.compose.ui.geometry.Size(w + 4.dp.toPx(), h + 4.dp.toPx()),
                                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 2.dp.toPx(), r + 2.dp.toPx())
@@ -1759,7 +1714,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             val baseGlassBrush = androidx.compose.ui.graphics.Brush.linearGradient(
                                                 colors = if (isDarkTheme) {
                                                     listOf(
-                                                        Color.White.copy(alpha = (0.32f * safeProgress).coerceIn(0f, 1f)),
+                                                        Color.White.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
                                                         MinAccent.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
                                                         Color.White.copy(alpha = (0.10f * safeProgress).coerceIn(0f, 1f)),
                                                         MinAccent.copy(alpha = (0.22f * safeProgress).coerceIn(0f, 1f))
@@ -1767,9 +1722,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                                 } else {
                                                     listOf(
                                                         Color.White.copy(alpha = (0.92f * safeProgress).coerceIn(0f, 1f)),
-                                                        MinAccent.copy(alpha = (0.24f * safeProgress).coerceIn(0f, 1f)),
+                                                        MinAccent.copy(alpha = (0.26f * safeProgress).coerceIn(0f, 1f)),
                                                         Color.White.copy(alpha = (0.75f * safeProgress).coerceIn(0f, 1f)),
-                                                        MinAccent.copy(alpha = (0.18f * safeProgress).coerceIn(0f, 1f))
+                                                        MinAccent.copy(alpha = (0.20f * safeProgress).coerceIn(0f, 1f))
                                                     )
                                                 },
                                                 start = androidx.compose.ui.geometry.Offset(lightOffsetX, lightOffsetY),
@@ -1818,18 +1773,18 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             drawRoundRect(
                                                 brush = rimBrush,
                                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx())
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
                                             )
                                         } else if (styleType == StyleType.Techno) {
                                             if (isSelected) {
                                                 drawRoundRect(
-                                                    color = Color(0xFF00FF41).copy(alpha = 0.15f),
+                                                    color = Color(0xFF00FF41).copy(alpha = 0.18f),
                                                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx())
                                                 )
                                                 drawRoundRect(
                                                     color = Color(0xFF00FF41),
                                                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
-                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
                                                 )
                                             } else {
                                                 drawRoundRect(
@@ -1841,13 +1796,13 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         } else {
                                             // Unselected Glass Container
                                             drawRoundRect(
-                                                color = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.03f),
+                                                color = Color.White.copy(alpha = 0.04f),
                                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
                                             )
                                             drawRoundRect(
-                                                color = if (isDarkTheme) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f),
+                                                color = Color.White.copy(alpha = 0.12f),
                                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2.dp.toPx())
                                             )
                                         }
 
@@ -1857,79 +1812,24 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                         onSubgroupChange(index)
                                     }
-                                    .padding(horizontal = 20.dp, vertical = 16.dp)
+                                    .padding(vertical = 14.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            title,
-                                            fontSize = 17.sp,
-                                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
-                                            color = if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else MinTextPrimary,
-                                            fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            desc,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Normal,
-                                            color = if (isSelected) (if (isDarkTheme) Color.White.copy(alpha = 0.85f) else MinAccent.copy(alpha = 0.85f)) else MinTextSecondary
-                                        )
-                                    }
-
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else Color.Transparent)
-                                            .border(
-                                                2.dp,
-                                                if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else MinTextSecondary.copy(alpha = 0.4f),
-                                                CircleShape
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isSelected) {
-                                            Icon(
-                                                Icons.Outlined.Check,
-                                                contentDescription = null,
-                                                tint = if (styleType == StyleType.Techno) Color.Black else if (isDarkTheme) Color(0xFF101116) else Color.White,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
-                                    }
-                                }
+                                Text(
+                                    title,
+                                    fontSize = 24.sp,
+                                    color = if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                                )
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Done Button with Liquid Glass Accent
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinAccent)
-                            .clickable { showScheduleSettings = false },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (styleType == StyleType.Techno) "[ ГОТОВО ]" else "Готово",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (styleType == StyleType.Techno) Color.Black else if (isDarkTheme) Color.Black else Color.White,
-                            fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                        )
-                    }
                 }
-            }
-        }
+            },
+            confirmButton = {},
+            containerColor = androidx.compose.ui.graphics.Color.Transparent
+        )
     }
     }
 }
