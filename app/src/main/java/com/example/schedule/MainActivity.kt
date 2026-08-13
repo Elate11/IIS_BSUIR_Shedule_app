@@ -1982,9 +1982,11 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     var unexcusedHours by remember { mutableStateOf(0) }
     var monthlyData by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
     var monthlyUnexcusedData by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var selectedMonth by remember { mutableStateOf<String?>(null) }
     var statusText by remember { mutableStateOf("Загрузка...") }
     var isLoading by remember { mutableStateOf(true) }
-    
+    var showGuidelines by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -2072,99 +2074,501 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
         }
     }
 
-    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize().background(MinBg)) {
-        androidx.compose.foundation.layout.Column(
-            modifier = androidx.compose.ui.Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
-            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-        ) {
-            androidx.compose.material3.Text("Пропуски", fontSize = 28.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(32.dp))
-            
-            if (isLoading || statusText.isNotEmpty()) {
-                androidx.compose.material3.Text(statusText, fontSize = 16.sp, color = MinTextSecondary)
-            } else {
-                androidx.compose.foundation.layout.Row(
-                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).background(MinCardBg).padding(24.dp),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround
+    val excusedHours = (totalHours - unexcusedHours).coerceAtLeast(0)
+
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxSize()
+            .background(MinBg),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 32.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp)
+    ) {
+        // Header
+        item {
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Icon(
+                    Icons.Outlined.KeyboardArrowLeft,
+                    contentDescription = "Назад",
+                    tint = MinTextPrimary,
+                    modifier = androidx.compose.ui.Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onBack() }
+                )
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                androidx.compose.material3.Text(
+                    "Пропуски и справки",
+                    fontSize = 26.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    color = MinTextPrimary
+                )
+            }
+        }
+
+        if (isLoading) {
+            item {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(250.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
                 ) {
-                    androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                        androidx.compose.material3.Text("$unexcusedHours ч", fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = currentAccent)
-                        androidx.compose.material3.Text("Без уважительной", fontSize = 14.sp, color = MinTextSecondary)
+                    androidx.compose.material3.CircularProgressIndicator(color = currentAccent)
+                }
+            }
+        } else {
+            // Stats Overview Cards
+            item {
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+                ) {
+                    // Unexcused Card
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                    ) {
+                        androidx.compose.material3.Text(
+                            "$unexcusedHours ч",
+                            fontSize = 24.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                            color = currentAccent
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                        androidx.compose.material3.Text(
+                            "Без ув. причины",
+                            fontSize = 11.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            color = MinTextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
-                    androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                        androidx.compose.material3.Text("$totalHours ч", fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
-                        androidx.compose.material3.Text("Всего", fontSize = 14.sp, color = MinTextSecondary)
+
+                    // Excused (Closed by docs) Card
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                    ) {
+                        androidx.compose.material3.Text(
+                            "$excusedHours ч",
+                            fontSize = 24.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                            color = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                        androidx.compose.material3.Text(
+                            "По справкам",
+                            fontSize = 11.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            color = MinTextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+
+                    // Total Card
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .padding(14.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                    ) {
+                        androidx.compose.material3.Text(
+                            "$totalHours ч",
+                            fontSize = 24.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                            color = MinTextPrimary
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                        androidx.compose.material3.Text(
+                            "Всего часов",
+                            fontSize = 11.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            color = MinTextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
                 }
-                
-                if (monthlyData.isNotEmpty()) {
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(32.dp))
-                    androidx.compose.material3.Text("По месяцам", fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
-                    
-                    val maxOmissions = monthlyData.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+            }
+
+            // Interactive Monthly Chart
+            item {
+                androidx.compose.foundation.layout.Column(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MinCardBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(18.dp))
+                        .padding(18.dp)
+                ) {
                     androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Text(
+                            "График по месяцам",
+                            fontSize = 18.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = MinTextPrimary
+                        )
+                        if (selectedMonth != null) {
+                            val selTotal = monthlyData[selectedMonth] ?: 0
+                            val selUn = monthlyUnexcusedData[selectedMonth] ?: 0
+                            androidx.compose.material3.Text(
+                                "$selectedMonth: $selTotal ч ($selUn без ув.)",
+                                fontSize = 12.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = currentAccent
+                            )
+                        }
+                    }
+                    
+                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(20.dp))
+
+                    val academicMonths = listOf("Сен", "Окт", "Ноя", "Дек", "Янв", "Фев", "Мар", "Апр", "Май", "Июн")
+                    val maxVal = monthlyData.values.maxOrNull()?.coerceAtLeast(10) ?: 10
+
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .height(170.dp),
                         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
                         verticalAlignment = androidx.compose.ui.Alignment.Bottom
                     ) {
-                        val months = listOf("Сен", "Окт", "Ноя", "Дек", "Янв", "Фев", "Мар", "Апр", "Май", "Июн")
-                        val filteredMonths = months.filter { monthlyData.containsKey(it) || monthlyUnexcusedData.containsKey(it) }
-                        
-                        for (month in filteredMonths) {
-                            val total = monthlyData[month] ?: 0
-                            val unexcused = monthlyUnexcusedData[month] ?: 0
-                            val heightPercent = (total.toFloat() / maxOmissions).coerceIn(0f, 1f)
-                            val unexcusedPercent = if (total > 0) (unexcused.toFloat() / total).coerceIn(0f, 1f) else 0f
-                            
+                        academicMonths.forEach { m ->
+                            val t = monthlyData[m] ?: 0
+                            val u = monthlyUnexcusedData[m] ?: 0
+                            val e = (t - u).coerceAtLeast(0)
+                            val isSel = selectedMonth == m
+                            val heightRatio = (t.toFloat() / maxVal).coerceIn(0.06f, 1f)
+
                             androidx.compose.foundation.layout.Column(
+                                modifier = androidx.compose.ui.Modifier
+                                    .weight(1f)
+                                    .clickable(
+                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        selectedMonth = if (selectedMonth == m) null else m
+                                    },
                                 horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Bottom,
-                                modifier = androidx.compose.ui.Modifier.weight(1f)
+                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Bottom
                             ) {
-                                androidx.compose.material3.Text(total.toString(), fontSize = 12.sp, color = MinTextPrimary.copy(alpha = 0.7f))
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                                if (t > 0) {
+                                    androidx.compose.material3.Text(
+                                        "$t",
+                                        fontSize = 10.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        color = if (isSel) currentAccent else MinTextSecondary
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                                }
+
+                                // Stacked Bar
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
-                                        .fillMaxWidth(0.6f)
-                                        .height((150 * heightPercent).dp)
-                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                        .background(MinCardBg)
+                                        .width(if (isSel) 20.dp else 16.dp)
+                                        .height((120 * heightRatio).dp)
+                                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
+                                        .background(if (t == 0) MinBorder.copy(alpha = 0.3f) else androidx.compose.ui.graphics.Color(0xFF4CAF50))
                                 ) {
-                                     androidx.compose.foundation.layout.Box(
-                                         modifier = androidx.compose.ui.Modifier
-                                             .fillMaxWidth()
-                                             .fillMaxHeight(unexcusedPercent)
-                                             .align(androidx.compose.ui.Alignment.BottomCenter)
-                                             .background(currentAccent)
-                                     )
+                                    if (u > 0 && t > 0) {
+                                        val unexcusedRatio = (u.toFloat() / t).coerceIn(0f, 1f)
+                                        androidx.compose.foundation.layout.Box(
+                                            modifier = androidx.compose.ui.Modifier
+                                                .fillMaxWidth()
+                                                .fillMaxHeight(unexcusedRatio)
+                                                .align(androidx.compose.ui.Alignment.BottomCenter)
+                                                .background(currentAccent)
+                                        )
+                                    }
                                 }
+
                                 androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                                androidx.compose.material3.Text(month, fontSize = 12.sp, color = MinTextPrimary)
+                                androidx.compose.material3.Text(
+                                    m,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSel) androidx.compose.ui.text.font.FontWeight.Black else androidx.compose.ui.text.font.FontWeight.Medium,
+                                    color = if (isSel) currentAccent else MinTextSecondary
+                                )
                             }
                         }
                     }
+
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
-                    androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center) {
+
+                    // Legend
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                    ) {
                         androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(12.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)).background(MinCardBg))
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(4.dp))
-                            androidx.compose.material3.Text("Уважительные", fontSize = 12.sp, color = MinTextPrimary)
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                            )
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
+                            androidx.compose.material3.Text("Уважительные (справки)", fontSize = 11.sp, color = MinTextSecondary)
                         }
-                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(16.dp))
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(18.dp))
                         androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(12.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp)).background(currentAccent))
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(4.dp))
-                            androidx.compose.material3.Text("Без ув. причины", fontSize = 12.sp, color = MinTextPrimary)
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(currentAccent)
+                            )
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
+                            androidx.compose.material3.Text("Без ув. причины", fontSize = 11.sp, color = MinTextSecondary)
                         }
                     }
                 }
             }
-            
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(48.dp))
-            androidx.compose.material3.Button(onClick = onBack, colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MinCardBg)) {
-                androidx.compose.material3.Text("Назад", color = MinTextPrimary)
+
+            // Excusing Documents Section ("Документы, которые убирают пропуски")
+            item {
+                androidx.compose.foundation.layout.Column(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Text(
+                            "Оправдательные документы",
+                            fontSize = 19.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = MinTextPrimary
+                        )
+                        androidx.compose.material3.Text(
+                            "Памятка",
+                            fontSize = 13.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            color = currentAccent,
+                            modifier = androidx.compose.ui.Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { showGuidelines = !showGuidelines }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Document Type 1: Medical Certificate
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .padding(16.dp)
+                    ) {
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f)),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    androidx.compose.material.icons.Icons.Outlined.CheckCircle,
+                                    contentDescription = null,
+                                    tint = androidx.compose.ui.graphics.Color(0xFF4CAF50),
+                                    modifier = androidx.compose.ui.Modifier.size(22.dp)
+                                )
+                            }
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text(
+                                    "Медицинская справка (Форма 095/у)",
+                                    fontSize = 15.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MinTextPrimary
+                                )
+                                androidx.compose.material3.Text(
+                                    "33-я городская студенческая поликлиника",
+                                    fontSize = 12.sp,
+                                    color = MinTextSecondary
+                                )
+                            }
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                androidx.compose.material3.Text(
+                                    "Списано",
+                                    fontSize = 11.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                )
+                            }
+                        }
+                    }
+
+                    // Document Type 2: Dean Statement
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .padding(16.dp)
+                    ) {
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(currentAccent.copy(alpha = 0.15f)),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    androidx.compose.material.icons.Icons.Outlined.Description,
+                                    contentDescription = null,
+                                    tint = currentAccent,
+                                    modifier = androidx.compose.ui.Modifier.size(22.dp)
+                                )
+                            }
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text(
+                                    "Заявление по уважительной причине",
+                                    fontSize = 15.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MinTextPrimary
+                                )
+                                androidx.compose.material3.Text(
+                                    "Согласовано деканатом факультета",
+                                    fontSize = 12.sp,
+                                    color = MinTextSecondary
+                                )
+                            }
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(currentAccent.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                androidx.compose.material3.Text(
+                                    "Принято",
+                                    fontSize = 11.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = currentAccent
+                                )
+                            }
+                        }
+                    }
+
+                    // Document Type 3: Donor / Official summons
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .padding(16.dp)
+                    ) {
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MinTextSecondary.copy(alpha = 0.15f)),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    androidx.compose.material.icons.Icons.Outlined.Verified,
+                                    contentDescription = null,
+                                    tint = MinTextPrimary,
+                                    modifier = androidx.compose.ui.Modifier.size(22.dp)
+                                )
+                            }
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text(
+                                    "Справка донора / Повестка / Сборы",
+                                    fontSize = 15.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MinTextPrimary
+                                )
+                                androidx.compose.material3.Text(
+                                    "Официальное освобождение от занятий",
+                                    fontSize = 12.sp,
+                                    color = MinTextSecondary
+                                )
+                            }
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MinTextSecondary.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                androidx.compose.material3.Text(
+                                    "Основание",
+                                    fontSize = 11.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MinTextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    // Guidelines block
+                    AnimatedVisibility(visible = showGuidelines) {
+                        androidx.compose.foundation.layout.Column(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MinCardBg)
+                                .border(1.dp, currentAccent.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                .padding(16.dp)
+                        ) {
+                            androidx.compose.material3.Text(
+                                "Памятка подачи документов в деканат:",
+                                fontSize = 15.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = currentAccent
+                            )
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+                            androidx.compose.material3.Text(
+                                "1. Медицинская справка должна быть заверена в 33-й поликлинике и сдана в деканат в течение 3 рабочих дней после закрытия.\n" +
+                                "2. Заявления по семейным обстоятельствам подаются заранее на имя декана факультета.\n" +
+                                "3. После внесения справки сотрудником деканата часы в ИИС БГУИР автоматически пересчитываются в категорию уважительных.",
+                                fontSize = 13.sp,
+                                color = MinTextSecondary,
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
             }
         }
     }
