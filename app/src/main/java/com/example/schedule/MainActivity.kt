@@ -3218,7 +3218,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
                 val sessionSubjects = mutableSetOf<String>()
 
-                // 1. Fetch from group schedule (текущий семестр: расписание и экзамены сессии)
+                // 1. Fetch from group schedule (сессия и расписание текущего семестра)
                 if (targetGroup.isNotBlank()) {
                     try {
                         val scheduleResp = if (targetGroup.any { it.isLetter() }) {
@@ -3227,19 +3227,15 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             com.example.schedule.BsuirApi.getGroupSchedule(targetGroup)
                         }
                         
-                        // Экзамены и зачеты сессии текущего семестра
                         scheduleResp?.exams?.forEach { examLesson ->
-                            val sName = examLesson.subjectFullName?.takeIf { it.isNotBlank() } ?: examLesson.subject
-                            if (!sName.isNullOrBlank()) {
-                                sessionSubjects.add(sName.trim())
-                            }
+                            val sName = examLesson.subject?.takeIf { it.isNotBlank() } ?: examLesson.subjectFullName
+                            if (!sName.isNullOrBlank()) sessionSubjects.add(sName.trim())
                         }
 
-                        // Предметы текущего семестра из расписания
-                        scheduleResp?.schedules?.values?.flatten()?.forEach { lesson ->
-                            val sName = lesson.subjectFullName?.takeIf { it.isNotBlank() } ?: lesson.subject
-                            if (!sName.isNullOrBlank()) {
-                                sessionSubjects.add(sName.trim())
+                        scheduleResp?.schedules?.forEach { (_, dayLessons) ->
+                            dayLessons.forEach { lesson ->
+                                val sName = lesson.subject?.takeIf { it.isNotBlank() } ?: lesson.subjectFullName
+                                if (!sName.isNullOrBlank()) sessionSubjects.add(sName.trim())
                             }
                         }
                     } catch (e: Exception) {
@@ -3247,7 +3243,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
 
-                // 2. Fetch from markbook ONLY for the current (latest) semester
+                // 2. Fetch from student markbook (все экзамены, зачеты и курсовые текущего семестра)
                 val parseMarkbookCurrentSemester: (String) -> Unit = { bodyStr ->
                     try {
                         val jsonObj = org.json.JSONObject(bodyStr)
@@ -3259,18 +3255,19 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 keys.next().toIntOrNull()?.let { semesterNumbers.add(it) }
                             }
                             
-                            val currentSemester = semesterNumbers.maxOrNull()
-                            if (currentSemester != null) {
-                                val currentSemObj = markPages.optJSONObject(currentSemester.toString())
-                                val marksArray = currentSemObj?.optJSONArray("marks") ?: org.json.JSONArray()
-                                for (i in 0 until marksArray.length()) {
-                                    val markObj = marksArray.optJSONObject(i) ?: continue
-                                    val subject = markObj.optString("subject", "")
-                                    if (subject.isNotBlank()) {
-                                        if (sessionSubjects.isEmpty()) {
-                                            sessionSubjects.add(subject.trim())
+                            val sortedSems = semesterNumbers.sortedDescending()
+                            for (semNum in sortedSems) {
+                                val semObj = markPages.optJSONObject(semNum.toString())
+                                val marksArray = semObj?.optJSONArray("marks") ?: org.json.JSONArray()
+                                if (marksArray.length() > 0) {
+                                    for (i in 0 until marksArray.length()) {
+                                        val markObj = marksArray.optJSONObject(i) ?: continue
+                                        val subject = markObj.optString("subject", "").trim()
+                                        if (subject.isNotBlank()) {
+                                            sessionSubjects.add(subject)
                                         }
                                     }
+                                    break
                                 }
                             }
                         }
@@ -3280,23 +3277,27 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 }
 
                 val cachedMarkbook = appPrefs.getString("cached_gradebook", null)
-                if (cachedMarkbook != null && sessionSubjects.isEmpty()) {
+                if (cachedMarkbook != null) {
                     parseMarkbookCurrentSemester(cachedMarkbook)
                 }
 
-                if (token.isNotBlank() && sessionSubjects.isEmpty()) {
-                    val client = com.example.schedule.NetworkClient.client
-                    val request = okhttp3.Request.Builder()
-                        .url("https://iis.bsuir.by/api/v1/markbook")
-                        .addHeader("Cookie", token)
-                        .get()
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        if (response.isSuccessful) {
-                            val body = response.body?.string() ?: ""
-                            appPrefs.edit().putString("cached_gradebook", body).apply()
-                            parseMarkbookCurrentSemester(body)
+                if (token.isNotBlank()) {
+                    try {
+                        val client = com.example.schedule.NetworkClient.client
+                        val request = okhttp3.Request.Builder()
+                            .url("https://iis.bsuir.by/api/v1/markbook")
+                            .addHeader("Cookie", token)
+                            .get()
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val body = response.body?.string() ?: ""
+                                appPrefs.edit().putString("cached_gradebook", body).apply()
+                                parseMarkbookCurrentSemester(body)
+                            }
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
 
