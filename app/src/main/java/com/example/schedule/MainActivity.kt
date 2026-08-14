@@ -2515,81 +2515,85 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                                     fontFamily = if (isTechno) vt323FontFamily else null
                                 )
 
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
-                                androidx.compose.material3.Text(
-                                    if (gradedSubjectsList.isNotEmpty()) "Предметов: ${gradedSubjectsList.size}" else "Нет отметок",
-                                    fontSize = 12.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                    color = MinTextSecondary.copy(alpha = 0.8f),
-                                    fontFamily = if (isTechno) vt323FontFamily else null
-                                )
-                            }
+                                 if (gradedSubjectsList.isNotEmpty()) {
+                                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                                     androidx.compose.material3.Text(
+                                         "Предметов: ${gradedSubjectsList.size}",
+                                         fontSize = 12.sp,
+                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                         color = MinTextSecondary.copy(alpha = 0.8f),
+                                         fontFamily = if (isTechno) vt323FontFamily else null
+                                     )
+                                 }
+                             }
 
-                            // Divider between GPA and Rating
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .width(1.dp)
-                                    .height(60.dp)
-                                    .background(
-                                        if (isTechno) Color(0xFF00FF41).copy(alpha = 0.35f)
-                                        else if (isDarkTheme) Color.White.copy(alpha = 0.12f)
-                                        else Color.Black.copy(alpha = 0.10f)
-                                    )
-                            )
+                             // Divider between GPA and Rating
+                             androidx.compose.foundation.layout.Box(
+                                 modifier = androidx.compose.ui.Modifier
+                                     .width(1.dp)
+                                     .height(60.dp)
+                                     .background(
+                                         if (isTechno) Color(0xFF00FF41).copy(alpha = 0.35f)
+                                         else if (isDarkTheme) Color.White.copy(alpha = 0.12f)
+                                         else Color.Black.copy(alpha = 0.10f)
+                                     )
+                             )
 
-                            // Column 2: Рейтинг студента
-                            androidx.compose.foundation.layout.Column(
-                                modifier = androidx.compose.ui.Modifier.weight(1f),
-                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
-                            ) {
-                                androidx.compose.material3.Text(
-                                    if (isTechno) "РЕЙТИНГ" else "Рейтинг",
-                                    fontSize = 14.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = MinTextSecondary,
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    fontFamily = if (isTechno) vt323FontFamily else null
-                                )
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
+                             // Column 2: Рейтинг студента
+                             androidx.compose.foundation.layout.Column(
+                                 modifier = androidx.compose.ui.Modifier.weight(1f),
+                                 horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                             ) {
+                                 androidx.compose.material3.Text(
+                                     if (isTechno) "РЕЙТИНГ" else "Рейтинг",
+                                     fontSize = 14.sp,
+                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                     color = MinTextSecondary,
+                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                     fontFamily = if (isTechno) vt323FontFamily else null
+                                 )
+                                 androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
 
-                                val ratingColor = if (isTechno) Color(0xFF00FF41) else currentAccent
+                                 val ratingColor = if (isTechno) Color(0xFF00FF41) else currentAccent
 
-                                val ratingText = if (studentRating != null && studentRating!! > 0.0) {
-                                    if (studentRating!! >= 10.0) String.format("%.1f", studentRating) else String.format("%.2f", studentRating)
-                                } else if (studentRatingPosition != null && studentRatingPosition!! > 0) {
-                                    "#${studentRatingPosition}"
-                                } else if (overallGpa > 0.0) {
-                                    String.format("%.2f", overallGpa)
-                                } else {
-                                    "—"
-                                }
+                                 val ratingText = if (studentRating != null && studentRating!! > 0.0) {
+                                     if (studentRating!! >= 10.0) String.format("%.1f", studentRating) else String.format("%.2f", studentRating)
+                                 } else if (studentRatingPosition != null && studentRatingPosition!! > 0) {
+                                     "#${studentRatingPosition}"
+                                 } else if (overallGpa > 0.0) {
+                                     String.format("%.2f", overallGpa)
+                                 } else {
+                                     "—"
+                                 }
 
-                                androidx.compose.material3.Text(
-                                    ratingText,
-                                    fontSize = 36.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                    color = ratingColor,
-                                    fontFamily = if (isTechno) vt323FontFamily else null
-                                )
+                                 androidx.compose.material3.Text(
+                                     ratingText,
+                                     fontSize = 36.sp,
+                                     fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                     color = ratingColor,
+                                     fontFamily = if (isTechno) vt323FontFamily else null
+                                 )
 
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
-                                val ratingSub = if (studentRatingPosition != null && studentRatingPosition!! > 0) {
-                                    "${studentRatingPosition} место в группе"
-                                } else if (studentRating != null) {
-                                    "Текущий балл"
-                                } else if (overallGpa > 0.0) {
-                                    "Текущий рейтинг"
-                                } else {
-                                    "По текущим отметкам"
-                                }
-                                androidx.compose.material3.Text(
-                                    ratingSub,
-                                    fontSize = 12.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                    color = MinTextSecondary.copy(alpha = 0.8f),
-                                    fontFamily = if (isTechno) vt323FontFamily else null
-                                )
-                            }
+                                 val ratingSub = if (studentRatingPosition != null && studentRatingPosition!! > 0) {
+                                     "${studentRatingPosition} место в группе"
+                                 } else if (studentRating != null) {
+                                     "Текущий балл"
+                                 } else if (overallGpa > 0.0) {
+                                     "Текущий рейтинг"
+                                 } else {
+                                     null
+                                 }
+                                 if (ratingSub != null) {
+                                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                                     androidx.compose.material3.Text(
+                                         ratingSub,
+                                         fontSize = 12.sp,
+                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                         color = MinTextSecondary.copy(alpha = 0.8f),
+                                         fontFamily = if (isTechno) vt323FontFamily else null
+                                     )
+                                 }
+                             }
                         }
 
                         if (totalMarksCount > 0) {
