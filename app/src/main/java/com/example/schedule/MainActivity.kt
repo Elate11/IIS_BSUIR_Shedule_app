@@ -2376,14 +2376,14 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                             ) {
                                 // 1. Subject Name
-                                androidx.compose.material3.Text(
+                                AutoResizedText(
                                     subj,
                                     fontSize = 14.sp,
+                                    minFontSize = 10.sp,
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                     color = if (isTechno) Color(0xFF00FF41) else MinTextPrimary,
                                     modifier = androidx.compose.ui.Modifier.width(105.dp),
                                     maxLines = 2,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     fontFamily = if (isTechno) vt323FontFamily else null
                                 )
 
@@ -5271,8 +5271,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text("Заметки", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                    AutoResizedText("Заметки", fontSize = 32.sp, minFontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
                     Text(
                         "${subjectNotes.size} ${if (subjectNotes.size == 1) "заметка" else if (subjectNotes.size in 2..4) "заметки" else "заметок"}",
                         fontSize = 14.sp,
