@@ -1715,140 +1715,66 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             )
                             val safeProgress = animProgress.coerceIn(0f, 1f)
 
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .graphicsLayer {
-                                        if (styleType != StyleType.Techno) {
-                                            val scale = 1f + 0.04f * safeProgress
-                                            scaleX = scale
-                                            scaleY = scale
-                                            translationX = tiltX * 4.dp.toPx() * safeProgress
-                                            translationY = tiltY * 3.dp.toPx() * safeProgress
-                                        }
-                                    }
-                                    .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 16.dp))
-                                    .drawWithContent {
-                                        val w = size.width
-                                        val h = size.height
-                                        val r = 16.dp.toPx()
-                                        val lightOffsetX = tiltX * 20.dp.toPx()
-                                        val lightOffsetY = tiltY * 16.dp.toPx()
-
-                                        if (safeProgress > 0.01f && styleType != StyleType.Techno) {
-                                            // 1. Ambient Subsurface Glass Bloom Glow
-                                            drawRoundRect(
-                                                color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.35f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
-                                                topLeft = androidx.compose.ui.geometry.Offset(-2.dp.toPx() + lightOffsetX * 0.15f, -2.dp.toPx() + lightOffsetY * 0.15f),
-                                                size = androidx.compose.ui.geometry.Size(w + 4.dp.toPx(), h + 4.dp.toPx()),
-                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 2.dp.toPx(), r + 2.dp.toPx())
-                                            )
-
-                                            // 2. Multi-stop Directional 3D Liquid Glass Body (135 deg refraction)
-                                            val baseGlassBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                                colors = if (isDarkTheme) {
-                                                    listOf(
-                                                        Color.White.copy(alpha = (0.35f * safeProgress).coerceIn(0f, 1f)),
-                                                        MinAccent.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
-                                                        Color.White.copy(alpha = (0.10f * safeProgress).coerceIn(0f, 1f)),
-                                                        MinAccent.copy(alpha = (0.22f * safeProgress).coerceIn(0f, 1f))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .graphicsLayer {
+                                                if (styleType != StyleType.Techno) {
+                                                    val scale = 1f + 0.04f * safeProgress
+                                                    scaleX = scale
+                                                    scaleY = scale
+                                                    translationX = tiltX * 4.dp.toPx() * safeProgress
+                                                    translationY = tiltY * 3.dp.toPx() * safeProgress
+                                                }
+                                            }
+                                            .then(
+                                                if (styleType != StyleType.Techno && safeProgress > 0.01f) {
+                                                    Modifier.liquidGlassEffect(
+                                                        cornerRadius = 16.dp,
+                                                        accentColor = MinAccent,
+                                                        isDarkTheme = isDarkTheme,
+                                                        tiltX = tiltX,
+                                                        tiltY = tiltY,
+                                                        isActive = isSelected
                                                     )
                                                 } else {
-                                                    listOf(
-                                                        Color.White.copy(alpha = (0.92f * safeProgress).coerceIn(0f, 1f)),
-                                                        MinAccent.copy(alpha = (0.26f * safeProgress).coerceIn(0f, 1f)),
-                                                        Color.White.copy(alpha = (0.75f * safeProgress).coerceIn(0f, 1f)),
-                                                        MinAccent.copy(alpha = (0.20f * safeProgress).coerceIn(0f, 1f))
+                                                    Modifier.clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 16.dp))
+                                                }
+                                            )
+                                            .drawWithContent {
+                                                if (styleType == StyleType.Techno) {
+                                                    if (isSelected) {
+                                                        drawRoundRect(
+                                                            color = Color(0xFF00FF41).copy(alpha = 0.18f),
+                                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx())
+                                                        )
+                                                        drawRoundRect(
+                                                            color = Color(0xFF00FF41),
+                                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                                                        )
+                                                    } else {
+                                                        drawRoundRect(
+                                                            color = Color(0xFF00FF41).copy(alpha = 0.3f),
+                                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
+                                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                                        )
+                                                    }
+                                                } else if (safeProgress <= 0.01f) {
+                                                    drawRoundRect(
+                                                        color = if (isDarkTheme) Color(0xFF1E202E) else Color(0xFFE8EAF0),
+                                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx(), 16.dp.toPx())
                                                     )
-                                                },
-                                                start = androidx.compose.ui.geometry.Offset(lightOffsetX, lightOffsetY),
-                                                end = androidx.compose.ui.geometry.Offset(w - lightOffsetX, h - lightOffsetY)
-                                            )
-                                            drawRoundRect(brush = baseGlassBrush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
-
-                                            // 3. Upper 3D Convex Dome Specular Glare (Physical Lens Reflection)
-                                            val glareBrush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                                colors = listOf(
-                                                    Color.White.copy(alpha = ((if (isDarkTheme) 0.65f else 0.90f) * safeProgress).coerceIn(0f, 1f)),
-                                                    Color.White.copy(alpha = ((if (isDarkTheme) 0.20f else 0.35f) * safeProgress).coerceIn(0f, 1f)),
-                                                    Color.Transparent
-                                                ),
-                                                center = androidx.compose.ui.geometry.Offset(w * 0.45f + lightOffsetX * 1.2f, h * 0.25f + lightOffsetY * 1.2f),
-                                                radius = w * 0.70f
-                                            )
-                                            drawRoundRect(brush = glareBrush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
-
-                                            // 4. Dynamic Liquid Shimmer Beam
-                                            val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                                colors = listOf(
-                                                    Color.Transparent,
-                                                    Color.White.copy(alpha = (shimmerAlpha * safeProgress).coerceIn(0f, 1f)),
-                                                    Color.Transparent
-                                                ),
-                                                start = androidx.compose.ui.geometry.Offset(w * 0.1f + lightOffsetX, 0f),
-                                                end = androidx.compose.ui.geometry.Offset(w * 0.8f + lightOffsetX, h)
-                                            )
-                                            drawRoundRect(brush = shimmerBrush, cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r))
-
-                                            // 5. Prismatic Diamond-Cut Bevel Rim (Chromatic Dispersion Effect)
-                                            val angleRad = kotlin.math.atan2(tiltY, tiltX)
-                                            val hueShift = ((angleRad * 180 / kotlin.math.PI + 360) % 360).toFloat()
-                                            val prismColor = androidx.compose.ui.graphics.Color.hsl(hueShift, 0.65f, if (isDarkTheme) 0.75f else 0.50f)
-                                            val rimBrush = androidx.compose.ui.graphics.Brush.sweepGradient(
-                                                colors = listOf(
-                                                    Color.White.copy(alpha = (0.95f * safeProgress).coerceIn(0f, 1f)),
-                                                    prismColor.copy(alpha = (0.55f * safeProgress).coerceIn(0f, 1f)),
-                                                    Color.White.copy(alpha = (0.40f * safeProgress).coerceIn(0f, 1f)),
-                                                    prismColor.copy(alpha = (0.45f * safeProgress).coerceIn(0f, 1f)),
-                                                    Color.White.copy(alpha = (0.95f * safeProgress).coerceIn(0f, 1f))
-                                                ),
-                                                center = androidx.compose.ui.geometry.Offset(w / 2f + lightOffsetX, h / 2f + lightOffsetY)
-                                            )
-                                            drawRoundRect(
-                                                brush = rimBrush,
-                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
-                                            )
-                                        } else if (styleType == StyleType.Techno) {
-                                            if (isSelected) {
-                                                drawRoundRect(
-                                                    color = Color(0xFF00FF41).copy(alpha = 0.18f),
-                                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx())
-                                                )
-                                                drawRoundRect(
-                                                    color = Color(0xFF00FF41),
-                                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
-                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-                                                )
-                                            } else {
-                                                drawRoundRect(
-                                                    color = Color(0xFF00FF41).copy(alpha = 0.3f),
-                                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
-                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
-                                                )
+                                                }
+                                                drawContent()
                                             }
-                                        } else {
-                                            // Unselected Glass Container
-                                            drawRoundRect(
-                                                color = Color.White.copy(alpha = 0.04f),
-                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
-                                            )
-                                            drawRoundRect(
-                                                color = Color.White.copy(alpha = 0.12f),
-                                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2.dp.toPx())
-                                            )
-                                        }
-
-                                        drawContent()
-                                    }
-                                    .clickable {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                        onSubgroupChange(index)
-                                    }
-                                    .padding(vertical = 14.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
+                                            .clickable {
+                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                onSubgroupChange(index)
+                                            }
+                                            .padding(vertical = 14.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
                                 Text(
                                     title,
                                     fontSize = 24.sp,
