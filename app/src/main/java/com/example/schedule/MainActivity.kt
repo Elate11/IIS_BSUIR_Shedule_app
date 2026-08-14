@@ -3238,118 +3238,445 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     }
 }
 
+data class GroupStudentInfo(
+    val fio: String,
+    val position: Int,
+    val averageMark: Double? = null,
+    val rating: Double? = null,
+    val isCurrentUser: Boolean = false
+)
+
 @Composable
-fun MinGroupScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean = true, onBack: () -> Unit) {
-    var students by remember { mutableStateOf<List<String>>(emptyList()) }
+fun MinGroupScreen(
+    MinBg: androidx.compose.ui.graphics.Color,
+    MinCardBg: androidx.compose.ui.graphics.Color,
+    MinBorder: androidx.compose.ui.graphics.Color,
+    MinTextPrimary: androidx.compose.ui.graphics.Color,
+    MinTextSecondary: androidx.compose.ui.graphics.Color,
+    currentAccent: androidx.compose.ui.graphics.Color = MinTextPrimary,
+    isDarkTheme: Boolean = true,
+    onBack: () -> Unit
+) {
+    var students by remember { mutableStateOf<List<GroupStudentInfo>>(emptyList()) }
+    var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val styleType = LocalStyleType.current
+    val isTechno = styleType == StyleType.Techno
+    val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+    val userGroup = remember { prefs.getString("login_group", "")?.ifBlank { prefs.getString("selectedGroup", "") ?: "" } ?: "" }
 
-    LaunchedEffect(Unit) {
-        withContext(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                val token = prefs.getString("auth_token", null)
-                if (token == null) {
-                    errorMessage = "Требуется авторизация"
-                    isLoading = false
-                    return@withContext
-                }
-
-                val client = com.example.schedule.NetworkClient.client
-                val request = okhttp3.Request.Builder()
-                    .url("https://iis.bsuir.by/api/v1/grade-book/group-students")
-                    .addHeader("Cookie", token)
-                    .addHeader("User-Agent", "Mozilla/5.0")
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    val body = response.body?.string()
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        if (response.isSuccessful && body != null) {
-                            try {
-                                val list = mutableListOf<String>()
-                                val jsonArray = org.json.JSONArray(body)
-                                for (i in 0 until jsonArray.length()) {
-                                    val obj = jsonArray.optJSONObject(i)
-                                    val fio = obj?.optString("fio")
-                                    if (!fio.isNullOrEmpty()) list.add(fio)
+    fun parseStudentsFromJson(jsonStr: String, currentUserFio: String): List<GroupStudentInfo> {
+        val list = mutableListOf<GroupStudentInfo>()
+        try {
+            val trimmed = jsonStr.trim()
+            if (trimmed.startsWith("[")) {
+                val jsonArray = org.json.JSONArray(trimmed)
+                for (i in 0 until jsonArray.length()) {
+                    val item = jsonArray.opt(i)
+                    if (item is String && item.isNotBlank()) {
+                        val isCur = currentUserFio.isNotBlank() && (item.contains(currentUserFio, ignoreCase = true) || currentUserFio.contains(item, ignoreCase = true))
+                        list.add(GroupStudentInfo(fio = item.trim(), position = i + 1, isCurrentUser = isCur))
+                    } else if (item is org.json.JSONObject) {
+                        val fio = item.optString("fio", "").ifBlank {
+                            item.optString("fullName", "").ifBlank {
+                                item.optString("studentFio", "").ifBlank {
+                                    val st = item.optJSONObject("student")
+                                    st?.optString("fio", "") ?: st?.optString("fullName", "") ?: ""
                                 }
-                                students = list
-                                isLoading = false
-                            } catch (e: Exception) {
-                                errorMessage = "Ошибка данных: ${e.message}"
-                                isLoading = false
                             }
-                        } else {
-                            errorMessage = "Ошибка ${response.code}: Нет доступа к списку группы"
-                            isLoading = false
+                        }
+                        if (fio.isNotBlank()) {
+                            val pos = item.optInt("position", item.optInt("place", i + 1))
+                            val avg = if (item.has("averageMark")) item.optDouble("averageMark") else null
+                            val ratingVal = if (item.has("rating")) item.optDouble("rating") else null
+                            val isCur = currentUserFio.isNotBlank() && (fio.contains(currentUserFio, ignoreCase = true) || currentUserFio.contains(fio, ignoreCase = true))
+                            list.add(
+                                GroupStudentInfo(
+                                    fio = fio.trim(),
+                                    position = pos,
+                                    averageMark = if (avg != null && avg > 0.0) avg else null,
+                                    rating = if (ratingVal != null && ratingVal > 0.0) ratingVal else null,
+                                    isCurrentUser = isCur
+                                )
+                            )
                         }
                     }
                 }
-            } catch (e: Exception) {
+            } else if (trimmed.startsWith("{")) {
+                val root = org.json.JSONObject(trimmed)
+                val keys = listOf("students", "rating", "items", "groupStudents", "grades", "list")
+                for (k in keys) {
+                    if (root.has(k)) {
+                        val arr = root.optJSONArray(k)
+                        if (arr != null) {
+                            return parseStudentsFromJson(arr.toString(), currentUserFio)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    LaunchedEffect(Unit) {
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val token = prefs.getString("auth_token", "") ?: ""
+            val currentFio = prefs.getString("user_fio", "") ?: ""
+
+            // 1. Load cached list immediately
+            val cached = prefs.getString("cached_group_students", null)
+            if (cached != null) {
+                val parsedCache = parseStudentsFromJson(cached, currentFio)
+                if (parsedCache.isNotEmpty()) {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        students = parsedCache
+                        isLoading = false
+                    }
+                }
+            }
+
+            if (token.isBlank()) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    errorMessage = "Ошибка сети: ${e.message}"
+                    if (students.isEmpty()) {
+                        errorMessage = "Требуется авторизация"
+                        isLoading = false
+                    }
+                }
+                return@withContext
+            }
+
+            var fetchedSuccessfully = false
+            val urlsToTry = mutableListOf<String>()
+            if (userGroup.isNotBlank()) {
+                urlsToTry.add("https://iis.bsuir.by/api/v1/rating/group?studentGroup=$userGroup")
+                urlsToTry.add("https://iis.bsuir.by/api/v1/rating/last?studentGroup=$userGroup")
+            }
+            urlsToTry.add("https://iis.bsuir.by/api/v1/grade-book/group-students")
+            urlsToTry.add("https://iis.bsuir.by/api/v1/omissions")
+
+            for (url in urlsToTry) {
+                try {
+                    val request = NetworkClient.buildGetRequest(url, token)
+                    NetworkClient.client.newCall(request).execute().use { response ->
+                        val body = response.body?.string()
+                        if (response.isSuccessful && !body.isNullOrBlank()) {
+                            val parsed = if (url.contains("omissions")) {
+                                val setOfFios = mutableSetOf<String>()
+                                val omissionArray = org.json.JSONArray(body)
+                                for (i in 0 until omissionArray.length()) {
+                                    val item = omissionArray.optJSONObject(i)
+                                    val st = item?.optJSONObject("student")
+                                    val f = st?.optString("fio") ?: ""
+                                    if (f.isNotBlank()) setOfFios.add(f.trim())
+                                }
+                                setOfFios.sorted().mapIndexed { idx, name ->
+                                    val isCur = currentFio.isNotBlank() && (name.contains(currentFio, ignoreCase = true) || currentFio.contains(name, ignoreCase = true))
+                                    GroupStudentInfo(fio = name, position = idx + 1, isCurrentUser = isCur)
+                                }
+                            } else {
+                                parseStudentsFromJson(body, currentFio)
+                            }
+
+                            if (parsed.isNotEmpty()) {
+                                prefs.edit().putString("cached_group_students", body).apply()
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    students = parsed
+                                    errorMessage = null
+                                    isLoading = false
+                                }
+                                fetchedSuccessfully = true
+                                return@use
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // try next endpoint
+                }
+                if (fetchedSuccessfully) break
+            }
+
+            if (!fetchedSuccessfully && students.isEmpty()) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    errorMessage = "Не удалось загрузить список группы"
                     isLoading = false
                 }
             }
         }
     }
 
+    val filteredStudents = remember(students, searchQuery) {
+        if (searchQuery.isBlank()) {
+            students
+        } else {
+            students.filter { it.fio.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
     androidx.compose.foundation.lazy.LazyColumn(
         modifier = androidx.compose.ui.Modifier.fillMaxSize().background(MinBg),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 24.dp, vertical = 40.dp),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 36.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
     ) {
         item {
-            androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.KeyboardArrowLeft, contentDescription = "Назад", tint = MinTextPrimary, modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() })
+            // Header with Back Button and Title
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Icon(
+                    Icons.Outlined.KeyboardArrowLeft,
+                    contentDescription = "Назад",
+                    tint = MinTextPrimary,
+                    modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() }
+                )
                 androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
-                androidx.compose.material3.Text("Список группы", fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
+                androidx.compose.material3.Text(
+                    if (isTechno) "> СПИСОК ГРУППЫ_" else "Список группы",
+                    fontSize = 24.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    color = MinTextPrimary,
+                    fontFamily = if (isTechno) vt323FontFamily else null
+                )
+                if (userGroup.isNotBlank()) {
+                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .background(currentAccent.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        androidx.compose.material3.Text(
+                            userGroup,
+                            fontSize = 13.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = currentAccent,
+                            fontFamily = if (isTechno) vt323FontFamily else null
+                        )
+                    }
+                }
             }
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
+
+            // Search Bar
+            if (students.isNotEmpty()) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .background(if (isTechno) Color(0xFF0A0A0A) else MinCardBg)
+                        .border(
+                            1.dp,
+                            if (isTechno) Color(0xFF00FF41).copy(alpha = 0.4f) else MinBorder,
+                            androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                        )
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Icon(
+                            androidx.compose.material.icons.Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = MinTextSecondary,
+                            modifier = androidx.compose.ui.Modifier.size(20.dp)
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = MinTextPrimary,
+                                fontSize = 15.sp,
+                                fontFamily = if (isTechno) vt323FontFamily else null
+                            ),
+                            singleLine = true,
+                            modifier = androidx.compose.ui.Modifier.weight(1f).padding(vertical = 10.dp),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    androidx.compose.material3.Text(
+                                        "Поиск по фамилии или имени...",
+                                        color = MinTextSecondary.copy(alpha = 0.6f),
+                                        fontSize = 15.sp,
+                                        fontFamily = if (isTechno) vt323FontFamily else null
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            androidx.compose.material3.Icon(
+                                androidx.compose.material.icons.Icons.Outlined.Close,
+                                contentDescription = "Очистить",
+                                tint = MinTextSecondary,
+                                modifier = androidx.compose.ui.Modifier.size(18.dp).clickable { searchQuery = "" }
+                            )
+                        }
+                    }
+                }
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
+
+                // Stats subtitle
+                androidx.compose.material3.Text(
+                    "Студентов в группе: ${filteredStudents.size}${if (searchQuery.isNotEmpty()) " (из ${students.size})" else ""}",
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    color = MinTextSecondary,
+                    fontFamily = if (isTechno) vt323FontFamily else null
+                )
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+            }
         }
 
-        if (isLoading) {
+        if (isLoading && students.isEmpty()) {
             item {
-                androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    androidx.compose.material3.CircularProgressIndicator(color = MinTextPrimary)
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(color = currentAccent)
                 }
             }
-        } else if (errorMessage != null) {
+        } else if (errorMessage != null && students.isEmpty()) {
             item {
-                androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    androidx.compose.material3.Text(errorMessage ?: "", color = androidx.compose.ui.graphics.Color(0xFFF44336), fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        errorMessage ?: "Ошибка",
+                        color = androidx.compose.ui.graphics.Color(0xFFF44336),
+                        fontSize = 16.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontFamily = if (isTechno) vt323FontFamily else null
+                    )
                 }
             }
-        } else if (students.isEmpty()) {
+        } else if (filteredStudents.isEmpty()) {
             item {
-                androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    androidx.compose.material3.Text("Список пуст", color = MinTextSecondary, fontSize = 18.sp)
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        if (searchQuery.isNotEmpty()) "Никого не найдено" else "Список пуст",
+                        color = MinTextSecondary,
+                        fontSize = 16.sp,
+                        fontFamily = if (isTechno) vt323FontFamily else null
+                    )
                 }
             }
         } else {
-            items(students.size) { index ->
-                val FIO = students[index]
-                androidx.compose.foundation.layout.Row(
+            items(filteredStudents.size) { index ->
+                val student = filteredStudents[index]
+                val cardBorderColor = when {
+                    isTechno -> if (student.isCurrentUser) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.35f)
+                    student.isCurrentUser -> currentAccent.copy(alpha = 0.60f)
+                    else -> MinBorder
+                }
+
+                val cardBgColor = when {
+                    isTechno -> if (student.isCurrentUser) Color(0xFF00FF41).copy(alpha = 0.12f) else Color(0xFF0A0A0A)
+                    student.isCurrentUser -> currentAccent.copy(alpha = if (isDarkTheme) 0.12f else 0.08f)
+                    else -> MinCardBg
+                }
+
+                androidx.compose.foundation.layout.Box(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .background(MinCardBg)
-                        .border(1.dp, MinBorder, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                        .padding(16.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .background(cardBgColor)
+                        .border(1.dp, cardBorderColor, androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
                 ) {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = androidx.compose.ui.Modifier
-                            .size(36.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(MinTextPrimary.copy(alpha = 0.1f)),
-                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
-                        androidx.compose.material3.Text("${index + 1}", fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
+                        // Position badge / avatar
+                        val numColor = if (isTechno) Color(0xFF00FF41) else if (student.isCurrentUser) currentAccent else MinTextPrimary
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .size(32.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(numColor.copy(alpha = if (isDarkTheme) 0.16f else 0.10f))
+                                .border(1.dp, numColor.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            androidx.compose.material3.Text(
+                                "${student.position}",
+                                fontSize = 13.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                color = numColor,
+                                fontFamily = if (isTechno) vt323FontFamily else null
+                            )
+                        }
+
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+
+                        // Student Name
+                        androidx.compose.foundation.layout.Column(
+                            modifier = androidx.compose.ui.Modifier.weight(1f)
+                        ) {
+                            androidx.compose.foundation.layout.Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.Text(
+                                    student.fio,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (student.isCurrentUser) androidx.compose.ui.text.font.FontWeight.ExtraBold else androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = if (isTechno) Color(0xFF00FF41) else MinTextPrimary,
+                                    fontFamily = if (isTechno) vt323FontFamily else null
+                                )
+                                if (student.isCurrentUser) {
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
+                                    androidx.compose.foundation.layout.Box(
+                                        modifier = androidx.compose.ui.Modifier
+                                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                                            .background(currentAccent)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        androidx.compose.material3.Text(
+                                            "ВЫ",
+                                            fontSize = 10.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Average mark / Rating badge if present
+                        if (student.averageMark != null && student.averageMark > 0.0) {
+                            val markColor = when {
+                                isTechno -> Color(0xFF00FF41)
+                                student.averageMark >= 8.0 -> if (isDarkTheme) Color(0xFF4CAF50) else Color(0xFF2E7D32)
+                                student.averageMark >= 6.0 -> if (isDarkTheme) Color(0xFFFF9800) else Color(0xFFE65100)
+                                else -> if (isDarkTheme) Color(0xFFF44336) else Color(0xFFC62828)
+                            }
+
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                                    .background(markColor.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.material3.Text(
+                                    String.format("%.1f", student.averageMark),
+                                    fontSize = 13.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                    color = markColor,
+                                    fontFamily = if (isTechno) vt323FontFamily else null
+                                )
+                            }
+                        }
                     }
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(16.dp))
-                    androidx.compose.material3.Text(FIO, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = MinTextPrimary)
                 }
             }
         }
@@ -4270,7 +4597,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     } else if (showGroupScreen) {
         androidx.activity.compose.BackHandler(onBack = { showGroupScreen = false })
         Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
-            MinGroupScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, isDarkTheme) {
+            MinGroupScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) {
                 showGroupScreen = false
             }
         }
