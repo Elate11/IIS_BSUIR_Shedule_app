@@ -2167,27 +2167,19 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
         androidx.compose.foundation.layout.Column(
             modifier = androidx.compose.ui.Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())
         ) {
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(44.dp))
+            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(40.dp))
             
-            // Header with Back Button and Centered Title
-            androidx.compose.foundation.layout.Box(
-                modifier = androidx.compose.ui.Modifier.fillMaxWidth()
+            // Header with Centered Title matching Notes style
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
-                androidx.compose.material3.Icon(
-                    Icons.Outlined.KeyboardArrowLeft,
-                    contentDescription = "Назад",
-                    tint = MinTextPrimary,
-                    modifier = androidx.compose.ui.Modifier
-                        .size(32.dp)
-                        .align(androidx.compose.ui.Alignment.CenterStart)
-                        .clickable { onBack() }
-                )
                 androidx.compose.material3.Text(
                     if (isTechno) "> ТЕКУЩИЕ ОТМЕТКИ_" else "Текущие отметки",
-                    fontSize = 22.sp,
+                    fontSize = 33.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
                     color = MinTextPrimary,
-                    modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     fontFamily = if (isTechno) vt323FontFamily else null
                 )
