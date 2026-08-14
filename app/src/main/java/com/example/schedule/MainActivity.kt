@@ -1876,7 +1876,8 @@ data class Note(
     val id: String = java.util.UUID.randomUUID().toString(),
     val subject: String,
     val text: String,
-    val date: String
+    val date: String,
+    val isEvent: Boolean = false
 )
 
 @Composable
@@ -4271,6 +4272,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     var selectedSubject by remember { mutableStateOf("Все") }
     var noteText by remember { mutableStateOf("") }
+    var isEventNote by remember { mutableStateOf(false) }
 
     val todayCal = remember { java.util.Calendar.getInstance() }
     var selectedDay by remember { mutableStateOf(todayCal.get(java.util.Calendar.DAY_OF_MONTH)) }
@@ -4381,7 +4383,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .height(56.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color.White.copy(alpha = 0.08f))
-                            .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                             .clickable {
                                 radialExpanded = !radialExpanded
                                 if (radialExpanded) isCalendarExpanded = false
@@ -4404,7 +4405,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .height(56.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.White.copy(alpha = 0.08f))
-                        .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                         .clickable {
                             isCalendarExpanded = !isCalendarExpanded
                             if (isCalendarExpanded) radialExpanded = false
@@ -4425,7 +4425,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.White.copy(alpha = 0.06f))
-                        .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                         .padding(6.dp)
                 ) {
                     subjects.forEach { subject ->
@@ -4473,35 +4472,83 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             OutlinedTextField(
                 value = noteText,
                 onValueChange = { noteText = it },
-                placeholder = { Text("Введите заметку...") },
+                placeholder = { Text("Введите текст заметки или события...") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = MinTextPrimary,
                     unfocusedTextColor = MinTextPrimary,
                     cursorColor = MinTextPrimary,
-                    focusedBorderColor = MinTextPrimary,
+                    focusedBorderColor = MinAccent,
                     unfocusedBorderColor = MinBorder,
                     focusedPlaceholderColor = MinTextSecondary,
                     unfocusedPlaceholderColor = MinTextSecondary
                 ),
-                maxLines = 6
+                maxLines = 6,
+                shape = RoundedCornerShape(16.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
-            androidx.compose.material3.TextButton(
-                onClick = {
-                    if (noteText.isNotBlank()) {
-                        val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
-                        val newNote = Note(subject = subjectForNote, text = noteText, date = formatDate(selectedDay, selectedMonth, selectedYear))
-                        saveNotes(notes + newNote)
-                        scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
-                        noteText = ""
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // "Событие" button toggle
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isEventNote) MinAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                        .clickable { isEventNote = !isEventNote },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (isEventNote) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
+                            contentDescription = null,
+                            tint = if (isEventNote) MinAccent else MinTextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            "Событие",
+                            color = if (isEventNote) MinAccent else MinTextPrimary,
+                            fontWeight = if (isEventNote) FontWeight.ExtraBold else FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
                     }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MinAccent),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Text("Сохранить", fontWeight = FontWeight.Bold)
+                }
+
+                // "Сохранить" button
+                Box(
+                    modifier = Modifier
+                        .weight(1.2f)
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MinAccent)
+                        .clickable {
+                            if (noteText.isNotBlank()) {
+                                val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
+                                val newNote = Note(
+                                    subject = subjectForNote,
+                                    text = noteText,
+                                    date = formatDate(selectedDay, selectedMonth, selectedYear),
+                                    isEvent = isEventNote
+                                )
+                                saveNotes(notes + newNote)
+                                scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
+                                noteText = ""
+                                isEventNote = false
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (isEventNote) "Сохранить событие" else "Сохранить",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
             }
         }
         if (subjectNotes.isNotEmpty()) {
@@ -4519,7 +4566,22 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 ) {
                     Column {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(note.subject, modifier = Modifier.weight(1f, fill = false), maxLines = 1, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MinAccent)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f, fill = false)) {
+                                Text(note.subject, maxLines = 1, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MinAccent)
+                                if (note.isEvent) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MinAccent.copy(alpha = 0.18f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = MinAccent, modifier = Modifier.size(12.dp))
+                                            Text("Событие", color = MinAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(note.date, fontSize = 17.sp, color = MinTextSecondary, fontWeight = FontWeight.Bold)
                         }
