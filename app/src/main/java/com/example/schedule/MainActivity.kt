@@ -7244,6 +7244,70 @@ fun MinCustomizationView(
 
 
         item {
+            val reminderContext = androidx.compose.ui.platform.LocalContext.current
+            val reminderPrefs = remember { reminderContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+            var selectedTiming by remember {
+                mutableStateOf(reminderPrefs.getString("event_reminder_timing", "1_day_before_18") ?: "1_day_before_18")
+            }
+            val timingOptions = listOf(
+                "1_day_before_18" to "За 1 день до события (в 18:00)",
+                "1_day_before_21" to "За 1 день до события (в 21:00)",
+                "same_day_08" to "В день события (в 08:00)",
+                "same_day_09" to "В день события (в 09:00)",
+                "2_hours_before" to "За 2 часа до события",
+                "1_hour_before" to "За 1 час до события",
+                "15_min_before" to "За 15 минут до события"
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Напоминания о событиях", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
+            Spacer(modifier = Modifier.height(12.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                timingOptions.forEach { (key, label) ->
+                    val isSelected = key == selectedTiming
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color.Transparent)
+                            .border(
+                                if (isSelected) 2.dp else 1.dp,
+                                if (isSelected) MinTextPrimary else MinBorder,
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable {
+                                selectedTiming = key
+                                reminderPrefs.edit().putString("event_reminder_timing", key).apply()
+                            }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            label,
+                            fontSize = 15.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MinTextPrimary else MinTextSecondary
+                        )
+                        if (isSelected) {
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = MinTextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MinBorder, thickness = 1.dp)
+        }
+
+        item {
             Spacer(modifier = Modifier.height(16.dp))
             Text("Отображение", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
             Spacer(modifier = Modifier.height(16.dp))
