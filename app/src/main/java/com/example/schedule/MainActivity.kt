@@ -1218,6 +1218,16 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 label = "shimmerAlpha"
             )
 
+            val targetArrIndex = validDayIndices.indexOf(selectedDayIndex).coerceAtLeast(0)
+            val animatedIndex by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = targetArrIndex.toFloat(),
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = 0.58f,
+                    stiffness = 240f
+                ),
+                label = "dropletSpring"
+            )
+
             androidx.compose.foundation.lazy.LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1233,15 +1243,15 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     val isSelected = index == selectedDayIndex
                     val isToday = index == 7
                     
-                    // Smooth spring morphing for selection
-                    val animProgress by androidx.compose.animation.core.animateFloatAsState(
-                        targetValue = if (isSelected) 1f else 0f,
-                        animationSpec = androidx.compose.animation.core.spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                        )
-                    )
-                    val safeProgress = animProgress.coerceIn(0f, 1f)
+                    val dist = arrIndex - animatedIndex
+                    val absDist = kotlin.math.abs(dist)
+                    val safeProgress = (1f - absDist).coerceIn(0f, 1f)
+                    
+                    // Dynamic liquid drop squish & stretch based on velocity and distance
+                    val stretchFactor = (1f - (absDist * 2f).coerceIn(0f, 1f))
+                    val moveVelocity = (targetArrIndex - animatedIndex)
+                    val dropletScaleX = 1f + 0.06f * safeProgress + 0.14f * kotlin.math.abs(moveVelocity).coerceIn(0f, 1f) * stretchFactor
+                    val dropletScaleY = 1f + 0.04f * safeProgress - 0.06f * kotlin.math.abs(moveVelocity).coerceIn(0f, 1f) * stretchFactor
                     
                     val targetTextColor = when {
                         styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
@@ -1256,10 +1266,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         modifier = Modifier
                             .graphicsLayer {
                                 if (styleType != StyleType.Techno) {
-                                    val scale = 1f + 0.05f * safeProgress
-                                    scaleX = scale
-                                    scaleY = scale
-                                    translationX = tiltX * 2.dp.toPx() * safeProgress
+                                    scaleX = dropletScaleX
+                                    scaleY = dropletScaleY
+                                    translationX = (tiltX * 2.dp.toPx() - dist * 4.dp.toPx() * (1f - safeProgress)) * safeProgress
                                     translationY = tiltY * 1.5.dp.toPx() * safeProgress
                                 }
                             }
@@ -1273,7 +1282,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         isDarkTheme = isDarkTheme,
                                         tiltX = tiltX,
                                         tiltY = tiltY,
-                                        isActive = isSelected
+                                        isActive = safeProgress > 0.4f
                                     )
                                 } else {
                                     Modifier
