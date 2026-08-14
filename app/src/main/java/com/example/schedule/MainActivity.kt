@@ -6523,8 +6523,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
                 MinListAction("Группа", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Person) { showGroupScreen = true }
                 MinListAction("Взыскания", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Warning) { showPenalties = true }
-                MinListAction("Кастомизация", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Settings, isLast = false) { showCustomization = true }
-                MinListAction("Напоминания о событиях", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.NotificationsActive, isLast = true) { showReminderSettings = true }
+                MinListAction("Кастомизация", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Settings, isLast = true) { showCustomization = true }
             }
             Spacer(modifier = Modifier.height(40.dp))
         }
