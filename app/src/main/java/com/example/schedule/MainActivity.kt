@@ -5,6 +5,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
 
 import androidx.compose.ui.graphics.graphicsLayer
@@ -4418,13 +4419,16 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         item {
             Row(modifier = Modifier.fillMaxWidth().zIndex(10f), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
 
+                val isDark = MinBg.luminance() < 0.5f
+
                 Box(modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                            .background(Color.White.copy(alpha = if (isDark) 0.08f else 0.45f))
+                            .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                             .clickable { radialExpanded = !radialExpanded }
                             .padding(horizontal = 16.dp),
                         contentAlignment = Alignment.CenterStart
@@ -4438,7 +4442,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     DropdownMenu(
                         expanded = radialExpanded,
                         onDismissRequest = { radialExpanded = false },
-                        modifier = Modifier.background(MinBg)
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isDark) Color(0xFF14161F).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.90f))
+                            .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                     ) {
                         subjects.forEach { subject ->
                             DropdownMenuItem(
@@ -4455,7 +4462,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     modifier = Modifier
                         .height(56.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(alpha = if (isDark) 0.08f else 0.45f))
+                        .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                         .clickable { isCalendarExpanded = !isCalendarExpanded }
                         .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.CenterStart
