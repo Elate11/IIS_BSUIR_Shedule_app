@@ -7303,6 +7303,42 @@ fun MinCustomizationView(
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.Transparent)
+                    .border(1.dp, MinTextPrimary, RoundedCornerShape(14.dp))
+                    .clickable {
+                        val testIntent = android.content.Intent(reminderContext, NoteReminderReceiver::class.java).apply {
+                            putExtra("SUBJECT", "Тестовое уведомление")
+                            putExtra("TEXT", "Уведомления о событиях работают корректно!")
+                            putExtra("IS_EVENT", true)
+                        }
+                        reminderContext.sendBroadcast(testIntent)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Outlined.NotificationsActive,
+                        contentDescription = null,
+                        tint = MinTextPrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        "Отправить тестовое уведомление",
+                        color = MinTextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MinBorder, thickness = 1.dp)
         }
