@@ -453,6 +453,7 @@ fun MinimalistApp() {
     }
     val MinAccent = MinTextPrimary
 
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val items = listOf("Расписание", "Оценки", "Заметки", "Профиль")
     val icons = listOf(Icons.Outlined.DateRange, Icons.Outlined.CheckCircle, Icons.Outlined.Edit, Icons.Outlined.Person)
     
@@ -545,6 +546,7 @@ fun MinimalistApp() {
                                                 .fillMaxHeight()
                                                 .border(if (isSelected) 1.dp else 0.dp, if (isSelected) MinTextPrimary else Color.Transparent)
                                                 .clickable {
+                                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                                     coroutineScope.launch { pagerState.scrollToPage(index) }
                                                 },
                                             contentAlignment = Alignment.Center
@@ -574,6 +576,7 @@ fun MinimalistApp() {
                                         label = null,
                                         selected = isSelected,
                                         onClick = { 
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                             coroutineScope.launch {
                                                 if (transitionsEnabled) {
                                                     pagerState.animateScrollToPage(
@@ -4351,6 +4354,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedByDescending { it.date }
     }
 
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned } }
     val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned } }
 
@@ -4360,7 +4364,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             title = { Text("Удалить заметку?", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold) },
             text = { Text("Действие нельзя отменить.", color = androidx.compose.ui.graphics.Color(0xFFEEEEEE)) },
             confirmButton = {
-                TextButton(onClick = { saveNotes(notes.filter { it.id != noteToDelete!!.id }); noteToDelete = null }) {
+                TextButton(onClick = { 
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    saveNotes(notes.filter { it.id != noteToDelete!!.id })
+                    noteToDelete = null 
+                }) {
                     Text("Удалить", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
                 }
             },
@@ -4414,7 +4422,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .background(MinAccent.copy(alpha = 0.15f))
-                                .clickable { editSubjectExpanded = !editSubjectExpanded }
+                                .clickable { 
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    editSubjectExpanded = !editSubjectExpanded 
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -4451,6 +4462,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable {
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                             editSubject = s
                                             editSubjectExpanded = false
                                         }
@@ -4487,7 +4499,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
-                                .clickable { editIsPinned = !editIsPinned },
+                                .clickable { 
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    editIsPinned = !editIsPinned 
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4513,7 +4528,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
-                                .clickable { editIsEvent = !editIsEvent },
+                                .clickable { 
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    editIsEvent = !editIsEvent 
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -4540,6 +4558,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     ) {
                         Button(
                             onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 saveNotes(notes.filter { it.id != noteToEdit!!.id })
                                 noteToEdit = null
                             },
@@ -4553,6 +4572,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Button(
                             onClick = {
                                 if (editText.isNotBlank()) {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     val updated = noteToEdit!!.copy(
                                         text = editText,
                                         subject = editSubject,
@@ -4611,6 +4631,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.08f))
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 scaleLevel = (scaleLevel - 0.15f).coerceIn(0.75f, 1.40f)
                             },
                         contentAlignment = Alignment.Center
@@ -4625,6 +4646,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.08f))
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 scaleLevel = (scaleLevel + 0.15f).coerceIn(0.75f, 1.40f)
                             },
                         contentAlignment = Alignment.Center
@@ -4638,7 +4660,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .size(36.dp)
                             .clip(CircleShape)
                             .background(if (isGridMode) MinAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
-                            .clickable { isGridMode = !isGridMode },
+                            .clickable { 
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                isGridMode = !isGridMode 
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -4664,6 +4689,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color.White.copy(alpha = 0.08f))
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 radialExpanded = !radialExpanded
                                 if (radialExpanded) isCalendarExpanded = false
                             }
@@ -4684,6 +4710,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.White.copy(alpha = 0.08f))
                         .clickable {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                             isCalendarExpanded = !isCalendarExpanded
                             if (isCalendarExpanded) radialExpanded = false
                         }
@@ -4713,6 +4740,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(if (isSel) Color.White.copy(alpha = 0.18f) else Color.Transparent)
                                 .clickable {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     selectedSubject = subject
                                     radialExpanded = false
                                 }
@@ -4739,7 +4767,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         highlightedDates = highlightedDates,
                         MinTextPrimary = MinTextPrimary, MinTextSecondary = MinTextSecondary,
                         MinBorder = MinBorder, MinAccent = MinAccent, MinBg = MinBg,
-                        onDaySelected = { d, m, y -> selectedDay = d; selectedMonth = m; selectedYear = y; isCalendarExpanded = false },
+                        onDaySelected = { d, m, y -> 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            selectedDay = d; selectedMonth = m; selectedYear = y; isCalendarExpanded = false 
+                        },
                         onPrevMonth = { if (viewMonth == 0) { viewMonth = 11; viewYear-- } else viewMonth-- },
                         onNextMonth = { if (viewMonth == 11) { viewMonth = 0; viewYear++ } else viewMonth++ }
                     )
@@ -4785,7 +4816,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .height(46.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
-                            .clickable { isEventNote = !isEventNote },
+                            .clickable { 
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                isEventNote = !isEventNote 
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -4816,6 +4850,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .background(MinAccent)
                             .clickable {
                                 if (noteText.isNotBlank()) {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
                                     val newNote = Note(
                                         subject = subjectForNote,
@@ -4854,8 +4889,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     .clip(RoundedCornerShape((20 * scaleLevel).dp))
                     .background(Color.White.copy(alpha = 0.08f))
                     .combinedClickable(
-                        onClick = { noteToEdit = note },
-                        onLongClick = { noteToDelete = note }
+                        onClick = { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            noteToEdit = note 
+                        },
+                        onLongClick = { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            noteToDelete = note 
+                        }
                     )
                     .padding((16 * scaleLevel).dp)
             ) {
@@ -4972,6 +5013,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         // Pin Action
                         IconButton(
                             onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 saveNotes(notes.map { if (it.id == note.id) it.copy(isPinned = !it.isPinned) else it })
                             },
                             modifier = Modifier.size((32 * scaleLevel).dp)
@@ -4986,7 +5028,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
                         // Edit Action
                         IconButton(
-                            onClick = { noteToEdit = note },
+                            onClick = { 
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                noteToEdit = note 
+                            },
                             modifier = Modifier.size((32 * scaleLevel).dp)
                         ) {
                             Icon(
@@ -4999,7 +5044,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
                         // Delete Action
                         IconButton(
-                            onClick = { noteToDelete = note },
+                            onClick = { 
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                noteToDelete = note 
+                            },
                             modifier = Modifier.size((32 * scaleLevel).dp)
                         ) {
                             Icon(
@@ -6263,8 +6311,12 @@ fun MinStat(label: String, value: String, MinTextPrimary: Color, MinTextSecondar
 
 @Composable
 fun MinListAction(label: String, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, icon: androidx.compose.ui.graphics.vector.ImageVector? = null, isLast: Boolean = false, onClick: () -> Unit = {}) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val padding = Modifier.padding(vertical = 16.dp)
-    Column(modifier = Modifier.fillMaxWidth().clickable { onClick() }.then(padding)) {
+    Column(modifier = Modifier.fillMaxWidth().clickable { 
+        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        onClick() 
+    }.then(padding)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (icon != null) {
