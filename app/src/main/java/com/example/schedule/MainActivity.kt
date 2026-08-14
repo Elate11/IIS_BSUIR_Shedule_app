@@ -7158,41 +7158,41 @@ fun MinCustomizationView(
         }
 
         item {
-            androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {
+            androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                    androidx.compose.material3.Text("Тема", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
+                    AutoResizedText("Тема", fontSize = 19.sp, minFontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary, maxLines = 1)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(if (isDarkTheme) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White).clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         onThemeToggle()
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.material3.Text(if (isDarkTheme) "Темная" else "Светлая", fontSize = 17.sp, color = MinTextSecondary)
+                    AutoResizedText(if (isDarkTheme) "Темная" else "Светлая", fontSize = 17.sp, minFontSize = 10.sp, color = MinTextSecondary, maxLines = 1)
                 }
 
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                    androidx.compose.material3.Text("Основной", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
+                    AutoResizedText("Основной", fontSize = 19.sp, minFontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary, maxLines = 1)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinTextPrimary).clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         showPrimaryStrip = true
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable {
+                    AutoResizedText("Сброс", fontSize = 17.sp, minFontSize = 10.sp, color = MinTextSecondary, maxLines = 1, modifier = androidx.compose.ui.Modifier.clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         onPrimaryColorChange(null)
                     })
                 }
     
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                    androidx.compose.material3.Text("Фон", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
+                    AutoResizedText("Фон", fontSize = 19.sp, minFontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary, maxLines = 1)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinBg).clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         showBackgroundStrip = true
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable {
+                    AutoResizedText("Сброс", fontSize = 17.sp, minFontSize = 10.sp, color = MinTextSecondary, maxLines = 1, modifier = androidx.compose.ui.Modifier.clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         onBackgroundColorChange(null)
                     })
@@ -7550,13 +7550,19 @@ fun MinCustomizationView(
             }
             
             if (transitionsEnabled) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TransitionType.values().forEach { type ->
-                        TransitionDemoBox(type, transitionSpeedMultiplier, isSelected = (transitionType == type), onClick = { onTransitionTypeChange(type) }, MinTextPrimary, MinBorder)
+                Spacer(modifier = Modifier.height(12.dp))
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    val allTypes = TransitionType.values().toList()
+                    val chunkedTypes = allTypes.chunked(3)
+                    chunkedTypes.forEach { rowTypes ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                            rowTypes.forEach { type ->
+                                TransitionDemoBox(type, transitionSpeedMultiplier, isSelected = (transitionType == type), onClick = { onTransitionTypeChange(type) }, MinTextPrimary, MinBorder)
+                            }
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
                 
                 Text("Скорость переходов: ${String.format("%.1f", transitionSpeedMultiplier)}x", fontSize = 19.sp, color = MinTextSecondary)
                 Slider(
@@ -7622,7 +7628,7 @@ fun TransitionDemoBox(type: TransitionType, speedMultiplier: Float, isSelected: 
              }.background(MinTextPrimary))
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Text(type.title, fontSize = 17.sp, color = if(isSelected) MinTextPrimary else MinBorder, fontWeight = FontWeight.Bold)
+        AutoResizedText(type.title, fontSize = 17.sp, minFontSize = 10.sp, color = if(isSelected) MinTextPrimary else MinBorder, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
