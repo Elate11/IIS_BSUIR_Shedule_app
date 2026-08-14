@@ -5467,20 +5467,52 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 ) {
                     item {
                         Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    var photoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+                    val profileContext = androidx.compose.ui.platform.LocalContext.current
+                    val profilePrefs = remember { profileContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+                    var customAvatarTimestamp by remember { mutableLongStateOf(profilePrefs.getLong("custom_avatar_timestamp", 0L)) }
+
                     val launcher = rememberLauncherForActivityResult(
                         contract = ActivityResultContracts.GetContent()
-                    ) { uri -> photoUri = uri }
+                    ) { uri ->
+                        if (uri != null) {
+                            try {
+                                profileContext.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                    val avatarFile = java.io.File(profileContext.filesDir, "custom_avatar.png")
+                                    avatarFile.outputStream().use { outputStream ->
+                                        inputStream.copyTo(outputStream)
+                                    }
+                                    val now = System.currentTimeMillis()
+                                    profilePrefs.edit().putLong("custom_avatar_timestamp", now).apply()
+                                    customAvatarTimestamp = now
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
 
                     val scope = rememberCoroutineScope()
                     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
                     var isVibratingActive by remember { mutableStateOf(MaxVibrationController.isVibrating) }
                     var holdProgress by remember { mutableFloatStateOf(0f) }
-                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val context = profileContext
+
+                    val avatarBitmap = remember(customAvatarTimestamp, userPhoto) {
+                        val avatarFile = java.io.File(profileContext.filesDir, "custom_avatar.png")
+                        if (customAvatarTimestamp > 0L && avatarFile.exists()) {
+                            try {
+                                android.graphics.BitmapFactory.decodeFile(avatarFile.absolutePath)?.asImageBitmap()
+                            } catch (e: Exception) { null }
+                        } else if (userPhoto.isNotEmpty()) {
+                            try {
+                                val base64String = if (userPhoto.contains(",")) userPhoto.substringAfter(",") else userPhoto
+                                val bytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
+                                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                            } catch (e: Exception) { null }
+                        } else null
+                    }
 
                     Box(contentAlignment = Alignment.BottomEnd) {
-                        val finalPhoto: Any? = photoUri ?: if (userPhoto.isNotEmpty()) userPhoto else null
-                        
                         Box(
                             modifier = Modifier
                                 .size(200.dp)
@@ -5513,45 +5545,17 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (finalPhoto != null) {
-                                if (finalPhoto is android.net.Uri) {
-                                    androidx.compose.foundation.Image(
-                                        painter = coil.compose.rememberAsyncImagePainter(finalPhoto),
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                    )
-                                } else if (finalPhoto is String) {
-                                    var bitmap: androidx.compose.ui.graphics.ImageBitmap? = null
-                                    try {
-                                        val base64String = if (finalPhoto.contains(",")) finalPhoto.substringAfter(",") else finalPhoto
-                                        val bytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
-                                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                        if (bmp != null) {
-                                            bitmap = bmp.asImageBitmap()
-                                        }
-                                    } catch (e: Exception) {}
-                                    
-                                    if (bitmap != null) {
-                                        androidx.compose.foundation.Image(
-                                            bitmap = bitmap,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                        )
-                                    } else {
-                                        androidx.compose.foundation.Image(
-                                            painter = androidx.compose.ui.res.painterResource(id = R.drawable.avatar),
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                        )
-                                    }
-                                }
+                            if (avatarBitmap != null) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = avatarBitmap,
+                                    contentDescription = "Аватар",
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
                             } else {
                                 androidx.compose.foundation.Image(
                                     painter = androidx.compose.ui.res.painterResource(id = R.drawable.avatar),
-                                    contentDescription = null,
+                                    contentDescription = "Аватар",
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                 )
