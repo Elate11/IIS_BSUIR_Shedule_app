@@ -1297,8 +1297,11 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         Modifier
                                     } else {
                                         Modifier
-                                            .background(if (isDarkTheme) Color(0xFF161822).copy(alpha = 0.35f) else Color(0xFFEFF1F6).copy(alpha = 0.45f))
-                                            .border(1.dp, if (isToday) MinAccent.copy(alpha = 0.6f) else MinBorder, RoundedCornerShape(24.dp))
+                                            .background(Color.Transparent)
+                                            .then(
+                                                if (isToday) Modifier.border(1.dp, MinAccent.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
+                                                else Modifier
+                                            )
                                     }
                                 )
                                 .drawWithContent {
