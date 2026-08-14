@@ -3267,51 +3267,65 @@ fun MinGroupScreen(
     val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
     val userGroup = remember { prefs.getString("login_group", "")?.ifBlank { prefs.getString("selectedGroup", "") ?: "" } ?: "" }
 
-    fun parseStudentsFromJson(jsonStr: String, currentUserFio: String): List<GroupStudentInfo> {
+    fun extractStudentsFromAnySource(jsonStr: String, currentUserFio: String): List<GroupStudentInfo> {
         val list = mutableListOf<GroupStudentInfo>()
+        val setOfFios = mutableSetOf<String>()
+        val studentRatings = mutableMapOf<String, Pair<Double?, Double?>>()
         try {
             val trimmed = jsonStr.trim()
+            val arraysToProcess = mutableListOf<org.json.JSONArray>()
+
             if (trimmed.startsWith("[")) {
-                val jsonArray = org.json.JSONArray(trimmed)
-                for (i in 0 until jsonArray.length()) {
-                    val item = jsonArray.opt(i)
-                    if (item is String && item.isNotBlank()) {
-                        val isCur = currentUserFio.isNotBlank() && (item.contains(currentUserFio, ignoreCase = true) || currentUserFio.contains(item, ignoreCase = true))
-                        list.add(GroupStudentInfo(fio = item.trim(), position = i + 1, isCurrentUser = isCur))
+                try { arraysToProcess.add(org.json.JSONArray(trimmed)) } catch (e: Exception) {}
+            } else if (trimmed.startsWith("{")) {
+                try {
+                    val root = org.json.JSONObject(trimmed)
+                    val keys = listOf("students", "rating", "items", "groupStudents", "grades", "list", "omissions", "studentGroups", "markPages")
+                    for (k in keys) {
+                        val arr = root.optJSONArray(k)
+                        if (arr != null) arraysToProcess.add(arr)
+                    }
+                    val it = root.keys()
+                    while (it.hasNext()) {
+                        val k = it.next()
+                        val arr = root.optJSONArray(k)
+                        if (arr != null && !arraysToProcess.contains(arr)) {
+                            arraysToProcess.add(arr)
+                        }
+                    }
+                } catch (e: Exception) {}
+            }
+
+            for (arr in arraysToProcess) {
+                for (i in 0 until arr.length()) {
+                    val item = arr.opt(i)
+                    if (item is String && item.isNotBlank() && !item.all { it.isDigit() }) {
+                        setOfFios.add(item.trim())
                     } else if (item is org.json.JSONObject) {
-                        val fio = item.optString("fio", "").ifBlank {
+                        val st = item.optJSONObject("student")
+                        var fio = item.optString("fio", "").ifBlank {
                             item.optString("fullName", "").ifBlank {
                                 item.optString("studentFio", "").ifBlank {
-                                    val st = item.optJSONObject("student")
-                                    st?.optString("fio", "") ?: st?.optString("fullName", "") ?: ""
+                                    item.optString("name", "").ifBlank {
+                                        st?.optString("fio", "") ?: st?.optString("fullName", "") ?: ""
+                                    }
                                 }
                             }
                         }
-                        if (fio.isNotBlank()) {
-                            val pos = item.optInt("position", item.optInt("place", i + 1))
-                            val avg = if (item.has("averageMark")) item.optDouble("averageMark") else null
-                            val ratingVal = if (item.has("rating")) item.optDouble("rating") else null
-                            val isCur = currentUserFio.isNotBlank() && (fio.contains(currentUserFio, ignoreCase = true) || currentUserFio.contains(fio, ignoreCase = true))
-                            list.add(
-                                GroupStudentInfo(
-                                    fio = fio.trim(),
-                                    position = pos,
-                                    averageMark = if (avg != null && avg > 0.0) avg else null,
-                                    rating = if (ratingVal != null && ratingVal > 0.0) ratingVal else null,
-                                    isCurrentUser = isCur
-                                )
-                            )
+                        if (fio.isBlank()) {
+                            val fn = st?.optString("firstName", "") ?: item.optString("firstName", "")
+                            val ln = st?.optString("lastName", "") ?: item.optString("lastName", "")
+                            val mn = st?.optString("middleName", "") ?: item.optString("middleName", "")
+                            if (ln.isNotBlank()) fio = "$ln $fn $mn".trim()
                         }
-                    }
-                }
-            } else if (trimmed.startsWith("{")) {
-                val root = org.json.JSONObject(trimmed)
-                val keys = listOf("students", "rating", "items", "groupStudents", "grades", "list")
-                for (k in keys) {
-                    if (root.has(k)) {
-                        val arr = root.optJSONArray(k)
-                        if (arr != null) {
-                            return parseStudentsFromJson(arr.toString(), currentUserFio)
+
+                        if (fio.isNotBlank() && !fio.all { it.isDigit() }) {
+                            setOfFios.add(fio.trim())
+                            val avg = if (item.has("averageMark")) item.optDouble("averageMark") else if (st?.has("averageMark") == true) st.optDouble("averageMark") else null
+                            val ratingVal = if (item.has("rating")) item.optDouble("rating") else if (st?.has("rating") == true) st.optDouble("rating") else null
+                            if (avg != null || ratingVal != null) {
+                                studentRatings[fio.trim()] = (avg to ratingVal)
+                            }
                         }
                     }
                 }
@@ -3319,31 +3333,55 @@ fun MinGroupScreen(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+
+        var pos = 1
+        for (fio in setOfFios.sorted()) {
+            val ratings = studentRatings[fio]
+            val isCur = currentUserFio.isNotBlank() && (fio.contains(currentUserFio, ignoreCase = true) || currentUserFio.contains(fio, ignoreCase = true))
+            list.add(
+                GroupStudentInfo(
+                    fio = fio,
+                    position = pos++,
+                    averageMark = ratings?.first?.takeIf { it > 0.0 },
+                    rating = ratings?.second?.takeIf { it > 0.0 },
+                    isCurrentUser = isCur
+                )
+            )
+        }
         return list
     }
 
     LaunchedEffect(Unit) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             val token = prefs.getString("auth_token", "") ?: ""
-            val currentFio = prefs.getString("user_fio", "") ?: ""
+            val currentFio = prefs.getString("login_fio", "")?.ifBlank { prefs.getString("user_fio", "") ?: "" } ?: ""
 
-            // 1. Load cached list immediately
-            val cached = prefs.getString("cached_group_students", null)
-            if (cached != null) {
-                val parsedCache = parseStudentsFromJson(cached, currentFio)
+            // 1. Immediately check local cached sources
+            val cachedGroup = prefs.getString("cached_group_students", null)
+            val cachedMarks = prefs.getString("cached_marks", null)
+            val cachedProfile = prefs.getString("cached_profile", null)
+            
+            for (cachedJson in listOfNotNull(cachedGroup, cachedMarks, cachedProfile)) {
+                val parsedCache = extractStudentsFromAnySource(cachedJson, currentFio)
                 if (parsedCache.isNotEmpty()) {
                     withContext(kotlinx.coroutines.Dispatchers.Main) {
                         students = parsedCache
                         isLoading = false
                     }
+                    break
                 }
             }
 
             if (token.isBlank()) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     if (students.isEmpty()) {
-                        errorMessage = "Требуется авторизация"
-                        isLoading = false
+                        if (currentFio.isNotBlank()) {
+                            students = listOf(GroupStudentInfo(fio = currentFio, position = 1, isCurrentUser = true))
+                            isLoading = false
+                        } else {
+                            errorMessage = "Требуется авторизация"
+                            isLoading = false
+                        }
                     }
                 }
                 return@withContext
@@ -3351,36 +3389,27 @@ fun MinGroupScreen(
 
             var fetchedSuccessfully = false
             val urlsToTry = mutableListOf<String>()
+            urlsToTry.add("https://iis.bsuir.by/api/v1/omissions")
             if (userGroup.isNotBlank()) {
                 urlsToTry.add("https://iis.bsuir.by/api/v1/rating/group?studentGroup=$userGroup")
                 urlsToTry.add("https://iis.bsuir.by/api/v1/rating/last?studentGroup=$userGroup")
             }
             urlsToTry.add("https://iis.bsuir.by/api/v1/grade-book/group-students")
-            urlsToTry.add("https://iis.bsuir.by/api/v1/omissions")
 
             for (url in urlsToTry) {
                 try {
-                    val request = NetworkClient.buildGetRequest(url, token)
-                    NetworkClient.client.newCall(request).execute().use { response ->
+                    val client = com.example.schedule.NetworkClient.client
+                    val request = okhttp3.Request.Builder()
+                        .url(url)
+                        .addHeader("Cookie", token)
+                        .addHeader("User-Agent", "Mozilla/5.0")
+                        .addHeader("Accept", "application/json")
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
                         val body = response.body?.string()
                         if (response.isSuccessful && !body.isNullOrBlank()) {
-                            val parsed = if (url.contains("omissions")) {
-                                val setOfFios = mutableSetOf<String>()
-                                val omissionArray = org.json.JSONArray(body)
-                                for (i in 0 until omissionArray.length()) {
-                                    val item = omissionArray.optJSONObject(i)
-                                    val st = item?.optJSONObject("student")
-                                    val f = st?.optString("fio") ?: ""
-                                    if (f.isNotBlank()) setOfFios.add(f.trim())
-                                }
-                                setOfFios.sorted().mapIndexed { idx, name ->
-                                    val isCur = currentFio.isNotBlank() && (name.contains(currentFio, ignoreCase = true) || currentFio.contains(name, ignoreCase = true))
-                                    GroupStudentInfo(fio = name, position = idx + 1, isCurrentUser = isCur)
-                                }
-                            } else {
-                                parseStudentsFromJson(body, currentFio)
-                            }
-
+                            val parsed = extractStudentsFromAnySource(body, currentFio)
                             if (parsed.isNotEmpty()) {
                                 prefs.edit().putString("cached_group_students", body).apply()
                                 withContext(kotlinx.coroutines.Dispatchers.Main) {
@@ -3394,14 +3423,19 @@ fun MinGroupScreen(
                         }
                     }
                 } catch (e: Exception) {
-                    // try next endpoint
+                    // Try next source
                 }
                 if (fetchedSuccessfully) break
             }
 
             if (!fetchedSuccessfully && students.isEmpty()) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    errorMessage = "Не удалось загрузить список группы"
+                    if (currentFio.isNotBlank()) {
+                        students = listOf(GroupStudentInfo(fio = currentFio, position = 1, isCurrentUser = true))
+                        errorMessage = null
+                    } else {
+                        errorMessage = "Не удалось загрузить список группы"
+                    }
                     isLoading = false
                 }
             }
