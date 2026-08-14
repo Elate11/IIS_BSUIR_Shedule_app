@@ -1255,11 +1255,11 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         modifier = Modifier
                             .graphicsLayer {
                                 if (styleType != StyleType.Techno) {
-                                    val scale = 1f + 0.08f * safeProgress
+                                    val scale = 1f + 0.05f * safeProgress
                                     scaleX = scale
                                     scaleY = scale
-                                    translationX = tiltX * 4.5.dp.toPx() * safeProgress
-                                    translationY = tiltY * 3.5.dp.toPx() * safeProgress
+                                    translationX = tiltX * 2.dp.toPx() * safeProgress
+                                    translationY = tiltY * 1.5.dp.toPx() * safeProgress
                                 }
                             }
                             .width(58.dp)
@@ -1295,15 +1295,19 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     val h = size.height
                                     val r = 22.dp.toPx()
                                     val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
-                                    val lightOffsetX = tiltX * 20.dp.toPx()
-                                    val lightOffsetY = tiltY * 16.dp.toPx()
+                                    
+                                    // Bubble gravitates directly towards the center where the number is (w * 0.5f, h * 0.38f)
+                                    val lightOffsetX = tiltX * 5.dp.toPx()
+                                    val lightOffsetY = tiltY * 4.dp.toPx()
+                                    val bubbleCenterX = w * 0.5f + lightOffsetX
+                                    val bubbleCenterY = (h * 0.38f + lightOffsetY).coerceIn(h * 0.22f, h * 0.52f)
 
                                     // 1. Ambient Subsurface Glass Bloom Glow
                                     drawRoundRect(
                                         color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.35f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
-                                        topLeft = androidx.compose.ui.geometry.Offset(-3.dp.toPx() + lightOffsetX * 0.15f, -3.dp.toPx() + lightOffsetY * 0.15f),
-                                        size = androidx.compose.ui.geometry.Size(w + 6.dp.toPx(), h + 6.dp.toPx()),
-                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 3.dp.toPx(), r + 3.dp.toPx())
+                                        topLeft = androidx.compose.ui.geometry.Offset(-2.dp.toPx() + lightOffsetX * 0.1f, -2.dp.toPx() + lightOffsetY * 0.1f),
+                                        size = androidx.compose.ui.geometry.Size(w + 4.dp.toPx(), h + 4.dp.toPx()),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 2.dp.toPx(), r + 2.dp.toPx())
                                     )
 
                                     // 2. Multi-stop Directional 3D Liquid Glass Body (135 deg refraction)
@@ -1331,19 +1335,21 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         cornerRadius = cornerR
                                     )
 
-                                    // 3. Upper 3D Convex Dome Specular Glare (Apple visionOS curved lens)
-                                    val convexDomeHighlight = androidx.compose.ui.graphics.Brush.radialGradient(
+                                    // 3. Central Core Liquid Bubble (centered directly behind the date numbers)
+                                    val coreBubbleBrush = androidx.compose.ui.graphics.Brush.radialGradient(
                                         colors = listOf(
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.85f else 0.99f) * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.28f else 0.52f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.90f else 0.99f) * safeProgress).coerceIn(0f, 1f)),
+                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.35f else 0.55f) * safeProgress).coerceIn(0f, 1f)),
+                                            MinAccent.copy(alpha = (0.20f * safeProgress).coerceIn(0f, 1f)),
                                             Color.Transparent
                                         ),
-                                        center = androidx.compose.ui.geometry.Offset(w * 0.5f + lightOffsetX, (h * 0.28f + lightOffsetY).coerceIn(0f, h * 0.7f)),
-                                        radius = (w * 0.70f).coerceAtLeast(10f)
+                                        center = androidx.compose.ui.geometry.Offset(bubbleCenterX, bubbleCenterY),
+                                        radius = (w * 0.52f).coerceAtLeast(10f)
                                     )
                                     drawRoundRect(
-                                        brush = convexDomeHighlight,
-                                        size = androidx.compose.ui.geometry.Size(w, h * 0.55f),
+                                        brush = coreBubbleBrush,
+                                        topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                        size = androidx.compose.ui.geometry.Size(w, h * 0.65f),
                                         cornerRadius = cornerR
                                     )
 
