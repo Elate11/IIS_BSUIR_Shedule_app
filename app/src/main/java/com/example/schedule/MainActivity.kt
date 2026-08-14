@@ -7245,32 +7245,35 @@ fun MinCustomizationView(
 
         item {
             val reminderContext = androidx.compose.ui.platform.LocalContext.current
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
             val reminderPrefs = remember { reminderContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
             var selectedTiming by remember {
-                mutableStateOf(reminderPrefs.getString("event_reminder_timing", "1_day_before_18") ?: "1_day_before_18")
+                mutableStateOf(reminderPrefs.getString("event_reminder_timing", "15_min_before") ?: "15_min_before")
             }
             val timingOptions = listOf(
-                "1_day_before_18" to "За 1 день до события (в 18:00)",
-                "1_day_before_21" to "За 1 день до события (в 21:00)",
-                "same_day_08" to "В день события (в 08:00)",
-                "same_day_09" to "В день события (в 09:00)",
-                "2_hours_before" to "За 2 часа до события",
-                "1_hour_before" to "За 1 час до события",
-                "15_min_before" to "За 15 минут до события"
+                "15_min_before" to "За 15 мин",
+                "1_hour_before" to "За 1 час",
+                "2_hours_before" to "За 2 часа",
+                "1_day_before_18" to "За 1 день"
             )
 
             Spacer(modifier = Modifier.height(16.dp))
             Text("Напоминания о событиях", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
             Spacer(modifier = Modifier.height(12.dp))
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            
+            // Carousel of 4 options
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 timingOptions.forEach { (key, label) ->
                     val isSelected = key == selectedTiming
-                    Row(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .height(44.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color.Transparent)
                             .border(
@@ -7279,12 +7282,12 @@ fun MinCustomizationView(
                                 RoundedCornerShape(14.dp)
                             )
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 selectedTiming = key
                                 reminderPrefs.edit().putString("event_reminder_timing", key).apply()
                             }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
                             label,
@@ -7292,29 +7295,25 @@ fun MinCustomizationView(
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) MinTextPrimary else MinTextSecondary
                         )
-                        if (isSelected) {
-                            Icon(
-                                Icons.Outlined.Check,
-                                contentDescription = null,
-                                tint = MinTextPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
+            
+            Spacer(modifier = Modifier.height(14.dp))
+            
+            // Test notification button
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(46.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(Color.Transparent)
                     .border(1.dp, MinTextPrimary, RoundedCornerShape(14.dp))
                     .clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         val testIntent = android.content.Intent(reminderContext, NoteReminderReceiver::class.java).apply {
-                            putExtra("SUBJECT", "Тестовое уведомление")
-                            putExtra("TEXT", "Уведомления о событиях работают корректно!")
+                            putExtra("SUBJECT", "Тестовое событие")
+                            putExtra("TEXT", "Напоминание сработает за выбранное время!")
                             putExtra("IS_EVENT", true)
                         }
                         reminderContext.sendBroadcast(testIntent)
@@ -7329,13 +7328,13 @@ fun MinCustomizationView(
                         Icons.Outlined.NotificationsActive,
                         contentDescription = null,
                         tint = MinTextPrimary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        "Отправить тестовое уведомление",
+                        "Проверить уведомление",
                         color = MinTextPrimary,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 14.sp
                     )
                 }
             }
