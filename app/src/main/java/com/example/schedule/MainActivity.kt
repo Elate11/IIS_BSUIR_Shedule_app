@@ -1317,10 +1317,6 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     } else {
                                         Modifier
                                             .background(Color.Transparent)
-                                            .then(
-                                                if (isToday) Modifier.border(1.dp, MinAccent.copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                                                else Modifier
-                                            )
                                     }
                                 )
                                 .drawWithContent {
@@ -1343,7 +1339,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                                 cornerRadius = cornerR
                                             )
                                             drawRoundRect(
-                                                color = if (isToday) Color(0xFF00FF41).copy(alpha = 0.60f) else Color(0xFF00FF41).copy(alpha = 0.25f),
+                                                color = Color(0xFF00FF41).copy(alpha = 0.25f),
                                                 cornerRadius = cornerR,
                                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
                                             )
@@ -1379,6 +1375,15 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     color = textColor,
                                     fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
                                 )
+                                if (isToday) {
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .clip(CircleShape)
+                                            .background(if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isSelected) (if (isDarkTheme) Color.White else MinAccent) else MinAccent)
+                                    )
+                                }
                             }
                         }
                     }
@@ -5172,6 +5177,11 @@ fun MinNotesCalendar(
         }
         Spacer(modifier = Modifier.height(8.dp))
         val rows = (firstDayOfWeek + daysInMonth + 6) / 7
+        val todayCal = remember { java.util.Calendar.getInstance() }
+        val curDay = todayCal.get(java.util.Calendar.DAY_OF_MONTH)
+        val curMonth = todayCal.get(java.util.Calendar.MONTH)
+        val curYear = todayCal.get(java.util.Calendar.YEAR)
+
         for (row in 0 until rows) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 for (col in 0 until 7) {
@@ -5180,23 +5190,39 @@ fun MinNotesCalendar(
                     val dateStr = if (isValid) "%02d.%02d.%04d".format(dayNum, viewMonth + 1, viewYear) else ""
                     val isHighlighted = isValid && highlightedDates.contains(dateStr)
                     val isSelected = isValid && dayNum == selectedDay && viewMonth == selectedMonth && viewYear == selectedYear
+                    val isToday = isValid && dayNum == curDay && viewMonth == curMonth && viewYear == curYear
+
+                    val cellBg = when {
+                        isSelected -> MinAccent
+                        isHighlighted -> MinAccent.copy(alpha = 0.15f)
+                        else -> Color.Transparent
+                    }
+
                     Box(
                         modifier = Modifier
                             .weight(1f).aspectRatio(1f).padding(2.dp).clip(CircleShape)
-                            .background(if (isHighlighted && !isSelected) MinTextPrimary.copy(alpha = 0.15f) else Color.Transparent)
-                            .then(if (isSelected) Modifier.border(1.dp, MinTextPrimary, CircleShape) else Modifier)
+                            .background(cellBg)
                             .then(if (isValid) Modifier.clickable { onDaySelected(dayNum, viewMonth, viewYear) } else Modifier),
                         contentAlignment = Alignment.Center
                     ) {
                         if (isValid) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                                 Text(
                                     dayNum.toString(),
-                                    fontSize = 17.sp,
-                                    fontWeight = if (isSelected || isHighlighted) FontWeight.ExtraBold else FontWeight.Normal,
-                                    color = MinTextPrimary
+                                    fontSize = 16.sp,
+                                    fontWeight = if (isSelected || isHighlighted || isToday) FontWeight.ExtraBold else FontWeight.Normal,
+                                    color = if (isSelected) Color.White else MinTextPrimary
                                 )
-                                if (isHighlighted && !isSelected) {
+                                if (isToday) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSelected) Color.White else MinAccent)
+                                    )
+                                } else if (isHighlighted && !isSelected) {
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Box(modifier = Modifier.size(3.dp).clip(CircleShape).background(MinAccent))
                                 }
                             }
