@@ -118,6 +118,13 @@ val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                androidx.core.app.ActivityCompat.requestPermissions(this, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+        
         NetworkClient.init(applicationContext)
         setContent {
             MaterialTheme {
@@ -426,10 +433,10 @@ fun MinimalistApp() {
     )
 
     val MinTextPrimary = if (styleType == StyleType.Techno) Color(0xFF00FF41)
-        else customPrimaryColor ?: if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF111111)
+        else customPrimaryColor ?: if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
 
     val MinTextSecondary = if (styleType == StyleType.Techno) Color(0xFF00AA22)
-        else if (isDarkTheme) Color(0xFFCCCCCC) else Color(0xFF444444)
+        else if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
     
     val view = androidx.compose.ui.platform.LocalView.current
     if (!view.isInEditMode) {
@@ -453,7 +460,9 @@ fun MinimalistApp() {
             }
         }
     }
-    val MinAccent = MinTextPrimary
+    // In light theme: use a nice blue accent; in dark: white/custom
+    val MinAccent = if (styleType == StyleType.Techno) Color(0xFF00FF41)
+        else customPrimaryColor ?: if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF3478F6)
 
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val items = listOf("Расписание", "Оценки", "Заметки", "Профиль")
@@ -564,40 +573,68 @@ fun MinimalistApp() {
                                     }
                                 }
                             } else {
-                            NavigationBar(
-                                containerColor = actualBg.copy(alpha = 0.85f),
-                                tonalElevation = 0.dp,
-                                modifier = Modifier
-                                    .height(72.dp).clip(RoundedCornerShape(36.dp))
-                            ) {
-                                items.forEachIndexed { index, item ->
-                                    val isSelected = selectedItem == index
-                                    
-                                    NavigationBarItem(
-                                        icon = { Icon(icons[index], contentDescription = item, modifier = Modifier.size(24.dp)) },
-                                        label = null,
-                                        selected = isSelected,
-                                        onClick = { 
-                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                            coroutineScope.launch {
-                                                if (transitionsEnabled) {
-                                                    pagerState.animateScrollToPage(
-                                                        page = index,
-                                                        animationSpec = tween((500 / transitionSpeedMultiplier).toInt())
-                                                    )
-                                                } else {
-                                                    pagerState.scrollToPage(index)
-                                                }
-                                            }
-                                        },
-                                        colors = NavigationBarItemDefaults.colors(
-                                            indicatorColor = Color.Transparent,
-                                            selectedIconColor = MinTextPrimary,
-                                            unselectedIconColor = MinTextSecondary,
-                                            selectedTextColor = MinTextPrimary,
-                                            unselectedTextColor = MinTextSecondary
+                            Box(modifier = Modifier.fillMaxWidth().height(72.dp)) {
+                                // Animated Sliding Bubble
+                                androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                    val tabWidth = maxWidth / items.size
+                                    val indicatorOffset by androidx.compose.animation.core.animateDpAsState(
+                                        targetValue = tabWidth * selectedItem,
+                                        animationSpec = androidx.compose.animation.core.spring(
+                                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
                                         )
                                     )
+                                    Box(
+                                        modifier = Modifier.offset(x = indicatorOffset).width(tabWidth).fillMaxHeight(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(width = 64.dp, height = 48.dp)
+                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                                                .background(MinAccent.copy(alpha = 0.22f))
+                                        )
+                                    }
+                                }
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    items.forEachIndexed { index, item ->
+                                        val isSelected = selectedItem == index
+                                        
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                                .clickable(
+                                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                                    indication = null,
+                                                    onClick = { 
+                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                        coroutineScope.launch {
+                                                            if (transitionsEnabled) {
+                                                                pagerState.animateScrollToPage(
+                                                                    page = index,
+                                                                    animationSpec = tween((500 / transitionSpeedMultiplier).toInt())
+                                                                )
+                                                            } else {
+                                                                pagerState.scrollToPage(index)
+                                                            }
+                                                        }
+                                                    }
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                icons[index], 
+                                                contentDescription = item, 
+                                                modifier = Modifier.size(28.dp),
+                                                tint = if (isSelected) MinTextPrimary else MinTextSecondary
+                                            )
+                                        }
+                                    }
                                 }
                             }
                             } // end else (Minimal nav bar)
@@ -1076,23 +1113,20 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 ) {
                     Column {
                         Spacer(modifier = Modifier.height(12.dp))
+                        
+                        val fieldBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
+                        val fieldBorder = if (isDarkTheme) MinAccent.copy(alpha = 0.40f) else MinAccent.copy(alpha = 0.55f)
+                        
                         OutlinedTextField(
                             value = inputText,
                             onValueChange = { inputText = it },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .shadow(
-                                    elevation = 10.dp,
+                                    elevation = if (isDarkTheme) 8.dp else 3.dp,
                                     shape = RoundedCornerShape(14.dp),
-                                    spotColor = Color(0xFFA855F7),
-                                    ambientColor = Color(0xFFA855F7)
-                                )
-                                .border(
-                                    width = 1.5.dp,
-                                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                        colors = listOf(Color(0xFF9333EA), Color(0xFFA855F7), Color(0xFFC084FC))
-                                    ),
-                                    shape = RoundedCornerShape(14.dp)
+                                    spotColor = MinAccent.copy(alpha = 0.25f),
+                                    ambientColor = MinAccent.copy(alpha = 0.10f)
                                 ),
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle.Default.copy(
@@ -1107,12 +1141,14 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     fontSize = 14.sp
                                 )
                             },
-                            colors = androidx.compose.material3.TextFieldDefaults.colors(
-                                focusedContainerColor = MinCardBg,
-                                unfocusedContainerColor = MinCardBg,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                cursorColor = Color(0xFFA855F7)
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = MinTextPrimary,
+                                unfocusedTextColor = MinTextPrimary,
+                                focusedContainerColor = fieldBg,
+                                unfocusedContainerColor = fieldBg,
+                                focusedBorderColor = MinAccent,
+                                unfocusedBorderColor = fieldBorder,
+                                cursorColor = MinAccent
                             ),
                             shape = RoundedCornerShape(14.dp),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -1647,7 +1683,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             },
             text = {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary)
+                    Text("Подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White)
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val subgroupOptions = listOf("Все", "1 подгр.", "2 подгр.")
@@ -1671,7 +1707,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         val stepDp = itemHeightDp + itemSpacingDp
                         val stepPx = with(androidx.compose.ui.platform.LocalDensity.current) { stepDp.toPx() }
 
-                        // 1. Sliding Liquid Glass Droplet
+                        // 1. Sliding Outline Box
                         if (styleType != StyleType.Techno) {
                             val velocity = (targetSubgroup - animatedSubgroup)
                             val absVel = kotlin.math.abs(velocity).coerceIn(0f, 2.5f)
@@ -1679,21 +1715,14 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             Box(
                                 modifier = Modifier
                                     .graphicsLayer {
-                                        translationY = animatedSubgroup * stepPx + (tiltY * 2.dp.toPx())
-                                        translationX = tiltX * 3.dp.toPx()
+                                        translationY = animatedSubgroup * stepPx
                                         scaleY = 1f + 0.30f * absVel
                                         scaleX = 1f / kotlin.math.sqrt(1f + 0.30f * absVel)
                                     }
                                     .fillMaxWidth()
                                     .height(itemHeightDp)
-                                    .liquidGlassEffect(
-                                        cornerRadius = 16.dp,
-                                        accentColor = MinAccent,
-                                        isDarkTheme = isDarkTheme,
-                                        tiltX = tiltX,
-                                        tiltY = tiltY,
-                                        isActive = true
-                                    )
+                                    .background(Color.Transparent, RoundedCornerShape(16.dp))
+                                    .border(2.dp, MinAccent.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
                             )
                         }
 
@@ -1706,9 +1735,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                 val isSelected = selectedSubgroup == index
                                 val targetTextColor = when {
                                     styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
-                                    isSelected -> if (isDarkTheme) Color.White else MinAccent
-                                    isDarkTheme -> Color.White.copy(alpha = 0.90f)
-                                    else -> Color.Black.copy(alpha = 0.90f)
+                                    isSelected -> Color.White
+                                    else -> Color.White.copy(alpha = 0.6f)
                                 }
                                 val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(250))
 
@@ -1909,6 +1937,7 @@ data class Note(
     val subject: String,
     val text: String,
     val date: String,
+    val time: String? = null,
     val isEvent: Boolean = false,
     val isPinned: Boolean = false,
     val attachments: List<NoteAttachment> = emptyList(),
@@ -4370,7 +4399,7 @@ fun parseNoteDateMillis(dateStr: String): Long {
     } catch (e: Exception) { 0L }
 }
 
-fun calculateReminderTime(timing: String, d: Int, m: Int, y: Int): Long {
+fun calculateReminderTime(timing: String, d: Int, m: Int, y: Int, hour: Int = 9, minute: Int = 0): Long {
     val cal = java.util.Calendar.getInstance()
     when (timing) {
         "1_day_before_18" -> {
@@ -4388,13 +4417,16 @@ fun calculateReminderTime(timing: String, d: Int, m: Int, y: Int): Long {
             cal.set(y, m, d, 9, 0, 0)
         }
         "2_hours_before" -> {
-            cal.set(y, m, d, 7, 0, 0)
+            cal.set(y, m, d, hour, minute, 0)
+            cal.add(java.util.Calendar.HOUR_OF_DAY, -2)
         }
         "1_hour_before" -> {
-            cal.set(y, m, d, 8, 0, 0)
+            cal.set(y, m, d, hour, minute, 0)
+            cal.add(java.util.Calendar.HOUR_OF_DAY, -1)
         }
         "15_min_before" -> {
-            cal.set(y, m, d, 8, 45, 0)
+            cal.set(y, m, d, hour, minute, 0)
+            cal.add(java.util.Calendar.MINUTE, -15)
         }
         else -> {
             cal.set(y, m, d, 18, 0, 0)
@@ -4609,12 +4641,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     var selectedSubject by remember { mutableStateOf("Все") }
     var noteText by remember { mutableStateOf("") }
-    var isEventNote by remember { mutableStateOf(false) }
+    var isEventNote by remember { mutableStateOf(false) }; var showNewNoteTimePicker by remember { mutableStateOf(false) }
 
     val todayCal = remember { java.util.Calendar.getInstance() }
     var selectedDay by remember { mutableStateOf(todayCal.get(java.util.Calendar.DAY_OF_MONTH)) }
     var selectedMonth by remember { mutableStateOf(todayCal.get(java.util.Calendar.MONTH)) }
     var selectedYear by remember { mutableStateOf(todayCal.get(java.util.Calendar.YEAR)) }
+    var selectedHour by remember { mutableStateOf(todayCal.get(java.util.Calendar.HOUR_OF_DAY)) }
+    var selectedMinute by remember { mutableStateOf(todayCal.get(java.util.Calendar.MINUTE)) }
     var viewMonth by remember { mutableStateOf(todayCal.get(java.util.Calendar.MONTH)) }
     var viewYear by remember { mutableStateOf(todayCal.get(java.util.Calendar.YEAR)) }
 
@@ -4678,10 +4712,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     fun formatDate(d: Int, m: Int, y: Int) = "%02d.%02d.%04d".format(d, m + 1, y)
 
-    fun scheduleAlarm(context: android.content.Context, note: Note, d: Int, m: Int, y: Int) {
+    fun scheduleAlarm(context: android.content.Context, note: Note, d: Int, m: Int, y: Int, hour: Int, minute: Int) {
         val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
         val timing = appPrefs.getString("event_reminder_timing", "1_day_before_18") ?: "1_day_before_18"
-        val triggerTime = calculateReminderTime(timing, d, m, y)
+        val triggerTime = calculateReminderTime(timing, d, m, y, hour, minute)
 
         val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE) as android.app.AlarmManager
         val intent = android.content.Intent(context, NoteReminderReceiver::class.java).apply {
@@ -4708,14 +4742,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).map { it.date }.toSet()
     }
     
-    // Sort all notes and pinned notes chronologically by date
+    // Sort all notes and pinned notes chronologically by date (ascending — oldest first)
     val subjectNotes = remember(notes, selectedSubject) {
-        (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedByDescending { parseNoteDateMillis(it.date) }
+        (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedBy { parseNoteDateMillis(it.date) }
     }
 
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned }.sortedByDescending { parseNoteDateMillis(it.date) } }
-    val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned }.sortedByDescending { parseNoteDateMillis(it.date) } }
+    val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned }.sortedBy { parseNoteDateMillis(it.date) } }
+    val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned }.sortedBy { parseNoteDateMillis(it.date) } }
 
     if (noteToDelete != null) {
         val deleteDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
@@ -4801,6 +4835,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         var editIsPinned by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isPinned) }
         var editAttachments by remember(noteToEdit) { mutableStateOf(noteToEdit!!.attachments ?: emptyList()) }
         var editSubjectExpanded by remember { mutableStateOf(false) }
+        var editHour by remember(noteToEdit) { mutableStateOf(noteToEdit!!.time?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 12) }
+        var editMinute by remember(noteToEdit) { mutableStateOf(noteToEdit!!.time?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0) }; var showEditTimePicker by remember { mutableStateOf(false) }
 
         val editFilePickerLauncher = rememberLauncherForActivityResult(
             contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -4817,20 +4853,20 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             }
         }
 
-        val editDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
-        val editSubBg = if (isDarkTheme) Color.White.copy(alpha = 0.07f) else Color(0xFFF2F2F7)
-        val editBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
-        val editFieldBg = if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFF7F7FA)
-        val editTextColor = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
-        val editSecTextColor = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
+        val editDialogBg = androidx.compose.ui.graphics.Color.Transparent
+        val editSubBg = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.1f)
+        val editBorder = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f)
+        val editFieldBg = androidx.compose.ui.graphics.Color.Transparent
+        val editTextColor = androidx.compose.ui.graphics.Color.White
+        val editSecTextColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f)
 
-        Dialog(onDismissRequest = { noteToEdit = null }) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { noteToEdit = null }) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(elevation = if (isDarkTheme) 24.dp else 12.dp, shape = RoundedCornerShape(24.dp))
+                    .shadow(elevation = 24.dp, shape = RoundedCornerShape(24.dp))
                     .clip(RoundedCornerShape(24.dp))
-                    .background(editDialogBg)
+                    .liquidGlassEffect(cornerRadius = 24.dp, accentColor = MinAccent, isDarkTheme = true)
                     .border(1.dp, editBorder, RoundedCornerShape(24.dp))
                     .padding(20.dp)
             ) {
@@ -4883,6 +4919,25 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         ) {
                             Text(noteToEdit!!.date, color = editSecTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
+
+                        // Time Pill
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(editSubBg)
+                                .border(1.dp, editBorder, CircleShape)
+                                .clickable {
+                                    showEditTimePicker = true
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                "%02d:%02d".format(editHour, editMinute),
+                                color = editSecTextColor,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
 
                     AnimatedVisibility(visible = editSubjectExpanded) {
@@ -4890,7 +4945,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(editSubBg)
+                                .background(Color.Transparent)
                                 .border(1.dp, editBorder, RoundedCornerShape(14.dp))
                                 .padding(6.dp)
                         ) {
@@ -4919,6 +4974,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     OutlinedTextField(
                         value = editText,
                         onValueChange = { editText = it },
+                        placeholder = { Text("Введите заметку...", color = editSecTextColor) },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 320.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = editTextColor,
@@ -4949,6 +5005,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(editSubBg)
+                                    .border(1.dp, editBorder, RoundedCornerShape(8.dp))
                                     .clickable {
                                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                         editFilePickerLauncher.launch(arrayOf("*/*"))
@@ -5105,12 +5162,13 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                             subject = editSubject,
                                             isEvent = editIsEvent,
                                             isPinned = editIsPinned,
+                                            time = "%02d:%02d".format(editHour, editMinute),
                                             attachments = editAttachments,
                                             calendarEventId = newCalEventId
                                         )
                                         saveNotes(notes.map { if (it.id == updated.id) updated else it })
                                         if (editIsEvent) {
-                                            scheduleAlarm(context, updated, day, month, year)
+                                            scheduleAlarm(context, updated, day, month, year, editHour, editMinute)
                                         }
                                         noteToEdit = null
                                     }
@@ -5125,6 +5183,22 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
             }
+        }
+
+        if (showEditTimePicker) {
+            IosTimePickerDialog(
+                initialHour = editHour,
+                initialMinute = editMinute,
+                onDismiss = { showEditTimePicker = false },
+                onTimeSelected = { h, m ->
+                    editHour = h
+                    editMinute = m
+                },
+                MinTextPrimary = MinTextPrimary,
+                MinTextSecondary = MinTextSecondary,
+                MinCardBg = MinCardBg,
+                MinAccent = MinAccent
+            )
         }
     }
 
@@ -5282,6 +5356,30 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         )
                     }
                 }
+
+                // Time Picker Trigger
+                Box(
+                    modifier = Modifier
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (showNewNoteTimePicker) MinAccent.copy(alpha = 0.22f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                        .border(1.dp, if (showNewNoteTimePicker) MinAccent else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                        .clickable { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            showNewNoteTimePicker = true 
+                        }
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "%02d:%02d".format(selectedHour, selectedMinute),
+                            color = if (showNewNoteTimePicker) MinAccent else MinTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
             }
 
             AnimatedVisibility(visible = radialExpanded, enter = expandVertically(), exit = shrinkVertically()) {
@@ -5290,7 +5388,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .padding(top = 10.dp)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(if (isDarkTheme) Color(0xFF1E202E) else Color(0xFFF2F2F7))
+                        .background(Color.Transparent)
                         .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
                         .padding(6.dp)
                 ) {
@@ -5340,23 +5438,24 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             }
         }
 
-        // Notion-Style Spacious Note Input Card
+        // Note Input Card
         item {
-            val inputCardBg = if (isDarkTheme) Color(0xFF191A23) else Color(0xFFFFFFFF)
-            val inputBorder = if (isDarkTheme) Color.White.copy(alpha = 0.10f) else Color(0xFFE5E5EA)
-            val inputSubBg = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFF2F2F7)
+            val inputCardBg = Color.Transparent
+            val inputBorder = if (isDarkTheme) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
+            val inputSubBg = Color.Transparent
+            val inputTextColor = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
+            val inputSecTextColor = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
 
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .shadow(elevation = if (isDarkTheme) 6.dp else 3.dp, shape = RoundedCornerShape(22.dp))
                     .clip(RoundedCornerShape(22.dp))
                     .background(inputCardBg)
                     .border(1.dp, inputBorder, RoundedCornerShape(22.dp))
                     .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Header tags in Notion style
+                // Header row with subject & date tags
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -5386,11 +5485,31 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .background(inputSubBg)
+                                .border(1.dp, inputBorder, CircleShape)
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
                                 "%02d.%02d.%04d".format(selectedDay, selectedMonth + 1, selectedYear),
-                                color = MinTextSecondary,
+                                color = inputSecTextColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        // Time tag
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(inputSubBg)
+                                .border(1.dp, inputBorder, CircleShape)
+                                .clickable {
+                                    showNewNoteTimePicker = true
+                                }
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                "%02d:%02d".format(selectedHour, selectedMinute),
+                                color = inputSecTextColor,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -5407,36 +5526,27 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
 
-                // Spacious multi-line Notion text area
+                // Text area
                 OutlinedTextField(
                     value = noteText,
                     onValueChange = { noteText = it },
-                    placeholder = { 
-                        Text(
-                            "Новая заметка в стиле Notion...\n\nЗаголовок на первой строке, подробности ниже...",
-                            fontSize = 15.sp,
-                            color = MinTextSecondary.copy(alpha = 0.7f),
-                            lineHeight = 22.sp
-                        ) 
-                    },
+                    placeholder = { Text("Введите заметку...", color = inputSecTextColor) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 130.dp, max = 300.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MinTextPrimary,
-                        unfocusedTextColor = MinTextPrimary,
+                        focusedTextColor = inputTextColor,
+                        unfocusedTextColor = inputTextColor,
                         cursorColor = MinAccent,
                         focusedBorderColor = MinAccent.copy(alpha = 0.5f),
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedPlaceholderColor = MinTextSecondary,
-                        unfocusedPlaceholderColor = MinTextSecondary,
+                        unfocusedBorderColor = if (isDarkTheme) Color.Transparent else inputBorder,
                         focusedContainerColor = inputSubBg,
                         unfocusedContainerColor = inputSubBg
                     ),
                     shape = RoundedCornerShape(16.dp)
                 )
 
-                // Attached files preview chips in Notion style
+                // Attached files preview chips
                 if (pendingAttachments.isNotEmpty()) {
                     androidx.compose.foundation.layout.FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -5456,18 +5566,19 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
 
-                // Bottom Action & Toolbar Bar
+                // Bottom Action Bar
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Attach File Button
+                    val defaultBtnBg = if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF0F0F5)
                     Box(
                         modifier = Modifier
                             .height(44.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(inputSubBg)
+                            .background(defaultBtnBg)
                             .border(1.dp, inputBorder, RoundedCornerShape(12.dp))
                             .clickable {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
@@ -5488,19 +5599,19 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             )
                             Text(
                                 "Файл",
-                                color = MinTextPrimary,
+                                color = inputTextColor,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
                             )
                         }
                     }
 
-                    // "Событие" button toggle
+                    // "Событие" toggle button
                     Box(
                         modifier = Modifier
                             .height(44.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.20f) else inputSubBg)
+                            .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.20f) else defaultBtnBg)
                             .border(1.dp, if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.40f) else inputBorder, RoundedCornerShape(12.dp))
                             .clickable { 
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
@@ -5516,19 +5627,19 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             Icon(
                                 if (isEventNote) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
                                 contentDescription = null,
-                                tint = if (isEventNote) Color(0xFFFFB800) else MinTextSecondary,
+                                tint = if (isEventNote) Color(0xFFFFB800) else inputSecTextColor,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
                                 "Событие",
-                                color = if (isEventNote) Color(0xFFFFB800) else MinTextPrimary,
+                                color = if (isEventNote) Color(0xFFFFB800) else inputTextColor,
                                 fontWeight = if (isEventNote) FontWeight.ExtraBold else FontWeight.Bold,
                                 fontSize = 13.sp
                             )
                         }
                     }
 
-                    // "Сохранить" button styled matching the "Событие" button aesthetic
+                    // "Сохранить" button
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -5545,7 +5656,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                     if (isEventNote) {
                                         calId = GoogleCalendarSync.syncEvent(
                                             context,
-                                            Note(subject = subjectForNote, text = noteText, date = formatDate(selectedDay, selectedMonth, selectedYear), isEvent = true),
+                                            Note(subject = subjectForNote, text = noteText, date = formatDate(selectedDay, selectedMonth, selectedYear), time = "%02d:%02d".format(selectedHour, selectedMinute), isEvent = true),
                                             selectedDay, selectedMonth, selectedYear
                                         )
                                     }
@@ -5554,13 +5665,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                         subject = subjectForNote,
                                         text = noteText,
                                         date = formatDate(selectedDay, selectedMonth, selectedYear),
+                                        time = "%02d:%02d".format(selectedHour, selectedMinute),
                                         isEvent = isEventNote,
                                         attachments = pendingAttachments,
                                         calendarEventId = calId
                                     )
                                     saveNotes(notes + newNote)
                                     if (isEventNote) {
-                                        scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
+                                        scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear, selectedHour, selectedMinute)
                                     }
                                     noteText = ""
                                     pendingAttachments = emptyList()
@@ -5580,7 +5692,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 modifier = Modifier.size(17.dp)
                             )
                             Text(
-                                if (isEventNote) "Сохранить событие" else "Сохранить",
+                                "Сохранить",
                                 color = MinAccent,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 13.sp
@@ -5666,7 +5778,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                     .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
                             ) {
                                 Text(
-                                    note.date,
+                                    if (note.time != null) "${note.date} ${note.time}" else note.date,
                                     color = MinTextSecondary,
                                     fontSize = (11 * scaleLevel).sp,
                                     fontWeight = FontWeight.SemiBold
@@ -5820,6 +5932,23 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 }
             }
         }
+    }
+
+
+    if (showNewNoteTimePicker) {
+        IosTimePickerDialog(
+            initialHour = selectedHour,
+            initialMinute = selectedMinute,
+            onDismiss = { showNewNoteTimePicker = false },
+            onTimeSelected = { h, m ->
+                selectedHour = h
+                selectedMinute = m
+            },
+            MinTextPrimary = MinTextPrimary,
+            MinTextSecondary = MinTextSecondary,
+            MinCardBg = MinCardBg,
+            MinAccent = MinAccent
+        )
     }
 }
 
@@ -6253,7 +6382,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                     }
                 }
 
-                val styleType = LocalStyleType.current
+    val styleType = LocalStyleType.current
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
@@ -6402,14 +6531,25 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
         item {
             val localContext = androidx.compose.ui.platform.LocalContext.current
-            Text("Выйти", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F), modifier = Modifier.clickable {
-                val prefs = localContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                prefs.edit().clear().apply()
-                val activity = localContext as? android.app.Activity
-                activity?.finish()
-                val intent = android.content.Intent(localContext, MainActivity::class.java)
-                localContext.startActivity(intent)
-            })
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Выйти", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F), modifier = Modifier.clickable {
+                    val prefs = localContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                    prefs.edit().clear().apply()
+                    val activity = localContext as? android.app.Activity
+                    activity?.finish()
+                    val intent = android.content.Intent(localContext, MainActivity::class.java)
+                    localContext.startActivity(intent)
+                }.padding(vertical = 8.dp))
+
+                Row(modifier = Modifier.clickable {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Elate11/IIS_BSUIR_Shedule_app"))
+                    localContext.startActivity(intent)
+                }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Info, contentDescription = "GitHub", tint = MinTextSecondary, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("GitHub", fontSize = 16.sp, color = MinTextSecondary, fontWeight = FontWeight.Medium)
+                }
+            }
         }
         }
             }
@@ -6506,10 +6646,10 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(14.dp))
-                                            .background(if (isSelected) currentAccent.copy(alpha = if (isDarkTheme) 0.18f else 0.12f) else optionBg)
+                                            .background(Color.Transparent)
                                             .border(
-                                                1.dp,
-                                                if (isSelected) currentAccent.copy(alpha = 0.5f) else Color.Transparent,
+                                                if (isSelected) 2.dp else 1.dp,
+                                                if (isSelected) MinTextPrimary else dialogBorder,
                                                 RoundedCornerShape(14.dp)
                                             )
                                             .clickable {
@@ -6525,13 +6665,13 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                             label,
                                             fontSize = 14.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) currentAccent else MinTextPrimary
+                                            color = if (isSelected) MinTextPrimary else MinTextSecondary
                                         )
                                         if (isSelected) {
                                             Icon(
                                                 Icons.Outlined.Check,
                                                 contentDescription = null,
-                                                tint = currentAccent,
+                                                tint = MinTextPrimary,
                                                 modifier = Modifier.size(18.dp)
                                             )
                                         }
@@ -6973,9 +7113,13 @@ fun MinCustomizationView(
                     androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable { onBackgroundColorChange(null) })
                 }
             }
+            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
+            androidx.compose.material3.HorizontalDivider(color = MinBorder, thickness = 1.dp)
+            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
+        }
 
-    
-            Spacer(modifier = Modifier.height(24.dp))
+
+        item {
             Text("Сочетания цветов", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
             Spacer(modifier = Modifier.height(16.dp))
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -7293,11 +7437,17 @@ fun ColorPickerDialog(
                 .background(Color(0xFF222222), RoundedCornerShape(16.dp))
                 .padding(24.dp)
         ) {
-            Column {
-                Box(modifier = Modifier.fillMaxWidth().height(80.dp).background(currentColor, RoundedCornerShape(8.dp)))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(CircleShape)
+                        .background(currentColor)
+                        .border(3.dp, Color.White.copy(alpha = 0.3f), CircleShape)
+                )
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Canvas(modifier = Modifier.fillMaxWidth().height(60.dp).pointerInput(Unit) {
+                Canvas(modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(8.dp)).pointerInput(Unit) {
                     detectDragGestures { change, _ ->
                         val x = change.position.x.coerceIn(0f, size.width.toFloat())
                         hue = (x / size.width.toFloat()) * 360f
@@ -7312,10 +7462,24 @@ fun ColorPickerDialog(
                         colors = listOf(Color.Red, Color.Yellow, Color.Green, Color.Cyan, Color.Blue, Color.Magenta, Color.Red)
                     )
                     drawRect(brush)
+                    
+                    val x = (hue / 360f) * size.width
+                    drawLine(
+                        color = Color.White,
+                        start = androidx.compose.ui.geometry.Offset(x, 0f),
+                        end = androidx.compose.ui.geometry.Offset(x, size.height),
+                        strokeWidth = 4.dp.toPx()
+                    )
+                    drawLine(
+                        color = Color.Black,
+                        start = androidx.compose.ui.geometry.Offset(x, 0f),
+                        end = androidx.compose.ui.geometry.Offset(x, size.height),
+                        strokeWidth = 1.dp.toPx()
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
-                Canvas(modifier = Modifier.fillMaxWidth().height(60.dp).pointerInput(Unit) {
+                Canvas(modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(8.dp)).pointerInput(Unit) {
                     detectDragGestures { change, _ ->
                         val x = change.position.x.coerceIn(0f, size.width.toFloat())
                         val fraction = x / size.width.toFloat()
@@ -7345,16 +7509,31 @@ fun ColorPickerDialog(
                         colors = listOf(Color.Black, pureColor, Color.White)
                     )
                     drawRect(brush)
+                    
+                    val fraction = if (saturation >= 0.99f) value / 2f else 0.5f + (1f - saturation) / 2f
+                    val x = fraction * size.width
+                    drawLine(
+                        color = Color.White,
+                        start = androidx.compose.ui.geometry.Offset(x, 0f),
+                        end = androidx.compose.ui.geometry.Offset(x, size.height),
+                        strokeWidth = 4.dp.toPx()
+                    )
+                    drawLine(
+                        color = Color.Black,
+                        start = androidx.compose.ui.geometry.Offset(x, 0f),
+                        end = androidx.compose.ui.geometry.Offset(x, size.height),
+                        strokeWidth = 1.dp.toPx()
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Text("ОТМЕНА", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onDismiss() }.padding(8.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text("ВЫБРАТЬ", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable {
+                    Text("ОТМЕНА", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { onDismiss() }.padding(12.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("ВЫБРАТЬ", color = Color.Black, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Color.White).clickable {
                         onColorSelected(currentColor)
                         onDismiss()
-                    }.padding(8.dp))
+                    }.padding(horizontal = 16.dp, vertical = 12.dp))
                 }
             }
         }
@@ -7976,3 +8155,180 @@ object MaxVibrationController {
         isVibrating = false
     }
 }
+
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun IosWheelPicker(
+    items: List<String>,
+    initialIndex: Int,
+    onItemSelected: (Int) -> Unit,
+    MinTextPrimary: androidx.compose.ui.graphics.Color,
+    MinTextSecondary: androidx.compose.ui.graphics.Color
+) {
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val flingBehavior = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(lazyListState = listState)
+    val view = androidx.compose.ui.platform.LocalView.current
+    
+    var lastVibratedIndex by remember { mutableStateOf(initialIndex) }
+    
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemScrollOffset }
+            .collect { offset ->
+                val layoutInfo = listState.layoutInfo
+                val viewportHeight = layoutInfo.viewportSize.height
+                val center = viewportHeight / 2
+                
+                var closestItem: androidx.compose.foundation.lazy.LazyListItemInfo? = null
+                var minDistance = Int.MAX_VALUE
+                
+                for (item in layoutInfo.visibleItemsInfo) {
+                    val itemCenter = item.offset + item.size / 2
+                    val distance = kotlin.math.abs(itemCenter - center)
+                    if (distance < minDistance) {
+                        minDistance = distance
+                        closestItem = item
+                    }
+                }
+                
+                closestItem?.let {
+                    val realIndex = it.index - 2
+                    if (realIndex >= 0 && realIndex < items.size && realIndex != lastVibratedIndex) {
+                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        lastVibratedIndex = realIndex
+                        onItemSelected(realIndex)
+                    }
+                }
+            }
+    }
+    
+    androidx.compose.foundation.lazy.LazyColumn(
+        state = listState,
+        flingBehavior = flingBehavior,
+        modifier = Modifier.height(150.dp).width(60.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        items(items.size + 4) { index ->
+            val itemIndex = index - 2
+            val text = if (itemIndex in items.indices) items[itemIndex] else ""
+            val isSelected = itemIndex == lastVibratedIndex
+            Box(
+                modifier = Modifier.height(30.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text,
+                    fontSize = if (isSelected) 22.sp else 18.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSelected) MinTextPrimary else MinTextSecondary.copy(alpha = 0.5f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun IosTimePickerDialog(
+    initialHour: Int,
+    initialMinute: Int,
+    onDismiss: () -> Unit,
+    onTimeSelected: (Int, Int) -> Unit,
+    MinTextPrimary: androidx.compose.ui.graphics.Color,
+    MinTextSecondary: androidx.compose.ui.graphics.Color,
+    MinCardBg: androidx.compose.ui.graphics.Color,
+    MinAccent: androidx.compose.ui.graphics.Color
+) {
+    var selectedHour by remember { mutableStateOf(initialHour) }
+    var selectedMinute by remember { mutableStateOf(initialMinute) }
+    
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        val dialogWindowProvider = androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider
+        LaunchedEffect(dialogWindowProvider) {
+            dialogWindowProvider?.window?.let { window ->
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window.attributes = window.attributes.apply {
+                        blurBehindRadius = 64
+                    }
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(MinCardBg)
+                .padding(20.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Выберите время",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IosWheelPicker(
+                        items = (0..23).map { "%02d".format(it) },
+                        initialIndex = initialHour,
+                        onItemSelected = { selectedHour = it },
+                        MinTextPrimary = androidx.compose.ui.graphics.Color.White,
+                        MinTextSecondary = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)
+                    )
+                    Text(" : ", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.padding(horizontal = 8.dp))
+                    IosWheelPicker(
+                        items = (0..59).map { "%02d".format(it) },
+                        initialIndex = initialMinute,
+                        onItemSelected = { selectedMinute = it },
+                        MinTextPrimary = androidx.compose.ui.graphics.Color.White,
+                        MinTextSecondary = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(20.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.1f),
+                            contentColor = androidx.compose.ui.graphics.Color.White
+                        )
+                    ) {
+                        Text("Отмена", fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Button(
+                        onClick = { 
+                            onTimeSelected(selectedHour, selectedMinute)
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.1f),
+                            contentColor = androidx.compose.ui.graphics.Color.White
+                        )
+                    ) {
+                        Text("Готово", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
