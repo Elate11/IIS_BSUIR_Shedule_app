@@ -4915,11 +4915,24 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             val noteTitle = lines.firstOrNull() ?: ""
             val noteBody = lines.drop(1).joinToString("\n")
 
+            val isYellowEvent = isGridMode && note.isEvent
+            val cardBg = if (isYellowEvent) {
+                if (isDarkTheme) Color(0xFF33270A).copy(alpha = 0.90f) else Color(0xFFFEF3C7)
+            } else {
+                if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7)
+            }
+            val cardBorder = if (isYellowEvent) {
+                if (isDarkTheme) Color(0xFFFFB800).copy(alpha = 0.55f) else Color(0xFFF59E0B).copy(alpha = 0.45f)
+            } else {
+                if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA)
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape((20 * scaleLevel).dp))
-                    .background(Color.White.copy(alpha = 0.08f))
+                    .background(cardBg)
+                    .border(1.dp, cardBorder, RoundedCornerShape((20 * scaleLevel).dp))
                     .combinedClickable(
                         onClick = { 
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
@@ -4965,7 +4978,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             Box(
                                 modifier = Modifier
                                     .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
                                     .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
                             ) {
                                 Text(
