@@ -1896,13 +1896,22 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
 
 data class SubjectMarks(val name: String, val marks: List<Int>)
 
+data class NoteAttachment(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val uri: String,
+    val name: String,
+    val mimeType: String = "",
+    val sizeBytes: Long = 0L
+)
+
 data class Note(
     val id: String = java.util.UUID.randomUUID().toString(),
     val subject: String,
     val text: String,
     val date: String,
     val isEvent: Boolean = false,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val attachments: List<NoteAttachment> = emptyList()
 )
 
 @Composable
@@ -4183,7 +4192,169 @@ fun MinMarksScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+fun copyAttachmentToStorage(context: android.content.Context, uri: android.net.Uri): NoteAttachment? {
+    try {
+        var fileName = "attachment"
+        var fileSize = 0L
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (nameIdx != -1) fileName = cursor.getString(nameIdx) ?: "attachment"
+                    if (sizeIdx != -1) fileSize = cursor.getLong(sizeIdx)
+                }
+            }
+        } catch (e: Exception) {}
+
+        val mimeType = context.contentResolver.getType(uri) ?: when {
+            fileName.endsWith(".pdf", true) -> "application/pdf"
+            fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) -> "image/jpeg"
+            fileName.endsWith(".png", true) -> "image/png"
+            fileName.endsWith(".webp", true) -> "image/webp"
+            fileName.endsWith(".docx", true) || fileName.endsWith(".doc", true) -> "application/msword"
+            fileName.endsWith(".txt", true) -> "text/plain"
+            else -> "*/*"
+        }
+
+        val attachmentsDir = java.io.File(context.filesDir, "note_attachments").apply { mkdirs() }
+        val safeName = fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val savedFile = java.io.File(attachmentsDir, "${System.currentTimeMillis()}_$safeName")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            savedFile.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        return NoteAttachment(
+            id = java.util.UUID.randomUUID().toString(),
+            uri = android.net.Uri.fromFile(savedFile).toString(),
+            name = fileName,
+            mimeType = mimeType,
+            sizeBytes = if (fileSize > 0) fileSize else savedFile.length()
+        )
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return null
+    }
+}
+
+fun openAttachmentFile(context: android.content.Context, attachment: NoteAttachment) {
+    try {
+        val fileUri = android.net.Uri.parse(attachment.uri)
+        val targetUri = if (fileUri.scheme == "file") {
+            val file = java.io.File(fileUri.path ?: "")
+            androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+        } else {
+            fileUri
+        }
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(targetUri, attachment.mimeType.ifBlank { "*/*" })
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        try {
+            val fileUri = android.net.Uri.parse(attachment.uri)
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(fileUri, "*/*")
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (ex: Exception) {
+            android.widget.Toast.makeText(context, "Не удалось открыть файл: ${attachment.name}", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0) return ""
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return if (mb >= 1.0) String.format(java.util.Locale.US, "%.1f МБ", mb)
+    else String.format(java.util.Locale.US, "%.0f КБ", kb)
+}
+
+@Composable
+fun NotionAttachmentChip(
+    attachment: NoteAttachment,
+    isDarkTheme: Boolean,
+    onDelete: (() -> Unit)? = null,
+    onClick: () -> Unit
+) {
+    val chipBg = if (isDarkTheme) Color(0xFF22232C) else Color(0xFFEFEFF4)
+    val chipBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFD8D8E0)
+    val ext = attachment.name.substringAfterLast('.', "").lowercase()
+
+    val iconVector = when {
+        ext in listOf("png", "jpg", "jpeg", "webp", "gif", "svg") -> Icons.Outlined.Image
+        ext in listOf("pdf") -> Icons.Outlined.PictureAsPdf
+        ext in listOf("doc", "docx", "txt", "rtf", "odt") -> Icons.Outlined.Description
+        else -> Icons.Outlined.InsertDriveFile
+    }
+
+    val iconTint = when {
+        ext in listOf("png", "jpg", "jpeg", "webp") -> Color(0xFF30B0C7)
+        ext in listOf("pdf") -> Color(0xFFFF453A)
+        ext in listOf("doc", "docx", "txt") -> Color(0xFF007AFF)
+        else -> Color(0xFFFF9F0A)
+    }
+
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(chipBg)
+            .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            iconVector,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(16.dp)
+        )
+        Column(modifier = Modifier.widthIn(max = 140.dp)) {
+            Text(
+                attachment.name,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E),
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            if (attachment.sizeBytes > 0) {
+                Text(
+                    formatFileSize(attachment.sizeBytes),
+                    fontSize = 10.sp,
+                    color = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF8E8E93)
+                )
+            }
+        }
+        if (onDelete != null) {
+            Spacer(modifier = Modifier.width(2.dp))
+            Icon(
+                Icons.Outlined.Close,
+                contentDescription = "Удалить файл",
+                tint = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF8E8E93),
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .clickable { onDelete() }
+                    .padding(1.dp)
+            )
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "114001", isDarkTheme: Boolean = true) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -4305,6 +4476,24 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     var selectedYear by remember { mutableStateOf(todayCal.get(java.util.Calendar.YEAR)) }
     var viewMonth by remember { mutableStateOf(todayCal.get(java.util.Calendar.MONTH)) }
     var viewYear by remember { mutableStateOf(todayCal.get(java.util.Calendar.YEAR)) }
+
+    var pendingAttachments by remember { mutableStateOf<List<NoteAttachment>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+
+    val newFilePickerLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val copiedList = uris.mapNotNull { uri ->
+                    copyAttachmentToStorage(context, uri)
+                }
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    pendingAttachments = pendingAttachments + copiedList
+                }
+            }
+        }
+    }
 
     var scaleLevel by remember { mutableFloatStateOf(1.0f) }
     var isGridMode by remember { mutableStateOf(false) }
@@ -4452,13 +4641,29 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         }
     }
 
-    // iOS Note Edit Dialog
+    // Notion Note Edit Dialog
     if (noteToEdit != null) {
         var editText by remember(noteToEdit) { mutableStateOf(noteToEdit!!.text) }
         var editSubject by remember(noteToEdit) { mutableStateOf(noteToEdit!!.subject) }
         var editIsEvent by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isEvent) }
         var editIsPinned by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isPinned) }
+        var editAttachments by remember(noteToEdit) { mutableStateOf(noteToEdit!!.attachments ?: emptyList()) }
         var editSubjectExpanded by remember { mutableStateOf(false) }
+
+        val editFilePickerLauncher = rememberLauncherForActivityResult(
+            contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val copiedList = uris.mapNotNull { uri ->
+                        copyAttachmentToStorage(context, uri)
+                    }
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        editAttachments = editAttachments + copiedList
+                    }
+                }
+            }
+        }
 
         val editDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
         val editSubBg = if (isDarkTheme) Color.White.copy(alpha = 0.07f) else Color(0xFFF2F2F7)
@@ -4556,11 +4761,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         }
                     }
 
-                    // Text Editor Field
+                    // Spacious Notion Text Editor Field
                     OutlinedTextField(
                         value = editText,
                         onValueChange = { editText = it },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 130.dp, max = 240.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 320.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = MinTextPrimary,
                             unfocusedTextColor = MinTextPrimary,
@@ -4572,6 +4777,56 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         ),
                         shape = RoundedCornerShape(16.dp)
                     )
+
+                    // Attachments Section
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Файлы и вложения (${editAttachments.size})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MinTextSecondary
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(editSubBg)
+                                    .clickable {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        editFilePickerLauncher.launch(arrayOf("*/*"))
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Outlined.AttachFile, contentDescription = null, tint = MinAccent, modifier = Modifier.size(14.dp))
+                                Text("+ Прикрепить", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MinAccent)
+                            }
+                        }
+
+                        if (editAttachments.isNotEmpty()) {
+                            androidx.compose.foundation.layout.FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                editAttachments.forEach { att ->
+                                    NotionAttachmentChip(
+                                        attachment = att,
+                                        isDarkTheme = isDarkTheme,
+                                        onDelete = {
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            editAttachments = editAttachments.filter { it.id != att.id }
+                                        },
+                                        onClick = { openAttachmentFile(context, att) }
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     // Toggles Row
                     Row(
@@ -4659,13 +4914,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
                         Button(
                             onClick = {
-                                if (editText.isNotBlank()) {
+                                if (editText.isNotBlank() || editAttachments.isNotEmpty()) {
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     val updated = noteToEdit!!.copy(
                                         text = editText,
                                         subject = editSubject,
                                         isEvent = editIsEvent,
-                                        isPinned = editIsPinned
+                                        isPinned = editIsPinned,
+                                        attachments = editAttachments
                                     )
                                     saveNotes(notes.map { if (it.id == updated.id) updated else it })
                                     noteToEdit = null
@@ -4765,49 +5021,76 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             }
         }
 
-        // Top Filter Bar (Subject & Date Selectors)
+        // Control Panel: Subject Filter & Calendar Trigger
         item {
-            Row(modifier = Modifier.fillMaxWidth().zIndex(10f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-
-                Box(modifier = Modifier.weight(1f)) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.08f))
-                            .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                radialExpanded = !radialExpanded
-                                if (radialExpanded) isCalendarExpanded = false
-                            }
-                            .padding(horizontal = 16.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            Text(selectedSubject, color = MinTextPrimary, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(if (radialExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = MinTextSecondary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Subject Filter Dropdown Button
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                        .clickable { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            radialExpanded = !radialExpanded 
                         }
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = selectedSubject,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MinTextPrimary,
+                            maxLines = 1
+                        )
+                        Icon(
+                            if (radialExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MinTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                 }
 
+                // Calendar Picker Trigger
                 Box(
                     modifier = Modifier
-                        .height(52.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.08f))
-                        .clickable {
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isCalendarExpanded) MinAccent.copy(alpha = 0.22f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                        .border(1.dp, if (isCalendarExpanded) MinAccent else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                        .clickable { 
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                            isCalendarExpanded = !isCalendarExpanded
-                            if (isCalendarExpanded) radialExpanded = false
+                            isCalendarExpanded = !isCalendarExpanded 
                         }
-                        .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(formatDate(selectedDay, selectedMonth, selectedYear), color = MinTextPrimary, fontWeight = FontWeight.Bold)
-                        Icon(if (isCalendarExpanded) Icons.Outlined.KeyboardArrowLeft else Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = MinTextSecondary)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(
+                            Icons.Outlined.CalendarMonth,
+                            contentDescription = "Календарь",
+                            tint = if (isCalendarExpanded) MinAccent else MinTextPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            "%02d.%02d".format(selectedDay, selectedMonth + 1),
+                            color = if (isCalendarExpanded) MinAccent else MinTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
                     }
                 }
             }
@@ -4815,9 +5098,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             AnimatedVisibility(visible = radialExpanded, enter = expandVertically(), exit = shrinkVertically()) {
                 Column(
                     modifier = Modifier
+                        .padding(top = 10.dp)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.06f))
+                        .background(if (isDarkTheme) Color(0xFF1E202E) else Color(0xFFF2F2F7))
+                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
                         .padding(6.dp)
                 ) {
                     subjects.forEach { subject ->
@@ -4825,8 +5110,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (isSel) Color.White.copy(alpha = 0.18f) else Color.Transparent)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSel) MinAccent.copy(alpha = 0.15f) else Color.Transparent)
                                 .clickable {
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     selectedSubject = subject
@@ -4866,48 +5151,173 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             }
         }
 
-        // Add Note Card Input
+        // Notion-Style Spacious Note Input Card
         item {
+            val inputCardBg = if (isDarkTheme) Color(0xFF191A23) else Color(0xFFFFFFFF)
+            val inputBorder = if (isDarkTheme) Color.White.copy(alpha = 0.10f) else Color(0xFFE5E5EA)
+            val inputSubBg = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFF2F2F7)
+
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.White.copy(alpha = 0.05f))
-                    .padding(16.dp),
+                    .shadow(elevation = if (isDarkTheme) 6.dp else 3.dp, shape = RoundedCornerShape(22.dp))
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(inputCardBg)
+                    .border(1.dp, inputBorder, RoundedCornerShape(22.dp))
+                    .padding(18.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // Header tags in Notion style
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Subject tag
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MinAccent.copy(alpha = if (isDarkTheme) 0.16f else 0.12f))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject,
+                                color = MinAccent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // Date tag
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(inputSubBg)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                "%02d.%02d.%04d".format(selectedDay, selectedMonth + 1, selectedYear),
+                                color = MinTextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    if (pendingAttachments.isNotEmpty()) {
+                        Text(
+                            "${pendingAttachments.size} вложений",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MinAccent
+                        )
+                    }
+                }
+
+                // Spacious multi-line Notion text area
                 OutlinedTextField(
                     value = noteText,
                     onValueChange = { noteText = it },
-                    placeholder = { Text("Новая заметка или событие...") },
-                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { 
+                        Text(
+                            "Новая заметка в стиле Notion...\n\nЗаголовок на первой строке, подробности ниже...",
+                            fontSize = 15.sp,
+                            color = MinTextSecondary.copy(alpha = 0.7f),
+                            lineHeight = 22.sp
+                        ) 
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 130.dp, max = 300.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = MinTextPrimary,
                         unfocusedTextColor = MinTextPrimary,
                         cursorColor = MinAccent,
-                        focusedBorderColor = MinAccent,
+                        focusedBorderColor = MinAccent.copy(alpha = 0.5f),
                         unfocusedBorderColor = Color.Transparent,
                         focusedPlaceholderColor = MinTextSecondary,
                         unfocusedPlaceholderColor = MinTextSecondary,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
+                        focusedContainerColor = inputSubBg,
+                        unfocusedContainerColor = inputSubBg
                     ),
-                    maxLines = 5,
-                    shape = RoundedCornerShape(14.dp)
+                    shape = RoundedCornerShape(16.dp)
                 )
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Attached files preview chips in Notion style
+                if (pendingAttachments.isNotEmpty()) {
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        pendingAttachments.forEach { att ->
+                            NotionAttachmentChip(
+                                attachment = att,
+                                isDarkTheme = isDarkTheme,
+                                onDelete = {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    pendingAttachments = pendingAttachments.filter { it.id != att.id }
+                                },
+                                onClick = { openAttachmentFile(context, att) }
+                            )
+                        }
+                    }
+                }
+
+                // Bottom Action & Toolbar Bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Attach File Button
+                    Box(
+                        modifier = Modifier
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(inputSubBg)
+                            .border(1.dp, inputBorder, RoundedCornerShape(12.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                newFilePickerLauncher.launch(arrayOf("*/*"))
+                            }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.AttachFile,
+                                contentDescription = "Прикрепить файл",
+                                tint = MinAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                "Файл",
+                                color = MinTextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
                     // "Событие" button toggle
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.20f) else inputSubBg)
+                            .border(1.dp, if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.40f) else inputBorder, RoundedCornerShape(12.dp))
                             .clickable { 
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 isEventNote = !isEventNote 
-                            },
+                            }
+                            .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -4924,7 +5334,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 "Событие",
                                 color = if (isEventNote) Color(0xFFFFB800) else MinTextPrimary,
                                 fontWeight = if (isEventNote) FontWeight.ExtraBold else FontWeight.Bold,
-                                fontSize = 14.sp
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -4932,23 +5342,25 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     // "Сохранить" button
                     Box(
                         modifier = Modifier
-                            .weight(1.2f)
-                            .height(46.dp)
-                            .clip(RoundedCornerShape(14.dp))
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(MinAccent)
                             .clickable {
-                                if (noteText.isNotBlank()) {
+                                if (noteText.isNotBlank() || pendingAttachments.isNotEmpty()) {
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
                                     val newNote = Note(
                                         subject = subjectForNote,
                                         text = noteText,
                                         date = formatDate(selectedDay, selectedMonth, selectedYear),
-                                        isEvent = isEventNote
+                                        isEvent = isEventNote,
+                                        attachments = pendingAttachments
                                     )
                                     saveNotes(notes + newNote)
                                     scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
                                     noteText = ""
+                                    pendingAttachments = emptyList()
                                     isEventNote = false
                                 }
                             },
@@ -4958,7 +5370,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             if (isEventNote) "Сохранить событие" else "Сохранить",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 13.sp
                         )
                     }
                 }
@@ -4982,6 +5394,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             } else {
                 if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA)
             }
+
+            val noteAttachments = note.attachments ?: emptyList()
 
             Box(
                 modifier = Modifier
@@ -5081,6 +5495,22 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 maxLines = if (isCompact) 3 else 6,
                                 lineHeight = (18 * scaleLevel).sp
                             )
+                        }
+                    }
+
+                    // Attachments preview chips
+                    if (noteAttachments.isNotEmpty()) {
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy((6 * scaleLevel).dp),
+                            verticalArrangement = Arrangement.spacedBy((6 * scaleLevel).dp)
+                        ) {
+                            noteAttachments.forEach { att ->
+                                NotionAttachmentChip(
+                                    attachment = att,
+                                    isDarkTheme = isDarkTheme,
+                                    onClick = { openAttachmentFile(context, att) }
+                                )
+                            }
                         }
                     }
                 }
