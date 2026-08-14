@@ -4922,12 +4922,12 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
             val isYellowEvent = isGridMode && note.isEvent
             val cardBg = if (isYellowEvent) {
-                if (isDarkTheme) Color(0xFF33270A).copy(alpha = 0.90f) else Color(0xFFFEF3C7)
+                Color(0xFFFFB800).copy(alpha = 0.20f)
             } else {
                 if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7)
             }
             val cardBorder = if (isYellowEvent) {
-                if (isDarkTheme) Color(0xFFFFB800).copy(alpha = 0.55f) else Color(0xFFF59E0B).copy(alpha = 0.45f)
+                Color(0xFFFFB800).copy(alpha = 0.40f)
             } else {
                 if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA)
             }
