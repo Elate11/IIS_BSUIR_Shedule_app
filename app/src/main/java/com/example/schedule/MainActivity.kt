@@ -5185,10 +5185,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.Check, contentDescription = null, tint = MinAccent, modifier = Modifier.size(18.dp))
-                                Text("Сохранить", color = MinAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
+                            Icon(Icons.Outlined.Check, contentDescription = "Сохранить", tint = MinAccent, modifier = Modifier.size(19.dp))
                         }
                     }
                 }
@@ -5526,14 +5523,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         }
                     }
 
-                    if (pendingAttachments.isNotEmpty()) {
-                        Text(
-                            "${pendingAttachments.size} вложений",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MinAccent
-                        )
-                    }
                 }
 
                 // Text area
@@ -5697,15 +5686,9 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         ) {
                             Icon(
                                 Icons.Outlined.Check,
-                                contentDescription = null,
+                                contentDescription = "Сохранить",
                                 tint = MinAccent,
-                                modifier = Modifier.size(17.dp)
-                            )
-                            Text(
-                                "Сохранить",
-                                color = MinAccent,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     }
