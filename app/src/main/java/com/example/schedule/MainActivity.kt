@@ -1911,7 +1911,8 @@ data class Note(
     val date: String,
     val isEvent: Boolean = false,
     val isPinned: Boolean = false,
-    val attachments: List<NoteAttachment> = emptyList()
+    val attachments: List<NoteAttachment> = emptyList(),
+    val calendarEventId: Long? = null
 )
 
 @Composable
@@ -4354,6 +4355,146 @@ fun NotionAttachmentChip(
     }
 }
 
+fun parseNoteDateMillis(dateStr: String): Long {
+    return try {
+        val parts = dateStr.split(".")
+        if (parts.size == 3) {
+            val d = parts[0].toInt()
+            val m = parts[1].toInt() - 1
+            val y = parts[2].toInt()
+            val cal = java.util.Calendar.getInstance()
+            cal.set(y, m, d, 12, 0, 0)
+            cal.set(java.util.Calendar.MILLISECOND, 0)
+            cal.timeInMillis
+        } else 0L
+    } catch (e: Exception) { 0L }
+}
+
+fun calculateReminderTime(timing: String, d: Int, m: Int, y: Int): Long {
+    val cal = java.util.Calendar.getInstance()
+    when (timing) {
+        "1_day_before_18" -> {
+            cal.set(y, m, d, 18, 0, 0)
+            cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }
+        "1_day_before_21" -> {
+            cal.set(y, m, d, 21, 0, 0)
+            cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }
+        "same_day_08" -> {
+            cal.set(y, m, d, 8, 0, 0)
+        }
+        "same_day_09" -> {
+            cal.set(y, m, d, 9, 0, 0)
+        }
+        "2_hours_before" -> {
+            cal.set(y, m, d, 7, 0, 0)
+        }
+        "1_hour_before" -> {
+            cal.set(y, m, d, 8, 0, 0)
+        }
+        "15_min_before" -> {
+            cal.set(y, m, d, 8, 45, 0)
+        }
+        else -> {
+            cal.set(y, m, d, 18, 0, 0)
+            cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
+        }
+    }
+    cal.set(java.util.Calendar.SECOND, 0)
+    cal.set(java.util.Calendar.MILLISECOND, 0)
+    return cal.timeInMillis
+}
+
+object GoogleCalendarSync {
+    fun getPrimaryCalendarId(context: android.content.Context): Long? {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        val projection = arrayOf(
+            android.provider.CalendarContract.Calendars._ID,
+            android.provider.CalendarContract.Calendars.IS_PRIMARY,
+            android.provider.CalendarContract.Calendars.ACCOUNT_TYPE
+        )
+        try {
+            context.contentResolver.query(
+                android.provider.CalendarContract.Calendars.CONTENT_URI,
+                projection,
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                var primaryId: Long? = null
+                var googleId: Long? = null
+                var firstId: Long? = null
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    val isPrimary = cursor.getInt(1) == 1
+                    val accountType = cursor.getString(2)
+                    if (firstId == null) firstId = id
+                    if (isPrimary) primaryId = id
+                    if (accountType == "com.google") googleId = id
+                }
+                return primaryId ?: googleId ?: firstId
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    fun syncEvent(context: android.content.Context, note: Note, d: Int, m: Int, y: Int): Long? {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return null
+        }
+        try {
+            val calId = getPrimaryCalendarId(context) ?: return null
+            val startCal = java.util.Calendar.getInstance().apply {
+                set(y, m, d, 9, 0, 0)
+            }
+            val endCal = java.util.Calendar.getInstance().apply {
+                set(y, m, d, 10, 30, 0)
+            }
+
+            val values = android.content.ContentValues().apply {
+                put(android.provider.CalendarContract.Events.DTSTART, startCal.timeInMillis)
+                put(android.provider.CalendarContract.Events.DTEND, endCal.timeInMillis)
+                put(android.provider.CalendarContract.Events.TITLE, "${note.subject}: ${note.text.lines().firstOrNull() ?: ""}")
+                put(android.provider.CalendarContract.Events.DESCRIPTION, note.text)
+                put(android.provider.CalendarContract.Events.CALENDAR_ID, calId)
+                put(android.provider.CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().id)
+            }
+
+            if (note.calendarEventId != null) {
+                try {
+                    val updateUri = android.content.ContentUris.withAppendedId(android.provider.CalendarContract.Events.CONTENT_URI, note.calendarEventId)
+                    val rows = context.contentResolver.update(updateUri, values, null, null)
+                    if (rows > 0) return note.calendarEventId
+                } catch (e: Exception) {}
+            }
+
+            val uri = context.contentResolver.insert(android.provider.CalendarContract.Events.CONTENT_URI, values)
+            return uri?.lastPathSegment?.toLongOrNull()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    fun deleteEvent(context: android.content.Context, eventId: Long?) {
+        if (eventId == null) return
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        try {
+            val deleteUri = android.content.ContentUris.withAppendedId(android.provider.CalendarContract.Events.CONTENT_URI, eventId)
+            context.contentResolver.delete(deleteUri, null, null)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "114001", isDarkTheme: Boolean = true) {
@@ -4498,6 +4639,16 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     var scaleLevel by remember { mutableFloatStateOf(1.0f) }
     var isGridMode by remember { mutableStateOf(false) }
 
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            calendarPermissionLauncher.launch(arrayOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR))
+        }
+    }
+
     var notes by remember { mutableStateOf<List<Note>>(emptyList()) }
 
     // Reload notes every time this composable becomes active
@@ -4528,27 +4679,23 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     fun formatDate(d: Int, m: Int, y: Int) = "%02d.%02d.%04d".format(d, m + 1, y)
 
     fun scheduleAlarm(context: android.content.Context, note: Note, d: Int, m: Int, y: Int) {
+        val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+        val timing = appPrefs.getString("event_reminder_timing", "1_day_before_18") ?: "1_day_before_18"
+        val triggerTime = calculateReminderTime(timing, d, m, y)
+
         val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE) as android.app.AlarmManager
         val intent = android.content.Intent(context, NoteReminderReceiver::class.java).apply {
             putExtra("SUBJECT", note.subject)
             putExtra("TEXT", note.text)
+            putExtra("IS_EVENT", note.isEvent)
         }
-        val calendar = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.YEAR, y)
-            set(java.util.Calendar.MONTH, m)
-            set(java.util.Calendar.DAY_OF_MONTH, d)
-            add(java.util.Calendar.DAY_OF_MONTH, -1)
-            set(java.util.Calendar.HOUR_OF_DAY, 18)
-            set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0)
-        }
-        if (calendar.timeInMillis > System.currentTimeMillis()) {
+        if (triggerTime > System.currentTimeMillis()) {
             val pendingIntent = android.app.PendingIntent.getBroadcast(
                 context, note.id.hashCode(), intent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
             )
             try {
-                alarmManager.setExact(android.app.AlarmManager.RTC_WAKEUP, calendar.timeInMillis, pendingIntent)
+                alarmManager.setExact(android.app.AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
             } catch (e: SecurityException) { }
         }
     }
@@ -4560,17 +4707,21 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     val highlightedDates = remember(notes, selectedSubject) {
         (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).map { it.date }.toSet()
     }
+    
+    // Sort all notes and pinned notes chronologically by date
     val subjectNotes = remember(notes, selectedSubject) {
-        (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedByDescending { it.date }
+        (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedByDescending { parseNoteDateMillis(it.date) }
     }
 
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned } }
-    val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned } }
+    val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned }.sortedByDescending { parseNoteDateMillis(it.date) } }
+    val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned }.sortedByDescending { parseNoteDateMillis(it.date) } }
 
     if (noteToDelete != null) {
         val deleteDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
         val deleteBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
+        val deleteTitleColor = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
+        val deleteSubColor = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
 
         Dialog(onDismissRequest = { noteToDelete = null }) {
             Box(
@@ -4591,12 +4742,12 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             "Удалить заметку?",
                             fontSize = 20.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = MinTextPrimary
+                            color = deleteTitleColor
                         )
                         Text(
-                            "Вы уверены, что хотите удалить эту заметку? Это действие нельзя отменить.",
+                            "Вы уверены, что хотите удалить эту заметку? Это действие также удалит синхронизированное событие из Google Календаря.",
                             fontSize = 14.sp,
-                            color = MinTextSecondary,
+                            color = deleteSubColor,
                             lineHeight = 19.sp
                         )
                     }
@@ -4614,7 +4765,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
-                                contentColor = MinTextPrimary
+                                contentColor = deleteTitleColor
                             )
                         ) {
                             Text("Отмена", fontWeight = FontWeight.Bold)
@@ -4623,6 +4774,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                GoogleCalendarSync.deleteEvent(context, noteToDelete!!.calendarEventId)
                                 saveNotes(notes.filter { it.id != noteToDelete!!.id })
                                 noteToDelete = null
                             },
@@ -4641,7 +4793,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         }
     }
 
-    // Notion Note Edit Dialog
+    // Notion Note Edit Dialog (Adaptive Light / Dark Theme)
     if (noteToEdit != null) {
         var editText by remember(noteToEdit) { mutableStateOf(noteToEdit!!.text) }
         var editSubject by remember(noteToEdit) { mutableStateOf(noteToEdit!!.subject) }
@@ -4669,6 +4821,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         val editSubBg = if (isDarkTheme) Color.White.copy(alpha = 0.07f) else Color(0xFFF2F2F7)
         val editBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
         val editFieldBg = if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFF7F7FA)
+        val editTextColor = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
+        val editSecTextColor = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
 
         Dialog(onDismissRequest = { noteToEdit = null }) {
             Box(
@@ -4689,9 +4843,9 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Редактировать", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+                        Text("Редактировать", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = editTextColor)
                         IconButton(onClick = { noteToEdit = null }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = MinTextSecondary)
+                            Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = editSecTextColor)
                         }
                     }
 
@@ -4727,7 +4881,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .border(1.dp, editBorder, CircleShape)
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text(noteToEdit!!.date, color = MinTextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(noteToEdit!!.date, color = editSecTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
                     }
 
@@ -4744,7 +4898,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 val isSel = s == editSubject
                                 Text(
                                     s,
-                                    color = if (isSel) MinAccent else MinTextPrimary,
+                                    color = if (isSel) MinAccent else editTextColor,
                                     fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -4767,8 +4921,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         onValueChange = { editText = it },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 320.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = MinTextPrimary,
-                            unfocusedTextColor = MinTextPrimary,
+                            focusedTextColor = editTextColor,
+                            unfocusedTextColor = editTextColor,
                             cursorColor = MinAccent,
                             focusedBorderColor = MinAccent,
                             unfocusedBorderColor = editBorder,
@@ -4789,7 +4943,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 "Файлы и вложения (${editAttachments.size})",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MinTextSecondary
+                                color = editSecTextColor
                             )
                             Row(
                                 modifier = Modifier
@@ -4839,8 +4993,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .weight(1f)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.18f) else editSubBg)
-                                .border(1.dp, if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.4f) else editBorder, RoundedCornerShape(12.dp))
+                                .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = if (isDarkTheme) 0.18f else 0.14f) else editSubBg)
+                                .border(1.dp, if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.45f) else editBorder, RoundedCornerShape(12.dp))
                                 .clickable { 
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     editIsPinned = !editIsPinned 
@@ -4851,12 +5005,12 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 Icon(
                                     Icons.Outlined.PushPin,
                                     contentDescription = null,
-                                    tint = if (editIsPinned) Color(0xFFFF9500) else MinTextSecondary,
+                                    tint = if (editIsPinned) Color(0xFFFF9500) else editSecTextColor,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
                                     "Закрепить",
-                                    color = if (editIsPinned) Color(0xFFFF9500) else MinTextPrimary,
+                                    color = if (editIsPinned) Color(0xFFFF9500) else editTextColor,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -4869,8 +5023,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .weight(1f)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.18f) else editSubBg)
-                                .border(1.dp, if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.4f) else editBorder, RoundedCornerShape(12.dp))
+                                .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = if (isDarkTheme) 0.18f else 0.14f) else editSubBg)
+                                .border(1.dp, if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.45f) else editBorder, RoundedCornerShape(12.dp))
                                 .clickable { 
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     editIsEvent = !editIsEvent 
@@ -4881,12 +5035,12 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 Icon(
                                     if (editIsEvent) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
                                     contentDescription = null,
-                                    tint = if (editIsEvent) Color(0xFFFFB800) else MinTextSecondary,
+                                    tint = if (editIsEvent) Color(0xFFFFB800) else editSecTextColor,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Text(
                                     "Событие",
-                                    color = if (editIsEvent) Color(0xFFFFB800) else MinTextPrimary,
+                                    color = if (editIsEvent) Color(0xFFFFB800) else editTextColor,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
@@ -4894,7 +5048,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         }
                     }
 
-                    // Action Buttons Row (Delete & Save)
+                    // Action Buttons Row (Delete & Save styled as matching pill)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -4902,36 +5056,71 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Button(
                             onClick = {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                GoogleCalendarSync.deleteEvent(context, noteToEdit!!.calendarEventId)
                                 saveNotes(notes.filter { it.id != noteToEdit!!.id })
                                 noteToEdit = null
                             },
                             modifier = Modifier.weight(1f).height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = if (isDarkTheme) Color(0xFFFF3B30).copy(alpha = 0.15f) else Color(0xFFFF3B30).copy(alpha = 0.10f), contentColor = Color(0xFFFF3B30))
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isDarkTheme) Color(0xFFFF3B30).copy(alpha = 0.15f) else Color(0xFFFF3B30).copy(alpha = 0.10f),
+                                contentColor = Color(0xFFFF3B30)
+                            )
                         ) {
                             Text("Удалить", fontWeight = FontWeight.Bold)
                         }
 
-                        Button(
-                            onClick = {
-                                if (editText.isNotBlank() || editAttachments.isNotEmpty()) {
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                    val updated = noteToEdit!!.copy(
-                                        text = editText,
-                                        subject = editSubject,
-                                        isEvent = editIsEvent,
-                                        isPinned = editIsPinned,
-                                        attachments = editAttachments
-                                    )
-                                    saveNotes(notes.map { if (it.id == updated.id) updated else it })
-                                    noteToEdit = null
-                                }
-                            },
-                            modifier = Modifier.weight(1.3f).height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MinAccent, contentColor = Color.White)
+                        // Save button matching Event button aesthetic
+                        Box(
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MinAccent.copy(alpha = if (isDarkTheme) 0.20f else 0.15f))
+                                .border(1.dp, MinAccent.copy(alpha = if (isDarkTheme) 0.50f else 0.40f), RoundedCornerShape(14.dp))
+                                .clickable {
+                                    if (editText.isNotBlank() || editAttachments.isNotEmpty()) {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        
+                                        var newCalEventId = noteToEdit!!.calendarEventId
+                                        val dateParts = noteToEdit!!.date.split(".")
+                                        val day = dateParts.getOrNull(0)?.toIntOrNull() ?: selectedDay
+                                        val month = (dateParts.getOrNull(1)?.toIntOrNull()?.minus(1)) ?: selectedMonth
+                                        val year = dateParts.getOrNull(2)?.toIntOrNull() ?: selectedYear
+
+                                        if (editIsEvent) {
+                                            val syncedId = GoogleCalendarSync.syncEvent(
+                                                context,
+                                                noteToEdit!!.copy(text = editText, subject = editSubject, isEvent = true),
+                                                day, month, year
+                                            )
+                                            if (syncedId != null) newCalEventId = syncedId
+                                        } else if (noteToEdit!!.calendarEventId != null) {
+                                            GoogleCalendarSync.deleteEvent(context, noteToEdit!!.calendarEventId)
+                                            newCalEventId = null
+                                        }
+
+                                        val updated = noteToEdit!!.copy(
+                                            text = editText,
+                                            subject = editSubject,
+                                            isEvent = editIsEvent,
+                                            isPinned = editIsPinned,
+                                            attachments = editAttachments,
+                                            calendarEventId = newCalEventId
+                                        )
+                                        saveNotes(notes.map { if (it.id == updated.id) updated else it })
+                                        if (editIsEvent) {
+                                            scheduleAlarm(context, updated, day, month, year)
+                                        }
+                                        noteToEdit = null
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Сохранить", fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.Check, contentDescription = null, tint = MinAccent, modifier = Modifier.size(18.dp))
+                                Text("Сохранить", color = MinAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
                         }
                     }
                 }
@@ -5339,26 +5528,40 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         }
                     }
 
-                    // "Сохранить" button
+                    // "Сохранить" button styled matching the "Событие" button aesthetic
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .height(44.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(MinAccent)
+                            .background(MinAccent.copy(alpha = if (isDarkTheme) 0.20f else 0.15f))
+                            .border(1.dp, MinAccent.copy(alpha = if (isDarkTheme) 0.50f else 0.40f), RoundedCornerShape(12.dp))
                             .clickable {
                                 if (noteText.isNotBlank() || pendingAttachments.isNotEmpty()) {
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                     val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
+                                    
+                                    var calId: Long? = null
+                                    if (isEventNote) {
+                                        calId = GoogleCalendarSync.syncEvent(
+                                            context,
+                                            Note(subject = subjectForNote, text = noteText, date = formatDate(selectedDay, selectedMonth, selectedYear), isEvent = true),
+                                            selectedDay, selectedMonth, selectedYear
+                                        )
+                                    }
+
                                     val newNote = Note(
                                         subject = subjectForNote,
                                         text = noteText,
                                         date = formatDate(selectedDay, selectedMonth, selectedYear),
                                         isEvent = isEventNote,
-                                        attachments = pendingAttachments
+                                        attachments = pendingAttachments,
+                                        calendarEventId = calId
                                     )
                                     saveNotes(notes + newNote)
-                                    scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
+                                    if (isEventNote) {
+                                        scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
+                                    }
                                     noteText = ""
                                     pendingAttachments = emptyList()
                                     isEventNote = false
@@ -5366,12 +5569,23 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            if (isEventNote) "Сохранить событие" else "Сохранить",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.Check,
+                                contentDescription = null,
+                                tint = MinAccent,
+                                modifier = Modifier.size(17.dp)
+                            )
+                            Text(
+                                if (isEventNote) "Сохранить событие" else "Сохранить",
+                                color = MinAccent,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             }
@@ -5714,6 +5928,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     var showBenefits by remember { mutableStateOf(false) }
     var showPenalties by remember { mutableStateOf(false) }
     var showAbsences by remember { mutableStateOf(false) }
+    var showReminderSettings by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -6179,7 +6394,8 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
                 MinListAction("Группа", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Person) { showGroupScreen = true }
                 MinListAction("Взыскания", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Warning) { showPenalties = true }
-                MinListAction("Кастомизация", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Settings, isLast = true) { showCustomization = true }
+                MinListAction("Кастомизация", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Settings, isLast = false) { showCustomization = true }
+                MinListAction("Напоминания о событиях", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.NotificationsActive, isLast = true) { showReminderSettings = true }
             }
             Spacer(modifier = Modifier.height(40.dp))
         }
@@ -6203,6 +6419,145 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             if (showDormitory) InfoDialog("Общежитие", "Функция находится в разработке.", MinBg, MinTextPrimary, MinTextSecondary) { showDormitory = false }
             if (showBenefits) InfoDialog("Льготы", "Функция находится в разработке.", MinBg, MinTextPrimary, MinTextSecondary) { showBenefits = false }
             if (showPenalties) InfoDialog("Взыскания", "У вас нет активных взысканий.", MinBg, MinTextPrimary, MinTextSecondary) { showPenalties = false }
+
+            if (showReminderSettings) {
+                var selectedTiming by remember {
+                    mutableStateOf(profilePrefs.getString("event_reminder_timing", "1_day_before_18") ?: "1_day_before_18")
+                }
+                val timingOptions = listOf(
+                    "1_day_before_18" to "За 1 день до события (в 18:00)",
+                    "1_day_before_21" to "За 1 день до события (в 21:00)",
+                    "same_day_08" to "В день события (в 08:00)",
+                    "same_day_09" to "В день события (в 09:00)",
+                    "2_hours_before" to "За 2 часа до события",
+                    "1_hour_before" to "За 1 час до события",
+                    "15_min_before" to "За 15 минут до события"
+                )
+
+                val dialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
+                val dialogBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
+                val optionBg = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFF2F2F7)
+
+                Dialog(onDismissRequest = { showReminderSettings = false }) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(elevation = if (isDarkTheme) 24.dp else 12.dp, shape = RoundedCornerShape(24.dp))
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(dialogBg)
+                            .border(1.dp, dialogBorder, RoundedCornerShape(24.dp))
+                            .padding(22.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(currentAccent.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.NotificationsActive,
+                                            contentDescription = null,
+                                            tint = currentAccent,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Text(
+                                        "Напоминания",
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = MinTextPrimary
+                                    )
+                                }
+                                IconButton(onClick = { showReminderSettings = false }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = MinTextSecondary)
+                                }
+                            }
+
+                            Text(
+                                "Выберите, за какое время до события отправлять push-уведомление:",
+                                fontSize = 14.sp,
+                                color = MinTextSecondary,
+                                lineHeight = 19.sp
+                            )
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                timingOptions.forEach { (key, label) ->
+                                    val isSelected = key == selectedTiming
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(if (isSelected) currentAccent.copy(alpha = if (isDarkTheme) 0.18f else 0.12f) else optionBg)
+                                            .border(
+                                                1.dp,
+                                                if (isSelected) currentAccent.copy(alpha = 0.5f) else Color.Transparent,
+                                                RoundedCornerShape(14.dp)
+                                            )
+                                            .clickable {
+                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                selectedTiming = key
+                                                profilePrefs.edit().putString("event_reminder_timing", key).apply()
+                                            }
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            label,
+                                            fontSize = 14.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) currentAccent else MinTextPrimary
+                                        )
+                                        if (isSelected) {
+                                            Icon(
+                                                Icons.Outlined.Check,
+                                                contentDescription = null,
+                                                tint = currentAccent,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(currentAccent.copy(alpha = if (isDarkTheme) 0.20f else 0.15f))
+                                    .border(1.dp, currentAccent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        showReminderSettings = false
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Готово", color = currentAccent, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
