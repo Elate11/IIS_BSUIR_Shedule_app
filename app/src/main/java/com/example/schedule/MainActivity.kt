@@ -1222,138 +1222,142 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             val animatedIndex by androidx.compose.animation.core.animateFloatAsState(
                 targetValue = targetArrIndex.toFloat(),
                 animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.58f,
-                    stiffness = 240f
+                    dampingRatio = 0.52f,
+                    stiffness = 200f
                 ),
                 label = "dropletSpring"
             )
 
-            androidx.compose.foundation.lazy.LazyRow(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(horizontal = hPadding),
-                state = listState,
-                flingBehavior = flingBehavior
+                    .padding(vertical = 6.dp)
             ) {
-                items(validDayIndices.size) { arrIndex ->
-                    val index = validDayIndices[arrIndex]
-                    val day = weekDays[index]
-                    val isSelected = index == selectedDayIndex
-                    val isToday = index == 7
+                // 1. Prominent Unified Sliding Liquid Glass Droplet
+                if (styleType != StyleType.Techno) {
+                    val stepPx = with(androidx.compose.ui.platform.LocalDensity.current) { (58.dp + 10.dp).toPx() }
+                    val hPaddingPx = with(androidx.compose.ui.platform.LocalDensity.current) { hPadding.toPx() }
+                    val scrollOffsetPx = (listState.firstVisibleItemIndex * stepPx) + listState.firstVisibleItemScrollOffset
+                    val dropletOffsetPx = hPaddingPx + (stepPx * animatedIndex) - scrollOffsetPx
                     
-                    val dist = arrIndex - animatedIndex
-                    val absDist = kotlin.math.abs(dist)
-                    val safeProgress = (1f - absDist).coerceIn(0f, 1f)
+                    val velocity = (targetArrIndex - animatedIndex)
+                    val absVel = kotlin.math.abs(velocity).coerceIn(0f, 2.5f)
                     
-                    // Dynamic liquid drop squish & stretch based on velocity and distance
-                    val stretchFactor = (1f - (absDist * 2f).coerceIn(0f, 1f))
-                    val moveVelocity = (targetArrIndex - animatedIndex)
-                    val dropletScaleX = 1f + 0.06f * safeProgress + 0.14f * kotlin.math.abs(moveVelocity).coerceIn(0f, 1f) * stretchFactor
-                    val dropletScaleY = 1f + 0.04f * safeProgress - 0.06f * kotlin.math.abs(moveVelocity).coerceIn(0f, 1f) * stretchFactor
-                    
-                    val targetTextColor = when {
-                        styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
-                        isSelected -> if (isDarkTheme) Color.White else MinAccent
-                        isToday -> MinTextPrimary
-                        isDarkTheme -> Color.White.copy(alpha = 0.90f)
-                        else -> Color.Black.copy(alpha = 0.90f)
-                    }
-                    val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(250))
-
                     Box(
                         modifier = Modifier
                             .graphicsLayer {
-                                if (styleType != StyleType.Techno) {
-                                    scaleX = dropletScaleX
-                                    scaleY = dropletScaleY
-                                    translationX = (tiltX * 2.dp.toPx() - dist * 4.dp.toPx() * (1f - safeProgress)) * safeProgress
-                                    translationY = tiltY * 1.5.dp.toPx() * safeProgress
-                                }
+                                translationX = dropletOffsetPx + (tiltX * 3.dp.toPx())
+                                translationY = tiltY * 2.dp.toPx()
+                                scaleX = 1f + 0.35f * absVel
+                                scaleY = 1f / kotlin.math.sqrt(1f + 0.35f * absVel)
                             }
                             .width(58.dp)
                             .height(80.dp)
-                            .then(
-                                if (styleType != StyleType.Techno && safeProgress > 0.01f) {
-                                    Modifier.liquidGlassEffect(
-                                        cornerRadius = 24.dp,
-                                        accentColor = MinAccent,
-                                        isDarkTheme = isDarkTheme,
-                                        tiltX = tiltX,
-                                        tiltY = tiltY,
-                                        isActive = safeProgress > 0.4f
-                                    )
-                                } else {
-                                    Modifier
-                                        .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 24.dp))
-                                        .then(
-                                            if (styleType == StyleType.Techno) {
-                                                Modifier
-                                            } else {
-                                                Modifier
-                                                    .background(if (isDarkTheme) Color(0xFF161822).copy(alpha = 0.6f) else Color(0xFFEFF1F6).copy(alpha = 0.8f))
-                                                    .border(1.dp, if (isToday) MinAccent.copy(alpha = 0.6f) else MinBorder, RoundedCornerShape(24.dp))
-                                            }
-                                        )
-                                }
+                            .liquidGlassEffect(
+                                cornerRadius = 24.dp,
+                                accentColor = MinAccent,
+                                isDarkTheme = isDarkTheme,
+                                tiltX = tiltX,
+                                tiltY = tiltY,
+                                isActive = true
                             )
-                            .drawWithContent {
-                                if (styleType == StyleType.Techno) {
-                                    val r = 6.dp.toPx()
-                                    val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
-                                    if (isSelected) {
-                                        drawRoundRect(
-                                            color = Color(0xFF00FF41).copy(alpha = 0.20f),
-                                            cornerRadius = cornerR
-                                        )
-                                        drawRoundRect(
-                                            color = Color(0xFF00FF41),
-                                            cornerRadius = cornerR,
-                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-                                        )
+                    )
+                }
+
+                // 2. Interactive Day Carousel Track
+                androidx.compose.foundation.lazy.LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = hPadding),
+                    state = listState,
+                    flingBehavior = flingBehavior
+                ) {
+                    items(validDayIndices.size) { arrIndex ->
+                        val index = validDayIndices[arrIndex]
+                        val day = weekDays[index]
+                        val isSelected = index == selectedDayIndex
+                        val isToday = index == 7
+                        
+                        val targetTextColor = when {
+                            styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
+                            isSelected -> if (isDarkTheme) Color.White else MinAccent
+                            isToday -> MinTextPrimary
+                            isDarkTheme -> Color.White.copy(alpha = 0.90f)
+                            else -> Color.Black.copy(alpha = 0.90f)
+                        }
+                        val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(250))
+
+                        Box(
+                            modifier = Modifier
+                                .width(58.dp)
+                                .height(80.dp)
+                                .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 24.dp))
+                                .then(
+                                    if (styleType == StyleType.Techno) {
+                                        Modifier
                                     } else {
-                                        drawRoundRect(
-                                            color = Color(0xFF0A0A0A),
-                                            cornerRadius = cornerR
-                                        )
-                                        drawRoundRect(
-                                            color = if (isToday) Color(0xFF00FF41).copy(alpha = 0.60f) else Color(0xFF00FF41).copy(alpha = 0.25f),
-                                            cornerRadius = cornerR,
-                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
-                                        )
+                                        Modifier
+                                            .background(if (isDarkTheme) Color(0xFF161822).copy(alpha = 0.35f) else Color(0xFFEFF1F6).copy(alpha = 0.45f))
+                                            .border(1.dp, if (isToday) MinAccent.copy(alpha = 0.6f) else MinBorder, RoundedCornerShape(24.dp))
                                     }
+                                )
+                                .drawWithContent {
+                                    if (styleType == StyleType.Techno) {
+                                        val r = 6.dp.toPx()
+                                        val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
+                                        if (isSelected) {
+                                            drawRoundRect(
+                                                color = Color(0xFF00FF41).copy(alpha = 0.20f),
+                                                cornerRadius = cornerR
+                                            )
+                                            drawRoundRect(
+                                                color = Color(0xFF00FF41),
+                                                cornerRadius = cornerR,
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                                            )
+                                        } else {
+                                            drawRoundRect(
+                                                color = Color(0xFF0A0A0A),
+                                                cornerRadius = cornerR
+                                            )
+                                            drawRoundRect(
+                                                color = if (isToday) Color(0xFF00FF41).copy(alpha = 0.60f) else Color(0xFF00FF41).copy(alpha = 0.25f),
+                                                cornerRadius = cornerR,
+                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                            )
+                                        }
+                                    }
+                                    drawContent()
                                 }
-                                drawContent()
-                            }
-                            .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null
-                            ) { 
-                                selectedDayIndex = index
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { 
+                                    selectedDayIndex = index
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = days[index].toString(),
-                                fontSize = 24.sp,
-                                fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                                color = textColor,
-                                fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = day.uppercase(),
-                                fontSize = 13.sp,
-                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                color = textColor,
-                                fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = days[index].toString(),
+                                    fontSize = 24.sp,
+                                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
+                                    color = textColor,
+                                    fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = day.uppercase(),
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                    color = textColor,
+                                    fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                                )
+                            }
                         }
                     }
                 }
