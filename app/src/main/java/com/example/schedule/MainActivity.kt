@@ -4380,25 +4380,76 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned } }
 
     if (noteToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { noteToDelete = null },
-            title = { Text("Удалить заметку?", color = MinTextPrimary, fontWeight = FontWeight.Bold) },
-            text = { Text("Действие нельзя отменить.", color = MinTextSecondary) },
-            confirmButton = {
-                TextButton(onClick = { 
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    saveNotes(notes.filter { it.id != noteToDelete!!.id })
-                    noteToDelete = null 
-                }) {
-                    Text("Удалить", color = Color(0xFFFF453A), fontWeight = FontWeight.Bold)
+        val deleteDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
+        val deleteBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
+
+        Dialog(onDismissRequest = { noteToDelete = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(elevation = if (isDarkTheme) 24.dp else 12.dp, shape = RoundedCornerShape(24.dp))
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(deleteDialogBg)
+                    .border(1.dp, deleteBorder, RoundedCornerShape(24.dp))
+                    .padding(22.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Удалить заметку?",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MinTextPrimary
+                        )
+                        Text(
+                            "Вы уверены, что хотите удалить эту заметку? Это действие нельзя отменить.",
+                            fontSize = 14.sp,
+                            color = MinTextSecondary,
+                            lineHeight = 19.sp
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                noteToDelete = null
+                            },
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
+                                contentColor = MinTextPrimary
+                            )
+                        ) {
+                            Text("Отмена", fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                saveNotes(notes.filter { it.id != noteToDelete!!.id })
+                                noteToDelete = null
+                            },
+                            modifier = Modifier.weight(1.1f).height(46.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFFF3B30),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Удалить", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { noteToDelete = null }) { Text("Отмена", color = MinTextPrimary) }
-            },
-            containerColor = if (isDarkTheme) Color(0xFF1E202E) else Color.White,
-            shape = RoundedCornerShape(20.dp)
-        )
+            }
+        }
     }
 
     // iOS Note Edit Dialog
