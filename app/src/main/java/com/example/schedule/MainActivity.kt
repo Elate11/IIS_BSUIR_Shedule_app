@@ -115,16 +115,22 @@ val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.
 object AppHapticManager {
     var isEnabled: Boolean = true
     var strength: Float = 0.6f
+    private var appContext: android.content.Context? = null
 
-    fun playClick(context: android.content.Context) {
+    fun init(context: android.content.Context) {
+        appContext = context.applicationContext
+    }
+
+    fun playClick() {
+        val ctx = appContext ?: return
         if (!isEnabled || strength <= 0.05f) return
         try {
             val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                val vm = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                val vm = ctx.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
                 vm?.defaultVibrator
             } else {
                 @Suppress("DEPRECATION")
-                context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                ctx.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
             }
             if (vibrator != null && vibrator.hasVibrator()) {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -145,6 +151,9 @@ object AppHapticManager {
 
 
 
+
+
+
 @kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -157,6 +166,7 @@ class MainActivity : ComponentActivity() {
         }
         
         NetworkClient.init(applicationContext)
+        AppHapticManager.init(applicationContext)
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         AppHapticManager.isEnabled = prefs.getBoolean("vibration_enabled", true)
         AppHapticManager.strength = prefs.getFloat("vibration_strength", 0.6f)
@@ -639,7 +649,7 @@ fun MinimalistApp() {
                                                 .fillMaxHeight()
                                                 .border(if (isSelected) 1.dp else 0.dp, if (isSelected) MinTextPrimary else Color.Transparent)
                                                 .clickable {
-                                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                    AppHapticManager.playClick()
                                                     coroutineScope.launch { pagerState.scrollToPage(index) }
                                                 },
                                             contentAlignment = Alignment.Center
@@ -694,7 +704,7 @@ fun MinimalistApp() {
                                                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                                                     indication = null,
                                                     onClick = { 
-                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                        AppHapticManager.playClick()
                                                         coroutineScope.launch {
                                                             if (transitionsEnabled) {
                                                                 pagerState.animateScrollToPage(
@@ -1080,7 +1090,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val (tiltX, tiltY) = rememberDeviceTilt(onShake = {
         selectedDayIndex = 7
-        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+        AppHapticManager.playClick()
     })
     val notesPrefs = remember { context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE) }
     val subjectsWithNotes = remember(notesPrefs.getString("notes_data", "")) {
@@ -1316,7 +1326,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 var lastIndex = listState.firstVisibleItemIndex
                 androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
                     if (index != lastIndex) {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         lastIndex = index
                     }
                 }
@@ -1470,7 +1480,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     indication = null
                                 ) { 
                                     selectedDayIndex = index
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    AppHapticManager.playClick()
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -1554,7 +1564,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             MinCardBg = MinCardBg,
                             hasNotes = subjectsWithNotes.contains(lesson.title),
                             onClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 selectedLessonForSheet = lesson
                             },
                             onLongClick = { noteLessonToAdd = lesson },
@@ -1734,7 +1744,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 MinScheduleScreen(MinBg, actualBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent, isDarkTheme, teacherScheduleData!!.first, {}, selectedSubgroup, {}, teacherScheduleData!!.second)
                 androidx.compose.material3.IconButton(
                     onClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 teacherScheduleData = null
                             },
                     modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
@@ -1865,7 +1875,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             drawContent()
                                         }
                                         .clickable {
-                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            AppHapticManager.playClick()
                                             onSubgroupChange(index)
                                         },
                                     contentAlignment = Alignment.Center
@@ -4434,7 +4444,7 @@ fun NotionAttachmentChip(
             .background(chipBg)
             .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
             .clickable {
-             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+             AppHapticManager.playClick()
              onClick()
          }
             .padding(horizontal = 10.dp, vertical = 6.dp),
@@ -4894,7 +4904,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     ) {
                         Button(
                             onClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 noteToDelete = null
                             },
                             modifier = Modifier.weight(1f).height(46.dp),
@@ -4909,7 +4919,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
                         Button(
                             onClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                AppHapticManager.playClick()
                                 GoogleCalendarSync.deleteEvent(context, noteToDelete!!.calendarEventId)
                                 saveNotes(notes.filter { it.id != noteToDelete!!.id })
                                 noteToDelete = null
@@ -5000,7 +5010,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .background(MinAccent.copy(alpha = if (isDarkTheme) 0.16f else 0.12f))
                                 .border(1.dp, MinAccent.copy(alpha = 0.3f), CircleShape)
                                 .clickable { 
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    AppHapticManager.playClick()
                                     editSubjectExpanded = !editSubjectExpanded 
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -5062,7 +5072,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                         .clip(RoundedCornerShape(10.dp))
                                         .background(if (isSel) MinAccent.copy(alpha = 0.12f) else Color.Transparent)
                                         .clickable {
-                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            AppHapticManager.playClick()
                                             editSubject = s
                                             editSubjectExpanded = false
                                         }
@@ -5109,7 +5119,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                     .background(editSubBg)
                                     .border(1.dp, editBorder, RoundedCornerShape(8.dp))
                                     .clickable {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        AppHapticManager.playClick()
                                         editFilePickerLauncher.launch(arrayOf("*/*"))
                                     }
                                     .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -5131,7 +5141,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                         attachment = att,
                                         isDarkTheme = isDarkTheme,
                                         onDelete = {
-                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            AppHapticManager.playClick()
                                             editAttachments = editAttachments.filter { it.id != att.id }
                                         },
                                         onClick = { openAttachmentFile(context, att) }
@@ -5155,7 +5165,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = if (isDarkTheme) 0.18f else 0.14f) else editSubBg)
                                 .border(1.dp, if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.45f) else editBorder, RoundedCornerShape(12.dp))
                                 .clickable { 
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    AppHapticManager.playClick()
                                     editIsPinned = !editIsPinned 
                                 },
                             contentAlignment = Alignment.Center
@@ -5185,7 +5195,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = if (isDarkTheme) 0.18f else 0.14f) else editSubBg)
                                 .border(1.dp, if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.45f) else editBorder, RoundedCornerShape(12.dp))
                                 .clickable { 
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    AppHapticManager.playClick()
                                     editIsEvent = !editIsEvent 
                                 },
                             contentAlignment = Alignment.Center
@@ -5214,7 +5224,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     ) {
                         Button(
                             onClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                AppHapticManager.playClick()
                                 GoogleCalendarSync.deleteEvent(context, noteToEdit!!.calendarEventId)
                                 saveNotes(notes.filter { it.id != noteToEdit!!.id })
                                 noteToEdit = null
@@ -5239,7 +5249,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .border(1.dp, MinAccent.copy(alpha = if (isDarkTheme) 0.50f else 0.40f), RoundedCornerShape(14.dp))
                                 .clickable {
                                     if (editText.isNotBlank() || editAttachments.isNotEmpty()) {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        AppHapticManager.playClick()
                                         
                                         var newCalEventId = noteToEdit!!.calendarEventId
                                         val dateParts = noteToEdit!!.date.split(".")
@@ -5337,7 +5347,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.08f))
                             .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 scaleLevel = (scaleLevel - 0.15f).coerceIn(0.75f, 1.40f)
                             },
                         contentAlignment = Alignment.Center
@@ -5352,7 +5362,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.08f))
                             .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 scaleLevel = (scaleLevel + 0.15f).coerceIn(0.75f, 1.40f)
                             },
                         contentAlignment = Alignment.Center
@@ -5367,7 +5377,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .clip(CircleShape)
                             .background(if (isGridMode) MinAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
                             .clickable { 
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 isGridMode = !isGridMode 
                             },
                         contentAlignment = Alignment.Center
@@ -5399,7 +5409,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
                         .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                         .clickable { 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             radialExpanded = !radialExpanded 
                         }
                         .padding(horizontal = 14.dp),
@@ -5436,7 +5446,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .background(if (isCalendarExpanded) MinAccent.copy(alpha = 0.22f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
                         .border(1.dp, if (isCalendarExpanded) MinAccent else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                         .clickable { 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             isCalendarExpanded = !isCalendarExpanded 
                         }
                         .padding(horizontal = 14.dp),
@@ -5466,7 +5476,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         .background(if (showNewNoteTimePicker) MinAccent.copy(alpha = 0.22f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
                         .border(1.dp, if (showNewNoteTimePicker) MinAccent else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
                         .clickable { 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             showNewNoteTimePicker = true 
                         }
                         .padding(horizontal = 14.dp),
@@ -5501,7 +5511,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(if (isSel) MinAccent.copy(alpha = 0.15f) else Color.Transparent)
                                 .clickable {
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    AppHapticManager.playClick()
                                     selectedSubject = subject
                                     radialExpanded = false
                                 }
@@ -5529,7 +5539,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         MinTextPrimary = MinTextPrimary, MinTextSecondary = MinTextSecondary,
                         MinBorder = MinBorder, MinAccent = MinAccent, MinBg = MinBg,
                         onDaySelected = { d, m, y -> 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             selectedDay = d; selectedMonth = m; selectedYear = y; isCalendarExpanded = false 
                         },
                         onPrevMonth = { if (viewMonth == 0) { viewMonth = 11; viewYear-- } else viewMonth-- },
@@ -5650,7 +5660,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 attachment = att,
                                 isDarkTheme = isDarkTheme,
                                 onDelete = {
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    AppHapticManager.playClick()
                                     pendingAttachments = pendingAttachments.filter { it.id != att.id }
                                 },
                                 onClick = { openAttachmentFile(context, att) }
@@ -5674,7 +5684,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .background(defaultBtnBg)
                             .border(1.dp, inputBorder, RoundedCornerShape(12.dp))
                             .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 newFilePickerLauncher.launch(arrayOf("*/*"))
                             }
                             .padding(horizontal = 12.dp),
@@ -5707,7 +5717,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.20f) else defaultBtnBg)
                             .border(1.dp, if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.40f) else inputBorder, RoundedCornerShape(12.dp))
                             .clickable { 
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 isEventNote = !isEventNote 
                             }
                             .padding(horizontal = 12.dp),
@@ -5742,7 +5752,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .border(1.dp, MinAccent.copy(alpha = if (isDarkTheme) 0.50f else 0.40f), RoundedCornerShape(12.dp))
                             .clickable {
                                 if (noteText.isNotBlank() || pendingAttachments.isNotEmpty()) {
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    AppHapticManager.playClick()
                                     val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
                                     
                                     var calId: Long? = null
@@ -5818,11 +5828,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     .border(1.dp, cardBorder, RoundedCornerShape((20 * scaleLevel).dp))
                     .combinedClickable(
                         onClick = { 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             noteToEdit = note 
                         },
                         onLongClick = { 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            AppHapticManager.playClick()
                             noteToDelete = note 
                         }
                     )
@@ -6063,14 +6073,14 @@ fun MinNotesCalendar(
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(32.dp).clip(CircleShape).clickable {
-                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                AppHapticManager.playClick()
                 onPrevMonth()
             }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.KeyboardArrowLeft, contentDescription = null, tint = MinTextPrimary, modifier = Modifier.size(20.dp))
             }
             Text("${monthNames[viewMonth]} $viewYear", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple))
             Box(modifier = Modifier.size(32.dp).clip(CircleShape).clickable {
-                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                AppHapticManager.playClick()
                 onNextMonth()
             }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = MinTextPrimary, modifier = Modifier.size(20.dp))
@@ -6213,7 +6223,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                             withContext(kotlinx.coroutines.Dispatchers.Main) {
                                 memoryAvatarBitmap = scaledBmp.asImageBitmap()
                                 profilePrefs.edit().putLong("custom_avatar_timestamp", System.currentTimeMillis()).apply()
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                AppHapticManager.playClick()
                             }
                         }
                     }
@@ -6350,7 +6360,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
                     val newDistance = pullDistance + available.y * 0.45f
                     if (pullDistance < 70f && newDistance >= 70f) {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                     }
                     pullDistance = newDistance
                     return available
@@ -6361,7 +6371,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
                 if (pullDistance >= 70f && !isRefreshing) {
                     isRefreshing = true
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    AppHapticManager.playClick()
                     scope.launch {
                         fetchProfileData(forceRefresh = true)
                         kotlinx.coroutines.delay(500)
@@ -6519,7 +6529,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                                         completed = true
                                                         val active = MaxVibrationController.toggle(context)
                                                         isVibratingActive = active
-                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                        AppHapticManager.playClick()
                                                         break
                                                     }
                                                     kotlinx.coroutines.delay(30)
@@ -6570,7 +6580,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                 .clip(CircleShape)
                                 .background(Color(0xFFEEEEEE))
                                 .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 launcher.launch("image/*")
                             },
                             contentAlignment = Alignment.Center
@@ -6631,7 +6641,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             val localContext = androidx.compose.ui.platform.LocalContext.current
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Выйти", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F), modifier = Modifier.clickable {
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    AppHapticManager.playClick()
                     val prefs = localContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                     prefs.edit().clear().apply()
                     val activity = localContext as? android.app.Activity
@@ -6641,7 +6651,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 }.padding(vertical = 8.dp))
 
                 Row(modifier = Modifier.clickable {
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    AppHapticManager.playClick()
                     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Elate11/IIS_BSUIR_Shedule_app"))
                     localContext.startActivity(intent)
                 }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -6753,7 +6763,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                                 RoundedCornerShape(14.dp)
                                             )
                                             .clickable {
-                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                                AppHapticManager.playClick()
                                                 selectedTiming = key
                                                 profilePrefs.edit().putString("event_reminder_timing", key).apply()
                                             }
@@ -6787,7 +6797,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                     .background(currentAccent.copy(alpha = if (isDarkTheme) 0.20f else 0.15f))
                                     .border(1.dp, currentAccent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
                                     .clickable {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                        AppHapticManager.playClick()
                                         showReminderSettings = false
                                     },
                                 contentAlignment = Alignment.Center
@@ -7172,7 +7182,7 @@ fun MinCustomizationView(
                     val isSelected = style == LocalStyleType.current
                     androidx.compose.material3.Button(
                         onClick = {
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             onStyleChange(style)
                         },
                         modifier = androidx.compose.ui.Modifier.weight(1f).height(48.dp),
@@ -7198,8 +7208,8 @@ fun MinCustomizationView(
                     AutoResizedText("Тема", fontSize = 19.sp, minFontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary, maxLines = 1)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(if (isDarkTheme) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White).clickable {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                        AppHapticManager.playClick(context)
+                        AppHapticManager.playClick()
+                        AppHapticManager.playClick()
                         onThemeToggle()
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
@@ -7210,12 +7220,12 @@ fun MinCustomizationView(
                     AutoResizedText("Основной", fontSize = 19.sp, minFontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary, maxLines = 1)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinTextPrimary).clickable {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         showPrimaryStrip = true
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     AutoResizedText("Сброс", fontSize = 17.sp, minFontSize = 10.sp, color = MinTextSecondary, maxLines = 1, modifier = androidx.compose.ui.Modifier.clickable {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         onPrimaryColorChange(null)
                     })
                 }
@@ -7224,12 +7234,12 @@ fun MinCustomizationView(
                     AutoResizedText("Фон", fontSize = 19.sp, minFontSize = 10.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary, maxLines = 1)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinBg).clickable {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         showBackgroundStrip = true
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     AutoResizedText("Сброс", fontSize = 17.sp, minFontSize = 10.sp, color = MinTextSecondary, maxLines = 1, modifier = androidx.compose.ui.Modifier.clickable {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         onBackgroundColorChange(null)
                     })
                 }
@@ -7279,7 +7289,7 @@ fun MinCustomizationView(
                             .background(palette.second)
                             .border(1.dp, MinTextSecondary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                             .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 onPrimaryColorChange(palette.first)
                                 onBackgroundColorChange(palette.second)
                             },
@@ -7312,7 +7322,7 @@ fun MinCustomizationView(
                             .background(palette.second)
                             .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
                             .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 onPrimaryColorChange(palette.first)
                                 onBackgroundColorChange(palette.second)
                             },
@@ -7335,7 +7345,7 @@ fun MinCustomizationView(
                 listOf("Solid" to "Сплошной", "Gallery" to "Фото", "Gradient" to "Градиент").forEach { (mode, name) ->
                     androidx.compose.material3.TextButton(
                         onClick = {
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             onBgModeChange(mode)
                         },
                         colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
@@ -7354,7 +7364,7 @@ fun MinCustomizationView(
                         if (uri != null) onBgImageUriChange(uri.toString())
                     }
                     OutlinedButton(onClick = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         launcher.launch("image/*")
                     }, border = androidx.compose.foundation.BorderStroke(2.dp, MinTextPrimary), colors = ButtonDefaults.outlinedButtonColors(contentColor = MinTextPrimary)) { Text("Выбрать фото", color = MinTextPrimary, fontWeight = FontWeight.Bold) }
                     Spacer(modifier = Modifier.height(16.dp))
@@ -7416,7 +7426,7 @@ fun MinCustomizationView(
                                 RoundedCornerShape(14.dp)
                             )
                             .clickable {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                AppHapticManager.playClick()
                                 selectedTiming = key
                                 reminderPrefs.edit().putString("event_reminder_timing", key).apply()
                             }
@@ -7454,7 +7464,7 @@ fun MinCustomizationView(
                                 .border(1.dp, MinBorder, RoundedCornerShape(10.dp))
                                 .clickable {
                                     if (customHours > 1) {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        AppHapticManager.playClick()
                                         customHours--
                                         reminderPrefs.edit().putInt("custom_reminder_hours", customHours).apply()
                                     }
@@ -7481,7 +7491,7 @@ fun MinCustomizationView(
                                 .border(1.dp, MinBorder, RoundedCornerShape(10.dp))
                                 .clickable {
                                     if (customHours < 72) {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        AppHapticManager.playClick()
                                         customHours++
                                         reminderPrefs.edit().putInt("custom_reminder_hours", customHours).apply()
                                     }
@@ -7505,7 +7515,7 @@ fun MinCustomizationView(
                     .background(Color.Transparent)
                     .border(1.dp, MinTextPrimary, RoundedCornerShape(14.dp))
                     .clickable {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        AppHapticManager.playClick()
                         val textMsg = if (selectedTiming == "custom_hours") "Напоминание сработает за $customHours ч. до события!" else "Напоминание сработает за выбранное время!"
                         val testIntent = android.content.Intent(reminderContext, NoteReminderReceiver::class.java).apply {
                             putExtra("SUBJECT", "Тестовое событие")
@@ -7561,7 +7571,7 @@ fun MinCustomizationView(
                         vibEnabled = active
                         AppHapticManager.isEnabled = active
                         customPrefs.edit().putBoolean("vibration_enabled", active).apply()
-                        if (active) AppHapticManager.playClick(context)
+                        if (active) AppHapticManager.playClick()
                     },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MinBg,
@@ -7589,7 +7599,7 @@ fun MinCustomizationView(
                         customPrefs.edit().putFloat("vibration_strength", valValue).apply()
                     },
                     onValueChangeFinished = {
-                        AppHapticManager.playClick(context)
+                        AppHapticManager.playClick()
                     },
                     valueRange = 0.1f..1.0f,
                     colors = SliderDefaults.colors(
@@ -7600,7 +7610,7 @@ fun MinCustomizationView(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 androidx.compose.material3.OutlinedButton(
-                    onClick = { AppHapticManager.playClick(context) },
+                    onClick = { AppHapticManager.playClick() },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MinBorder)
@@ -7644,7 +7654,7 @@ fun MinCustomizationView(
                 Switch(
                     checked = transitionsEnabled,
                     onCheckedChange = {
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    AppHapticManager.playClick()
                     onTransitionsToggle(it)
                 },
                     colors = SwitchDefaults.colors(
@@ -7707,7 +7717,7 @@ fun TransitionDemoBox(type: TransitionType, speedMultiplier: Float, isSelected: 
              .size(40.dp)
              .clip(RoundedCornerShape(8.dp))
              .clickable {
-             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+             AppHapticManager.playClick()
              onClick()
          }
              .border(if (isSelected) 2.dp else 1.dp, if (isSelected) MinTextPrimary else MinBorder, RoundedCornerShape(8.dp))
@@ -7760,7 +7770,7 @@ fun MoonIcon(tint: Color) {
 fun MinStat(label: String, value: String, MinTextPrimary: Color, MinTextSecondary: Color, onClick: (() -> Unit)? = null) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable {
-             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+             AppHapticManager.playClick()
              onClick()
          }.padding(horizontal=16.dp, vertical=8.dp) else Modifier.padding(horizontal=16.dp, vertical=8.dp)) {
         AutoResizedText(label, fontSize = 17.sp, minFontSize = 11.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
@@ -7774,7 +7784,7 @@ fun MinListAction(label: String, MinBorder: Color, MinTextPrimary: Color, MinTex
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val padding = Modifier.padding(vertical = 16.dp)
     Column(modifier = Modifier.fillMaxWidth().clickable { 
-        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        AppHapticManager.playClick()
         onClick() 
     }.then(padding)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -8262,7 +8272,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                     trailingIcon = {
                         val icon = if (passwordVisible) androidx.compose.material.icons.Icons.Outlined.Visibility else androidx.compose.material.icons.Icons.Outlined.VisibilityOff
                         androidx.compose.material3.IconButton(onClick = {
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             passwordVisible = !passwordVisible
                         }) {
                             androidx.compose.material3.Icon(icon, contentDescription = null, tint = MinTextSecondary)
@@ -8289,7 +8299,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
 
                 Button(
                     onClick = {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick()
                         val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                         if (gradebookNumber.isBlank() || password.isBlank()) {
                             errorMessage = "Пожалуйста, заполните все поля"
@@ -8584,7 +8594,7 @@ fun IosWheelPicker(
                 closestItem?.let {
                     val realIndex = it.index - 2
                     if (realIndex >= 0 && realIndex < items.size && realIndex != lastVibratedIndex) {
-                        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        AppHapticManager.playClick()
                         lastVibratedIndex = realIndex
                         onItemSelected(realIndex)
                     }
@@ -8694,7 +8704,7 @@ fun IosTimePickerDialog(
                 ) {
                     Button(
                         onClick = {
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            AppHapticManager.playClick()
                             onDismiss()
                         },
                         modifier = Modifier.weight(1f).height(48.dp),
