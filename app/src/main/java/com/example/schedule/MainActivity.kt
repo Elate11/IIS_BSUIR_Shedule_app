@@ -4377,21 +4377,21 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     if (noteToDelete != null) {
         AlertDialog(
             onDismissRequest = { noteToDelete = null },
-            title = { Text("Удалить заметку?", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold) },
-            text = { Text("Действие нельзя отменить.", color = androidx.compose.ui.graphics.Color(0xFFEEEEEE)) },
+            title = { Text("Удалить заметку?", color = MinTextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("Действие нельзя отменить.", color = MinTextSecondary) },
             confirmButton = {
                 TextButton(onClick = { 
                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     saveNotes(notes.filter { it.id != noteToDelete!!.id })
                     noteToDelete = null 
                 }) {
-                    Text("Удалить", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
+                    Text("Удалить", color = Color(0xFFFF453A), fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { noteToDelete = null }) { Text("Отмена", color = androidx.compose.ui.graphics.Color.White) }
+                TextButton(onClick = { noteToDelete = null }) { Text("Отмена", color = MinTextPrimary) }
             },
-            containerColor = Color(0xFF1E202E),
+            containerColor = if (isDarkTheme) Color(0xFF1E202E) else Color.White,
             shape = RoundedCornerShape(20.dp)
         )
     }
@@ -4404,12 +4404,19 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         var editIsPinned by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isPinned) }
         var editSubjectExpanded by remember { mutableStateOf(false) }
 
+        val editDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
+        val editSubBg = if (isDarkTheme) Color.White.copy(alpha = 0.07f) else Color(0xFFF2F2F7)
+        val editBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
+        val editFieldBg = if (isDarkTheme) Color.White.copy(alpha = 0.04f) else Color(0xFFF7F7FA)
+
         Dialog(onDismissRequest = { noteToEdit = null }) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .shadow(elevation = if (isDarkTheme) 24.dp else 12.dp, shape = RoundedCornerShape(24.dp))
                     .clip(RoundedCornerShape(24.dp))
-                    .background(if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFF7F7FA))
+                    .background(editDialogBg)
+                    .border(1.dp, editBorder, RoundedCornerShape(24.dp))
                     .padding(20.dp)
             ) {
                 Column(
@@ -4437,7 +4444,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(MinAccent.copy(alpha = 0.15f))
+                                .background(MinAccent.copy(alpha = if (isDarkTheme) 0.16f else 0.12f))
+                                .border(1.dp, MinAccent.copy(alpha = 0.3f), CircleShape)
                                 .clickable { 
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     editSubjectExpanded = !editSubjectExpanded 
@@ -4454,7 +4462,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.08f))
+                                .background(editSubBg)
+                                .border(1.dp, editBorder, CircleShape)
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text(noteToEdit!!.date, color = MinTextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -4466,17 +4475,20 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Color.White.copy(alpha = 0.06f))
+                                .background(editSubBg)
+                                .border(1.dp, editBorder, RoundedCornerShape(14.dp))
                                 .padding(6.dp)
                         ) {
                             allSubjects.forEach { s ->
+                                val isSel = s == editSubject
                                 Text(
                                     s,
-                                    color = if (s == editSubject) MinAccent else MinTextPrimary,
-                                    fontWeight = if (s == editSubject) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSel) MinAccent else MinTextPrimary,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSel) MinAccent.copy(alpha = 0.12f) else Color.Transparent)
                                         .clickable {
                                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                             editSubject = s
@@ -4492,13 +4504,15 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     OutlinedTextField(
                         value = editText,
                         onValueChange = { editText = it },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 130.dp, max = 240.dp),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = MinTextPrimary,
                             unfocusedTextColor = MinTextPrimary,
                             cursorColor = MinAccent,
                             focusedBorderColor = MinAccent,
-                            unfocusedBorderColor = MinBorder
+                            unfocusedBorderColor = editBorder,
+                            focusedContainerColor = editFieldBg,
+                            unfocusedContainerColor = editFieldBg
                         ),
                         shape = RoundedCornerShape(16.dp)
                     )
@@ -4514,7 +4528,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .weight(1f)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
+                                .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.18f) else editSubBg)
+                                .border(1.dp, if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.4f) else editBorder, RoundedCornerShape(12.dp))
                                 .clickable { 
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     editIsPinned = !editIsPinned 
@@ -4543,7 +4558,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .weight(1f)
                                 .height(44.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
+                                .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.18f) else editSubBg)
+                                .border(1.dp, if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.4f) else editBorder, RoundedCornerShape(12.dp))
                                 .clickable { 
                                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                     editIsEvent = !editIsEvent 
@@ -4580,7 +4596,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             },
                             modifier = Modifier.weight(1f).height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30).copy(alpha = 0.15f), contentColor = Color(0xFFFF3B30))
+                            colors = ButtonDefaults.buttonColors(containerColor = if (isDarkTheme) Color(0xFFFF3B30).copy(alpha = 0.15f) else Color(0xFFFF3B30).copy(alpha = 0.10f), contentColor = Color(0xFFFF3B30))
                         ) {
                             Text("Удалить", fontWeight = FontWeight.Bold)
                         }
