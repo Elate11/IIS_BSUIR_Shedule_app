@@ -1967,27 +1967,23 @@ data class Note(
 fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, currentAccent: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean = true, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var marksData by remember { mutableStateOf<Map<String, List<Int>>>(emptyMap()) }
-    var scheduleSubjects by remember { mutableStateOf<List<String>>(emptyList()) }
-    var statusText by remember { mutableStateOf("Загрузка...") }
+    var currentSemesterSubjects by remember { mutableStateOf<List<String>>(emptyList()) }
+    var statusText by remember { mutableStateOf("Загрузка оценок...") }
     var isLoading by remember { mutableStateOf(true) }
+
+    androidx.activity.compose.BackHandler { onBack() }
     
     LaunchedEffect(Unit) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
-                val loginGroup = prefs.getString("login_group", "") ?: ""
+                val loginGroup = prefs.getString("login_group", "").takeIf { !it.isNullOrBlank() }
+                    ?: prefs.getString("selectedGroup", "114001") ?: "114001"
 
-                val cachedSubjectsStr = prefs.getString("cached_marks_subjects", null)
-                if (cachedSubjectsStr != null) {
-                    try {
-                        val arr = org.json.JSONArray(cachedSubjectsStr)
-                        val list = mutableListOf<String>()
-                        for (i in 0 until arr.length()) list.add(arr.getString(i))
-                        withContext(kotlinx.coroutines.Dispatchers.Main) { scheduleSubjects = list }
-                    } catch (e: Exception) {}
-                }
+                val semesterSubjectsSet = mutableSetOf<String>()
 
+                // 1. Fetch current semester subjects from group schedule (schedules + exams)
                 if (loginGroup.isNotBlank()) {
                     try {
                         val scheduleResp = if (loginGroup.any { it.isLetter() }) {
@@ -1995,19 +1991,61 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                         } else {
                             com.example.schedule.BsuirApi.getGroupSchedule(loginGroup)
                         }
-                        if (scheduleResp != null) {
-                            val subs = mutableSetOf<String>()
-                            scheduleResp.schedules?.values?.flatten()?.forEach { lesson ->
-                                val subj = lesson.subject
-                                if (!subj.isNullOrBlank() && subj != "null") subs.add(subj)
+                        
+                        scheduleResp?.schedules?.forEach { (_, dayLessons) ->
+                            dayLessons.forEach { lesson ->
+                                val sName = lesson.subject?.takeIf { it.isNotBlank() } ?: lesson.subjectFullName
+                                if (!sName.isNullOrBlank()) semesterSubjectsSet.add(sName.trim())
                             }
-                            val sortedSubs = subs.sorted()
-                            prefs.edit().putString("cached_marks_subjects", org.json.JSONArray(sortedSubs).toString()).apply()
-                            withContext(kotlinx.coroutines.Dispatchers.Main) { scheduleSubjects = sortedSubs }
                         }
-                    } catch (e: Exception) {}
+
+                        scheduleResp?.exams?.forEach { examLesson ->
+                            val sName = examLesson.subject?.takeIf { it.isNotBlank() } ?: examLesson.subjectFullName
+                            if (!sName.isNullOrBlank()) semesterSubjectsSet.add(sName.trim())
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
-                val parseBody = { b: String ->
+
+                // 2. Fetch current semester subjects from markbook
+                val parseMarkbookSubjects: (String) -> Unit = { bodyStr ->
+                    try {
+                        val jsonObj = org.json.JSONObject(bodyStr)
+                        val markPages = jsonObj.optJSONObject("markPages")
+                        if (markPages != null) {
+                            val semesterNumbers = mutableListOf<Int>()
+                            val keys = markPages.keys()
+                            while (keys.hasNext()) {
+                                keys.next().toIntOrNull()?.let { semesterNumbers.add(it) }
+                            }
+                            val sortedSems = semesterNumbers.sortedDescending()
+                            for (semNum in sortedSems) {
+                                val semObj = markPages.optJSONObject(semNum.toString())
+                                val marksArray = semObj?.optJSONArray("marks") ?: org.json.JSONArray()
+                                if (marksArray.length() > 0) {
+                                    for (i in 0 until marksArray.length()) {
+                                        val markObj = marksArray.optJSONObject(i) ?: continue
+                                        val subject = markObj.optString("subject", "").trim()
+                                        if (subject.isNotBlank()) {
+                                            semesterSubjectsSet.add(subject)
+                                        }
+                                    }
+                                    break
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                val cachedMarkbook = prefs.getString("cached_gradebook", null)
+                if (cachedMarkbook != null) {
+                    parseMarkbookSubjects(cachedMarkbook)
+                }
+
+                val parseMarksBody = { b: String ->
                     val jsonArray = if (b.trim().startsWith("[")) org.json.JSONArray(b) else org.json.JSONArray()
                     val mData = mutableMapOf<String, MutableList<Int>>()
                     for (i in 0 until jsonArray.length()) {
@@ -2020,13 +2058,14 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                             for (j in 0 until lessonsArray.length()) {
                                 lessonsArray.optJSONObject(j)?.let { items.add(it) }
                             }
-                        } else if (entry.has("lessonNameAbbrev") || entry.has("marks")) {
+                        } else if (entry.has("lessonNameAbbrev") || entry.has("marks") || entry.has("subject")) {
                             items.add(entry)
                         }
                         
                         for (lesson in items) {
-                            val subj = lesson.optString("lessonNameAbbrev", "Неизвестно")
-                            val list = mData.getOrPut(subj) { mutableListOf() }
+                            val subj = lesson.optString("lessonNameAbbrev", "").takeIf { it.isNotBlank() }
+                                ?: lesson.optString("subject", "Неизвестно")
+                            val list = mData.getOrPut(subj.trim()) { mutableListOf() }
                             val marksArr = lesson.optJSONArray("marks")
                             if (marksArr != null) {
                                 for (k in 0 until marksArr.length()) {
@@ -2042,20 +2081,21 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                 }
 
                 val cachedBody = prefs.getString("cached_marks", null)
-                val lastUpdate = prefs.getLong("cached_marks_time", 0L)
-                val shouldUpdate = (System.currentTimeMillis() - lastUpdate) > 86400_000L
-
                 if (cachedBody != null) {
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        try {
-                            marksData = parseBody(cachedBody)
+                    try {
+                        val parsed = parseMarksBody(cachedBody)
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            marksData = parsed
+                            if (semesterSubjectsSet.isNotEmpty()) {
+                                currentSemesterSubjects = semesterSubjectsSet.toList().sorted()
+                            }
                             statusText = ""
                             isLoading = false
-                        } catch (e: Exception) {}
-                    }
+                        }
+                    } catch (e: Exception) {}
                 }
 
-                if (shouldUpdate || cachedBody == null) {
+                if (token.isNotBlank()) {
                     val client = com.example.schedule.NetworkClient.client
                     val request = okhttp3.Request.Builder()
                         .url("https://iis.bsuir.by/api/v1/omissions")
@@ -2065,112 +2105,365 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
 
                     client.newCall(request).execute().use { response ->
                         val body = response.body?.string()
-                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            if (response.isSuccessful && body != null) {
-                                prefs.edit().putString("cached_marks", body).putLong("cached_marks_time", System.currentTimeMillis()).apply()
-                                try {
-                                    marksData = parseBody(body)
+                        if (response.isSuccessful && body != null) {
+                            prefs.edit().putString("cached_marks", body).putLong("cached_marks_time", System.currentTimeMillis()).apply()
+                            try {
+                                val parsed = parseMarksBody(body)
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    marksData = parsed
                                     statusText = ""
-                                } catch (e: Exception) {
-                                    if (cachedBody == null) {
-                                        statusText = "Ошибка парсинга: ${e.message}"
-                                    }
                                 }
-                            } else {
-                                if (cachedBody == null) {
-                                    if (response.code == 404 || response.code == 403) {
-                                        statusText = ""
-                                    } else {
-                                        statusText = "Ошибка: ${response.code}"
-                                    }
-                                }
-                            }
-                            isLoading = false
+                            } catch (e: Exception) {}
                         }
                     }
                 }
+
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (semesterSubjectsSet.isNotEmpty()) {
+                        currentSemesterSubjects = semesterSubjectsSet.toList().sorted()
+                    }
+                    isLoading = false
+                }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    statusText = "Исключение: ${e.message}"
+                    statusText = ""
                     isLoading = false
                 }
             }
         }
     }
 
+    val styleType = LocalStyleType.current
+    val isTechno = styleType == StyleType.Techno
+
+    // Combine subjects of the current semester and any matching marks
+    val allSubjectsToDisplay = remember(currentSemesterSubjects, marksData) {
+        val list = (currentSemesterSubjects + marksData.keys).distinct().sorted()
+        list
+    }
+
+    // Calculate subject averages and overall GPA
+    val gradedSubjectsList = remember(allSubjectsToDisplay, marksData) {
+        allSubjectsToDisplay.mapNotNull { subj ->
+            val list = marksData[subj] ?: emptyList()
+            if (list.isNotEmpty()) Pair(subj, list) else null
+        }
+    }
+
+    val overallGpa = remember(gradedSubjectsList) {
+        if (gradedSubjectsList.isNotEmpty()) {
+            val avgs = gradedSubjectsList.map { it.second.average() }
+            avgs.average()
+        } else {
+            0.0
+        }
+    }
+
+    val totalMarksCount = remember(gradedSubjectsList) {
+        gradedSubjectsList.sumOf { it.second.size }
+    }
+
     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize().background(MinBg)) {
         androidx.compose.foundation.layout.Column(
-            modifier = androidx.compose.ui.Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())
+            modifier = androidx.compose.ui.Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())
         ) {
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
+            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(44.dp))
+            
+            // Header with Back Button and Centered Title
             androidx.compose.foundation.layout.Box(
-                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                contentAlignment = androidx.compose.ui.Alignment.Center
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth()
             ) {
+                androidx.compose.material3.Icon(
+                    Icons.Outlined.KeyboardArrowLeft,
+                    contentDescription = "Назад",
+                    tint = MinTextPrimary,
+                    modifier = androidx.compose.ui.Modifier
+                        .size(32.dp)
+                        .align(androidx.compose.ui.Alignment.CenterStart)
+                        .clickable { onBack() }
+                )
                 androidx.compose.material3.Text(
-                    "Текущие отметки",
-                    fontSize = 26.sp,
+                    if (isTechno) "> ТЕКУЩИЕ ОТМЕТКИ_" else "Текущие отметки",
+                    fontSize = 22.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
                     color = MinTextPrimary,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    fontFamily = if (isTechno) vt323FontFamily else null
                 )
             }
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(32.dp))
+            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
             
-            if (isLoading || statusText.isNotEmpty()) {
-                androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    androidx.compose.material3.Text(statusText, fontSize = 16.sp, color = MinTextSecondary)
+            if (isLoading && allSubjectsToDisplay.isEmpty()) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(color = currentAccent)
                 }
-            } else if (scheduleSubjects.isEmpty() && marksData.isEmpty()) {
-                androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    androidx.compose.material3.Text("Нет текущих отметок", fontSize = 16.sp, color = MinTextSecondary)
+            } else if (allSubjectsToDisplay.isEmpty()) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        "Нет предметов в текущем семестре",
+                        fontSize = 16.sp,
+                        color = MinTextSecondary
+                    )
                 }
             } else {
-                val allKeys = (scheduleSubjects + marksData.keys).distinct().sorted()
-                for (subj in allKeys) {
-                    val marksList = marksData[subj] ?: emptyList()
-                    androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).background(MinCardBg).padding(16.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
-                            androidx.compose.material3.Text(subj, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
-                        }
-                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
-                        androidx.compose.foundation.layout.Row(
-                            modifier = androidx.compose.ui.Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End,
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                // Table header labels
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.Text(
+                        "Предмет",
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextSecondary,
+                        modifier = androidx.compose.ui.Modifier.width(105.dp)
+                    )
+                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(16.dp))
+                    androidx.compose.material3.Text(
+                        "Отметки",
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextSecondary,
+                        modifier = androidx.compose.ui.Modifier.weight(1f)
+                    )
+                    androidx.compose.material3.Text(
+                        "Ср. балл",
+                        fontSize = 12.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                        modifier = androidx.compose.ui.Modifier.width(55.dp)
+                    )
+                }
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
+
+                // Column of Subjects with Vertical Divider and Marks Carousel
+                androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
+                ) {
+                    for (subj in allSubjectsToDisplay) {
+                        val marksList = marksData[subj] ?: emptyList()
+                        val hasMarks = marksList.isNotEmpty()
+                        val subjectAverage = if (hasMarks) marksList.average() else 0.0
+
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                                .background(if (isTechno) Color(0xFF0A0A0A) else MinCardBg)
+                                .border(
+                                    1.dp,
+                                    if (isTechno) Color(0xFF00FF41).copy(alpha = 0.4f) else MinBorder,
+                                    androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                                )
+                                .padding(horizontal = 14.dp, vertical = 14.dp)
                         ) {
-                            for (mark in marksList) {
-                                val markColor = when (mark) {
-                                    9, 10 -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
-                                    7, 8 -> androidx.compose.ui.graphics.Color(0xFF8BC34A)
-                                    5, 6 -> androidx.compose.ui.graphics.Color(0xFFFFC107)
-                                    4 -> androidx.compose.ui.graphics.Color(0xFFFF9800)
-                                    else -> androidx.compose.ui.graphics.Color(0xFFF44336)
-                                }
+                            androidx.compose.foundation.layout.Row(
+                                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                // 1. Subject Name
+                                androidx.compose.material3.Text(
+                                    subj,
+                                    fontSize = 14.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = if (isTechno) Color(0xFF00FF41) else MinTextPrimary,
+                                    modifier = androidx.compose.ui.Modifier.width(105.dp),
+                                    maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    fontFamily = if (isTechno) vt323FontFamily else null
+                                )
+
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
+
+                                // Vertical Divider 1
                                 androidx.compose.foundation.layout.Box(
-                                    modifier = androidx.compose.ui.Modifier.size(36.dp).clip(androidx.compose.foundation.shape.CircleShape).background(markColor),
-                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                    modifier = androidx.compose.ui.Modifier
+                                        .width(1.dp)
+                                        .height(34.dp)
+                                        .background(
+                                            if (isTechno) Color(0xFF00FF41).copy(alpha = 0.35f)
+                                            else if (isDarkTheme) Color.White.copy(alpha = 0.12f)
+                                            else Color.Black.copy(alpha = 0.10f)
+                                        )
+                                )
+
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
+
+                                // 2. Carousel of Marks (horizontal scroll)
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier.weight(1f),
+                                    contentAlignment = androidx.compose.ui.Alignment.CenterStart
                                 ) {
-                                    androidx.compose.material3.Text(mark.toString(), color = androidx.compose.ui.graphics.Color.White, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, fontSize = 16.sp)
+                                    if (hasMarks) {
+                                        androidx.compose.foundation.layout.Row(
+                                            modifier = androidx.compose.ui.Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                        ) {
+                                            for (mark in marksList) {
+                                                val markColor = when {
+                                                    isTechno -> Color(0xFF00FF41)
+                                                    mark >= 9 -> Color(0xFF4CAF50)
+                                                    mark >= 7 -> Color(0xFF8BC34A)
+                                                    mark >= 5 -> Color(0xFFFFC107)
+                                                    mark == 4 -> Color(0xFFFF9800)
+                                                    else -> Color(0xFFF44336)
+                                                }
+
+                                                androidx.compose.foundation.layout.Box(
+                                                    modifier = androidx.compose.ui.Modifier
+                                                        .size(28.dp)
+                                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                                        .background(markColor.copy(alpha = if (isDarkTheme) 0.25f else 0.18f))
+                                                        .border(1.dp, markColor, androidx.compose.foundation.shape.CircleShape),
+                                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                                ) {
+                                                    androidx.compose.material3.Text(
+                                                        mark.toString(),
+                                                        color = if (isDarkTheme) Color.White else markColor,
+                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                                        fontSize = 13.sp
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        androidx.compose.material3.Text(
+                                            "—",
+                                            fontSize = 14.sp,
+                                            color = MinTextSecondary.copy(alpha = 0.5f)
+                                        )
+                                    }
                                 }
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(4.dp))
+
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
+
+                                // Vertical Divider 2
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .width(1.dp)
+                                        .height(34.dp)
+                                        .background(
+                                            if (isTechno) Color(0xFF00FF41).copy(alpha = 0.35f)
+                                            else if (isDarkTheme) Color.White.copy(alpha = 0.12f)
+                                            else Color.Black.copy(alpha = 0.10f)
+                                        )
+                                )
+
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
+
+                                // 3. Subject Average (after carousel)
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier.width(48.dp),
+                                    contentAlignment = androidx.compose.ui.Alignment.CenterEnd
+                                ) {
+                                    if (hasMarks) {
+                                        val avgColor = when {
+                                            isTechno -> Color(0xFF00FF41)
+                                            subjectAverage >= 8.0 -> if (isDarkTheme) Color(0xFF4CAF50) else Color(0xFF2E7D32)
+                                            subjectAverage >= 6.0 -> if (isDarkTheme) Color(0xFFFF9800) else Color(0xFFE65100)
+                                            else -> if (isDarkTheme) Color(0xFFF44336) else Color(0xFFC62828)
+                                        }
+
+                                        androidx.compose.foundation.layout.Box(
+                                            modifier = androidx.compose.ui.Modifier
+                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                                                .background(avgColor.copy(alpha = 0.16f))
+                                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                                            contentAlignment = androidx.compose.ui.Alignment.Center
+                                        ) {
+                                            androidx.compose.material3.Text(
+                                                String.format("%.1f", subjectAverage),
+                                                fontSize = 14.sp,
+                                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                                                color = avgColor
+                                            )
+                                        }
+                                    } else {
+                                        androidx.compose.material3.Text(
+                                            "—",
+                                            fontSize = 14.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                            color = MinTextSecondary.copy(alpha = 0.4f)
+                                        )
+                                    }
+                                }
                             }
-                            if (marksList.isEmpty()) {
-                                androidx.compose.material3.Text("—", fontSize = 24.sp, color = MinTextSecondary.copy(alpha = 0.5f))
-                            }
-                        }
-                        if (marksList.isNotEmpty()) {
-                            val average = marksList.average()
-                            val avgColor = if (isDarkTheme) { if (average >= 8) androidx.compose.ui.graphics.Color(0xFF4CAF50) else if (average >= 6) androidx.compose.ui.graphics.Color(0xFFFF9800) else androidx.compose.ui.graphics.Color(0xFFF44336) } else { if (average >= 8) androidx.compose.ui.graphics.Color(0xFF2E7D32) else if (average >= 6) androidx.compose.ui.graphics.Color(0xFFE65100) else androidx.compose.ui.graphics.Color(0xFFB71C1C) }
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
-                            androidx.compose.material3.Text(String.format("%.1f", average), fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = avgColor)
                         }
                     }
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(12.dp))
+                }
+
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(28.dp))
+
+                // Summary Card at the Bottom of the Screen: Средний балл по предметам
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                        .background(if (isTechno) Color(0xFF0A0A0A) else if (isDarkTheme) Color(0xFF181A24) else Color(0xFFF0F2F8))
+                        .border(
+                            1.5.dp,
+                            if (isTechno) Color(0xFF00FF41) else currentAccent.copy(alpha = 0.45f),
+                            androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+                        )
+                        .padding(24.dp)
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+                    ) {
+                        androidx.compose.material3.Text(
+                            if (isTechno) "[ СРЕДНИЙ БАЛЛ ПО ПРЕДМЕТАМ ]" else "Средний балл по предметам",
+                            fontSize = 18.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = MinTextPrimary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            fontFamily = if (isTechno) vt323FontFamily else null
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
+
+                        val gpaColor = when {
+                            isTechno -> Color(0xFF00FF41)
+                            overallGpa >= 8.0 -> if (isDarkTheme) Color(0xFF4CAF50) else Color(0xFF2E7D32)
+                            overallGpa >= 6.0 -> if (isDarkTheme) Color(0xFFFF9800) else Color(0xFFE65100)
+                            overallGpa > 0.0 -> if (isDarkTheme) Color(0xFFF44336) else Color(0xFFC62828)
+                            else -> MinTextSecondary
+                        }
+
+                        androidx.compose.material3.Text(
+                            if (overallGpa > 0.0) String.format("%.2f", overallGpa) else "—",
+                            fontSize = 44.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                            color = gpaColor,
+                            fontFamily = if (isTechno) vt323FontFamily else null
+                        )
+
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+
+                        androidx.compose.material3.Text(
+                            if (gradedSubjectsList.isNotEmpty()) {
+                                "Оценено дисциплин: ${gradedSubjectsList.size} • Всего отметок: $totalMarksCount"
+                            } else {
+                                "По дисциплинам текущего семестра пока нет текущих отметок"
+                            },
+                            fontSize = 13.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            color = MinTextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
                 }
             }
             
