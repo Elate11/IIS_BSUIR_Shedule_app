@@ -1623,89 +1623,121 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             },
             text = {
                 Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE))
+                    Text("Подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        listOf("Все", "1 подгр.", "2 подгр.").forEachIndexed { index, title ->
-                            val isSelected = selectedSubgroup == index
 
-                            val animProgress by androidx.compose.animation.core.animateFloatAsState(
-                                targetValue = if (isSelected) 1f else 0f,
-                                animationSpec = androidx.compose.animation.core.spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
-                                ),
-                                label = "subgroupAnim"
+                    val subgroupOptions = listOf("Все", "1 подгр.", "2 подгр.")
+                    val targetSubgroup = selectedSubgroup.coerceIn(0, 2)
+                    val animatedSubgroup by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = targetSubgroup.toFloat(),
+                        animationSpec = androidx.compose.animation.core.spring(
+                            dampingRatio = 0.52f,
+                            stiffness = 200f
+                        ),
+                        label = "subgroupDroplet"
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        val itemHeightDp = 54.dp
+                        val itemSpacingDp = 10.dp
+                        val stepDp = itemHeightDp + itemSpacingDp
+                        val stepPx = with(androidx.compose.ui.platform.LocalDensity.current) { stepDp.toPx() }
+
+                        // 1. Sliding Liquid Glass Droplet
+                        if (styleType != StyleType.Techno) {
+                            val velocity = (targetSubgroup - animatedSubgroup)
+                            val absVel = kotlin.math.abs(velocity).coerceIn(0f, 2.5f)
+
+                            Box(
+                                modifier = Modifier
+                                    .graphicsLayer {
+                                        translationY = animatedSubgroup * stepPx + (tiltY * 2.dp.toPx())
+                                        translationX = tiltX * 3.dp.toPx()
+                                        scaleY = 1f + 0.30f * absVel
+                                        scaleX = 1f / kotlin.math.sqrt(1f + 0.30f * absVel)
+                                    }
+                                    .fillMaxWidth()
+                                    .height(itemHeightDp)
+                                    .liquidGlassEffect(
+                                        cornerRadius = 16.dp,
+                                        accentColor = MinAccent,
+                                        isDarkTheme = isDarkTheme,
+                                        tiltX = tiltX,
+                                        tiltY = tiltY,
+                                        isActive = true
+                                    )
                             )
-                            val safeProgress = animProgress.coerceIn(0f, 1f)
+                        }
 
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .graphicsLayer {
-                                                if (styleType != StyleType.Techno) {
-                                                    val scale = 1f + 0.04f * safeProgress
-                                                    scaleX = scale
-                                                    scaleY = scale
-                                                    translationX = tiltX * 4.dp.toPx() * safeProgress
-                                                    translationY = tiltY * 3.dp.toPx() * safeProgress
-                                                }
+                        // 2. Subgroup options track
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(itemSpacingDp)
+                        ) {
+                            subgroupOptions.forEachIndexed { index, title ->
+                                val isSelected = selectedSubgroup == index
+                                val targetTextColor = when {
+                                    styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
+                                    isSelected -> if (isDarkTheme) Color.White else MinAccent
+                                    isDarkTheme -> Color.White.copy(alpha = 0.90f)
+                                    else -> Color.Black.copy(alpha = 0.90f)
+                                }
+                                val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(250))
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(itemHeightDp)
+                                        .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 16.dp))
+                                        .then(
+                                            if (styleType == StyleType.Techno) {
+                                                Modifier
+                                            } else {
+                                                Modifier.background(Color.Transparent)
                                             }
-                                            .then(
-                                                if (styleType != StyleType.Techno && safeProgress > 0.01f) {
-                                                    Modifier.liquidGlassEffect(
-                                                        cornerRadius = 16.dp,
-                                                        accentColor = MinAccent,
-                                                        isDarkTheme = isDarkTheme,
-                                                        tiltX = tiltX,
-                                                        tiltY = tiltY,
-                                                        isActive = isSelected
+                                        )
+                                        .drawWithContent {
+                                            if (styleType == StyleType.Techno) {
+                                                val r = 6.dp.toPx()
+                                                val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
+                                                if (isSelected) {
+                                                    drawRoundRect(
+                                                        color = Color(0xFF00FF41).copy(alpha = 0.18f),
+                                                        cornerRadius = cornerR
+                                                    )
+                                                    drawRoundRect(
+                                                        color = Color(0xFF00FF41),
+                                                        cornerRadius = cornerR,
+                                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
                                                     )
                                                 } else {
-                                                    Modifier.clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 16.dp))
-                                                }
-                                            )
-                                            .drawWithContent {
-                                                if (styleType == StyleType.Techno) {
-                                                    if (isSelected) {
-                                                        drawRoundRect(
-                                                            color = Color(0xFF00FF41).copy(alpha = 0.18f),
-                                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx())
-                                                        )
-                                                        drawRoundRect(
-                                                            color = Color(0xFF00FF41),
-                                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
-                                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-                                                        )
-                                                    } else {
-                                                        drawRoundRect(
-                                                            color = Color(0xFF00FF41).copy(alpha = 0.3f),
-                                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx(), 8.dp.toPx()),
-                                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
-                                                        )
-                                                    }
-                                                } else if (safeProgress <= 0.01f) {
                                                     drawRoundRect(
-                                                        color = if (isDarkTheme) Color(0xFF1E202E) else Color(0xFFE8EAF0),
-                                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx(), 16.dp.toPx())
+                                                        color = Color(0xFF00FF41).copy(alpha = 0.3f),
+                                                        cornerRadius = cornerR,
+                                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
                                                     )
                                                 }
-                                                drawContent()
                                             }
-                                            .clickable {
-                                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                                onSubgroupChange(index)
-                                            }
-                                            .padding(vertical = 14.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                Text(
-                                    title,
-                                    fontSize = 24.sp,
-                                    color = if (isSelected) (if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isDarkTheme) Color.White else MinAccent) else androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f),
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                                )
+                                            drawContent()
+                                        }
+                                        .clickable {
+                                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            onSubgroupChange(index)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        title,
+                                        fontSize = 22.sp,
+                                        color = textColor,
+                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                        fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
+                                    )
+                                }
                             }
                         }
                     }
