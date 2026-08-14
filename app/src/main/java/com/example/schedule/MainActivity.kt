@@ -2611,6 +2611,8 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                                     if (studentRating!! >= 10.0) String.format("%.1f", studentRating) else String.format("%.2f", studentRating)
                                 } else if (studentRatingPosition != null && studentRatingPosition!! > 0) {
                                     "#${studentRatingPosition}"
+                                } else if (overallGpa > 0.0) {
+                                    String.format("%.2f", overallGpa)
                                 } else {
                                     "—"
                                 }
@@ -2627,9 +2629,11 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                                 val ratingSub = if (studentRatingPosition != null && studentRatingPosition!! > 0) {
                                     "${studentRatingPosition} место в группе"
                                 } else if (studentRating != null) {
-                                    "Баллы деканата"
+                                    "Текущий балл"
+                                } else if (overallGpa > 0.0) {
+                                    "Текущий рейтинг"
                                 } else {
-                                    "По итогам сессии"
+                                    "По текущим отметкам"
                                 }
                                 androidx.compose.material3.Text(
                                     ratingSub,
