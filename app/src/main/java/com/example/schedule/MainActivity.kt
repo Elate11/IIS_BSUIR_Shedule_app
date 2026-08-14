@@ -1254,17 +1254,43 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Box(
                         modifier = Modifier
                             .graphicsLayer {
-                                val scale = 1f + 0.08f * safeProgress
-                                scaleX = scale
-                                scaleY = scale
-                                translationX = tiltX * 4.5.dp.toPx() * safeProgress
-                                translationY = tiltY * 3.5.dp.toPx() * safeProgress
+                                if (styleType != StyleType.Techno) {
+                                    val scale = 1f + 0.08f * safeProgress
+                                    scaleX = scale
+                                    scaleY = scale
+                                    translationX = tiltX * 4.5.dp.toPx() * safeProgress
+                                    translationY = tiltY * 3.5.dp.toPx() * safeProgress
+                                }
                             }
                             .width(58.dp)
                             .height(80.dp)
-                            .clip(RoundedCornerShape(22.dp))
+                            .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 22.dp))
                             .drawWithContent {
-                                if (safeProgress > 0.01f) {
+                                if (styleType == StyleType.Techno) {
+                                    val r = 6.dp.toPx()
+                                    val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
+                                    if (isSelected) {
+                                        drawRoundRect(
+                                            color = Color(0xFF00FF41).copy(alpha = 0.20f),
+                                            cornerRadius = cornerR
+                                        )
+                                        drawRoundRect(
+                                            color = Color(0xFF00FF41),
+                                            cornerRadius = cornerR,
+                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                                        )
+                                    } else {
+                                        drawRoundRect(
+                                            color = Color(0xFF0A0A0A),
+                                            cornerRadius = cornerR
+                                        )
+                                        drawRoundRect(
+                                            color = if (isToday) Color(0xFF00FF41).copy(alpha = 0.60f) else Color(0xFF00FF41).copy(alpha = 0.25f),
+                                            cornerRadius = cornerR,
+                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                                        )
+                                    }
+                                } else if (safeProgress > 0.01f) {
                                     val w = size.width
                                     val h = size.height
                                     val r = 22.dp.toPx()
@@ -1687,13 +1713,15 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .graphicsLayer {
-                                        val scale = 1f + 0.04f * safeProgress
-                                        scaleX = scale
-                                        scaleY = scale
-                                        translationX = tiltX * 4.dp.toPx() * safeProgress
-                                        translationY = tiltY * 3.dp.toPx() * safeProgress
+                                        if (styleType != StyleType.Techno) {
+                                            val scale = 1f + 0.04f * safeProgress
+                                            scaleX = scale
+                                            scaleY = scale
+                                            translationX = tiltX * 4.dp.toPx() * safeProgress
+                                            translationY = tiltY * 3.dp.toPx() * safeProgress
+                                        }
                                     }
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 16.dp))
                                     .drawWithContent {
                                         val w = size.width
                                         val h = size.height
