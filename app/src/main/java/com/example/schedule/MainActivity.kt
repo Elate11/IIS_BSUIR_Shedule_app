@@ -112,6 +112,37 @@ import androidx.compose.foundation.combinedClickable
 
 val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.example.schedule.R.font.vt323))
 
+object AppHapticManager {
+    var isEnabled: Boolean = true
+    var strength: Float = 0.6f
+
+    fun playClick(context: android.content.Context) {
+        if (!isEnabled || strength <= 0.05f) return
+        try {
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+            }
+            if (vibrator != null && vibrator.hasVibrator()) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    val duration = (12 + (strength * 28)).toLong()
+                    val amplitude = (strength * 255).toInt().coerceIn(1, 255)
+                    vibrator.vibrate(android.os.VibrationEffect.createOneShot(duration, amplitude))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator.vibrate((25 * strength).toLong().coerceAtLeast(1L))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
+
 
 
 @kotlin.OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -126,6 +157,9 @@ class MainActivity : ComponentActivity() {
         }
         
         NetworkClient.init(applicationContext)
+        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        AppHapticManager.isEnabled = prefs.getBoolean("vibration_enabled", true)
+        AppHapticManager.strength = prefs.getFloat("vibration_strength", 0.6f)
         setContent {
             MaterialTheme {
                 MinimalistApp()
@@ -7086,6 +7120,7 @@ fun MinCustomizationView(
     MinBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean, currentAccent: androidx.compose.ui.graphics.Color, particlesEnabled: Boolean, particleSizeMultiplier: Float, transitionsEnabled: Boolean, transitionType: TransitionType, transitionSpeedMultiplier: Float, fontFamily: androidx.compose.ui.text.font.FontFamily, textSizeMultiplier: Float, bgMode: String, bgImageUri: String?, bgBlur: Float, bgDim: Float, bgEmoji: String, customParticleColor: androidx.compose.ui.graphics.Color?, onThemeToggle: () -> Unit, onAccentChange: (androidx.compose.ui.graphics.Color) -> Unit, onParticlesToggle: (Boolean) -> Unit, onParticleSizeChange: (Float) -> Unit, onTransitionsToggle: (Boolean) -> Unit, onTransitionTypeChange: (TransitionType) -> Unit, onTransitionSpeedChange: (Float) -> Unit, onFontChange: (androidx.compose.ui.text.font.FontFamily) -> Unit, onTextSizeChange: (Float) -> Unit, onPrimaryColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBackgroundColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBgModeChange: (String) -> Unit, onBgImageUriChange: (String?) -> Unit, onBgBlurChange: (Float) -> Unit, onBgDimChange: (Float) -> Unit, onBgEmojiChange: (String) -> Unit, onParticleColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onStyleChange: (StyleType) -> Unit, onBack: () -> Unit
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var showPrimaryStrip by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var showBackgroundStrip by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var showAccentStrip by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -7164,6 +7199,7 @@ fun MinCustomizationView(
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(if (isDarkTheme) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White).clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        AppHapticManager.playClick(context)
                         onThemeToggle()
                     })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
@@ -7500,6 +7536,78 @@ fun MinCustomizationView(
             }
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MinBorder, thickness = 1.dp)
+        }
+
+                item {
+            val customPrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+            var vibEnabled by remember { mutableStateOf(customPrefs.getBoolean("vibration_enabled", true)) }
+            var vibStrength by remember { mutableStateOf(customPrefs.getFloat("vibration_strength", 0.6f)) }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MinBorder, thickness = 1.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Виброотклик", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Включить вибрацию", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary)
+                Switch(
+                    checked = vibEnabled,
+                    onCheckedChange = { active ->
+                        vibEnabled = active
+                        AppHapticManager.isEnabled = active
+                        customPrefs.edit().putBoolean("vibration_enabled", active).apply()
+                        if (active) AppHapticManager.playClick(context)
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MinBg,
+                        checkedTrackColor = MinTextPrimary,
+                        uncheckedThumbColor = MinTextPrimary,
+                        uncheckedTrackColor = MinTextSecondary.copy(alpha = 0.3f),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                )
+            }
+
+            if (vibEnabled) {
+                Spacer(modifier = Modifier.height(12.dp))
+                val strengthLabel = when {
+                    vibStrength < 0.35f -> "Слабая"
+                    vibStrength < 0.7f -> "Средняя"
+                    else -> "Сильная"
+                }
+                Text("Сила вибрации: $strengthLabel (${(vibStrength * 100).toInt()}%)", fontSize = 19.sp, color = MinTextSecondary)
+                Slider(
+                    value = vibStrength,
+                    onValueChange = { valValue ->
+                        vibStrength = valValue
+                        AppHapticManager.strength = valValue
+                        customPrefs.edit().putFloat("vibration_strength", valValue).apply()
+                    },
+                    onValueChangeFinished = {
+                        AppHapticManager.playClick(context)
+                    },
+                    valueRange = 0.1f..1.0f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = MinTextPrimary,
+                        activeTrackColor = MinTextPrimary,
+                        inactiveTrackColor = MinBorder
+                    )
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { AppHapticManager.playClick(context) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MinBorder)
+                ) {
+                    Text("Проверить вибрацию", color = MinTextPrimary, fontWeight = FontWeight.Bold)
+                }
+            }
         }
 
         item {
