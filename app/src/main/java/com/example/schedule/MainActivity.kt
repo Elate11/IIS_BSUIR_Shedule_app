@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.padding
 import android.os.Bundle
@@ -1078,7 +1079,21 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         OutlinedTextField(
                             value = inputText,
                             onValueChange = { inputText = it },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .shadow(
+                                    elevation = 10.dp,
+                                    shape = RoundedCornerShape(14.dp),
+                                    spotColor = Color(0xFFA855F7),
+                                    ambientColor = Color(0xFFA855F7)
+                                )
+                                .border(
+                                    width = 1.5.dp,
+                                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                        colors = listOf(Color(0xFF9333EA), Color(0xFFA855F7), Color(0xFFC084FC))
+                                    ),
+                                    shape = RoundedCornerShape(14.dp)
+                                ),
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle.Default.copy(
                                 color = MinTextPrimary,
@@ -1095,9 +1110,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             colors = androidx.compose.material3.TextFieldDefaults.colors(
                                 focusedContainerColor = MinCardBg,
                                 unfocusedContainerColor = MinCardBg,
-                                focusedIndicatorColor = MinAccent,
-                                unfocusedIndicatorColor = MinBorder,
-                                cursorColor = MinAccent
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                cursorColor = Color(0xFFA855F7)
                             ),
                             shape = RoundedCornerShape(14.dp),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -5607,7 +5622,6 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 MinListAction("Объявления", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Info) { showAnnouncements = true }
                 MinListAction("Общежитие", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Home) { showDormitory = true }
                 MinListAction("Льготы", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Star) { showBenefits = true }
-                MinListAction("Отметки", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.CheckCircle) { showMarks = true }
                 MinListAction("Зачетка", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.List) { showGradebook = true }
 
                 MinListAction("Группа", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Person) { showGroupScreen = true }
