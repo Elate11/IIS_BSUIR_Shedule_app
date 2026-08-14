@@ -6032,18 +6032,27 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
             }
         }
     }
-    Box(modifier = Modifier.fillMaxSize()) {
+    val scrollState = rememberScrollState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding()
+    ) {
         DynamicGradientBackground(accentColor = Color(0xFF8B5CF6), bgColor = MinBg, isDarkTheme = isDarkTheme)
         
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(32.dp),
+                .verticalScroll(scrollState)
+                .padding(horizontal = 32.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Text("Добро пожаловать", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 46.sp)
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(36.dp))
 
                 OutlinedTextField(
                     value = gradebookNumber,
