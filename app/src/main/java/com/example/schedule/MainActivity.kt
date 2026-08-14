@@ -1265,7 +1265,30 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             }
                             .width(58.dp)
                             .height(80.dp)
-                            .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 22.dp))
+                            .then(
+                                if (styleType != StyleType.Techno && safeProgress > 0.01f) {
+                                    Modifier.liquidGlassEffect(
+                                        cornerRadius = 24.dp,
+                                        accentColor = MinAccent,
+                                        isDarkTheme = isDarkTheme,
+                                        tiltX = tiltX,
+                                        tiltY = tiltY,
+                                        isActive = isSelected
+                                    )
+                                } else {
+                                    Modifier
+                                        .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 24.dp))
+                                        .then(
+                                            if (styleType == StyleType.Techno) {
+                                                Modifier
+                                            } else {
+                                                Modifier
+                                                    .background(if (isDarkTheme) Color(0xFF161822).copy(alpha = 0.6f) else Color(0xFFEFF1F6).copy(alpha = 0.8f))
+                                                    .border(1.dp, if (isToday) MinAccent.copy(alpha = 0.6f) else MinBorder, RoundedCornerShape(24.dp))
+                                            }
+                                        )
+                                }
+                            )
                             .drawWithContent {
                                 if (styleType == StyleType.Techno) {
                                     val r = 6.dp.toPx()
@@ -1291,122 +1314,6 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                             style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
                                         )
                                     }
-                                } else if (safeProgress > 0.01f) {
-                                    val w = size.width
-                                    val h = size.height
-                                    val r = 22.dp.toPx()
-                                    val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
-                                    
-                                    // Bubble gravitates directly towards the center where the number is (w * 0.5f, h * 0.38f)
-                                    val lightOffsetX = tiltX * 5.dp.toPx()
-                                    val lightOffsetY = tiltY * 4.dp.toPx()
-                                    val bubbleCenterX = w * 0.5f + lightOffsetX
-                                    val bubbleCenterY = (h * 0.38f + lightOffsetY).coerceIn(h * 0.22f, h * 0.52f)
-
-                                    // 1. Ambient Subsurface Glass Bloom Glow
-                                    drawRoundRect(
-                                        color = MinAccent.copy(alpha = ((if (isDarkTheme) 0.35f else 0.45f) * safeProgress).coerceIn(0f, 1f)),
-                                        topLeft = androidx.compose.ui.geometry.Offset(-2.dp.toPx() + lightOffsetX * 0.1f, -2.dp.toPx() + lightOffsetY * 0.1f),
-                                        size = androidx.compose.ui.geometry.Size(w + 4.dp.toPx(), h + 4.dp.toPx()),
-                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 2.dp.toPx(), r + 2.dp.toPx())
-                                    )
-
-                                    // 2. Multi-stop Directional 3D Liquid Glass Body (135 deg refraction)
-                                    val baseGlassBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                        colors = if (isDarkTheme) {
-                                            listOf(
-                                                Color.White.copy(alpha = (0.32f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.26f * safeProgress).coerceIn(0f, 1f)),
-                                                Color.White.copy(alpha = (0.08f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.18f * safeProgress).coerceIn(0f, 1f))
-                                            )
-                                        } else {
-                                            listOf(
-                                                Color.White.copy(alpha = (0.96f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.28f * safeProgress).coerceIn(0f, 1f)),
-                                                Color.White.copy(alpha = (0.75f * safeProgress).coerceIn(0f, 1f)),
-                                                MinAccent.copy(alpha = (0.22f * safeProgress).coerceIn(0f, 1f))
-                                            )
-                                        },
-                                        start = androidx.compose.ui.geometry.Offset(lightOffsetX, lightOffsetY),
-                                        end = androidx.compose.ui.geometry.Offset(w + lightOffsetX, h + lightOffsetY)
-                                    )
-                                    drawRoundRect(
-                                        brush = baseGlassBrush,
-                                        cornerRadius = cornerR
-                                    )
-
-                                    // 3. Central Core Liquid Bubble (centered directly behind the date numbers)
-                                    val coreBubbleBrush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                        colors = listOf(
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.90f else 0.99f) * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.35f else 0.55f) * safeProgress).coerceIn(0f, 1f)),
-                                            MinAccent.copy(alpha = (0.20f * safeProgress).coerceIn(0f, 1f)),
-                                            Color.Transparent
-                                        ),
-                                        center = androidx.compose.ui.geometry.Offset(bubbleCenterX, bubbleCenterY),
-                                        radius = (w * 0.52f).coerceAtLeast(10f)
-                                    )
-                                    drawRoundRect(
-                                        brush = coreBubbleBrush,
-                                        topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                        size = androidx.compose.ui.geometry.Size(w, h * 0.65f),
-                                        cornerRadius = cornerR
-                                    )
-
-                                    // 4. Bottom Depth / Caustic Shadow
-                                    val bottomCaustic = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color.Transparent,
-                                            MinAccent.copy(alpha = (0.30f * safeProgress).coerceIn(0f, 1f))
-                                        ),
-                                        startY = (h * 0.52f + lightOffsetY * 0.25f).coerceIn(0f, h),
-                                        endY = h
-                                    )
-                                    drawRoundRect(
-                                        brush = bottomCaustic,
-                                        topLeft = androidx.compose.ui.geometry.Offset(0f, h * 0.52f),
-                                        size = androidx.compose.ui.geometry.Size(w, h * 0.48f),
-                                        cornerRadius = cornerR
-                                    )
-
-                                    // 5. Dynamic Prismatic Light Wave / Shimmer Beam
-                                    val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                        colors = listOf(
-                                            Color.Transparent,
-                                            Color.White.copy(alpha = (shimmerAlpha * safeProgress).coerceIn(0f, 1f)),
-                                            Color.Transparent
-                                        ),
-                                        start = androidx.compose.ui.geometry.Offset(lightOffsetX * 0.5f, lightOffsetY * 0.5f),
-                                        end = androidx.compose.ui.geometry.Offset(w + lightOffsetX * 0.5f, h + lightOffsetY * 0.5f)
-                                    )
-                                    drawRoundRect(
-                                        brush = shimmerBrush,
-                                        cornerRadius = cornerR
-                                    )
-
-                                    // 6. Prismatic Chromatic Bevel Rim (Diamond Cut Edge)
-                                    val rimChromaticColor = androidx.compose.ui.graphics.Color(
-                                        red = ((MinAccent.red + tiltX * 0.15f).coerceIn(0f, 1f)),
-                                        green = ((MinAccent.green + tiltY * 0.15f).coerceIn(0f, 1f)),
-                                        blue = ((MinAccent.blue - tiltX * 0.12f).coerceIn(0f, 1f)),
-                                        alpha = (0.85f * safeProgress).coerceIn(0f, 1f)
-                                    )
-                                    val rimBrush = androidx.compose.ui.graphics.Brush.linearGradient(
-                                        colors = listOf(
-                                            Color.White.copy(alpha = (1.0f * safeProgress).coerceIn(0f, 1f)),
-                                            rimChromaticColor,
-                                            MinAccent.copy(alpha = (0.90f * safeProgress).coerceIn(0f, 1f)),
-                                            Color.White.copy(alpha = ((if (isDarkTheme) 0.40f else 0.80f) * safeProgress).coerceIn(0f, 1f))
-                                        ),
-                                        start = androidx.compose.ui.geometry.Offset(lightOffsetX, 0f),
-                                        end = androidx.compose.ui.geometry.Offset(w - lightOffsetX, h)
-                                    )
-                                    drawRoundRect(
-                                        brush = rimBrush,
-                                        cornerRadius = cornerR,
-                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.8.dp.toPx())
-                                    )
                                 }
                                 drawContent()
                             }
