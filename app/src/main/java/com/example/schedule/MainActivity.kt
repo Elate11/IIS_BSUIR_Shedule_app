@@ -3351,95 +3351,139 @@ fun MinGroupScreen(
         return list
     }
 
-    LaunchedEffect(Unit) {
-        withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val token = prefs.getString("auth_token", "") ?: ""
-            val currentFio = prefs.getString("login_fio", "")?.ifBlank { prefs.getString("user_fio", "") ?: "" } ?: ""
+    var isRefreshing by remember { mutableStateOf(false) }
 
-            // 1. Immediately check local cached sources
-            val cachedGroup = prefs.getString("cached_group_students", null)
-            val cachedMarks = prefs.getString("cached_marks", null)
-            val cachedProfile = prefs.getString("cached_profile", null)
-            
-            for (cachedJson in listOfNotNull(cachedGroup, cachedMarks, cachedProfile)) {
-                val parsedCache = extractStudentsFromAnySource(cachedJson, currentFio)
-                if (parsedCache.isNotEmpty()) {
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        students = parsedCache
-                        isLoading = false
+    suspend fun performFetch(forceReauth: Boolean = false) {
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            var token = prefs.getString("auth_token", "") ?: ""
+            val currentFio = prefs.getString("login_fio", "")?.ifBlank { prefs.getString("user_fio", "") ?: "" } ?: ""
+            val gradebookNum = prefs.getString("gradebook_number", "") ?: ""
+            val savedPass = prefs.getString("saved_password", "") ?: ""
+
+            // 1. Immediately check local cached sources if list is currently empty
+            if (students.isEmpty()) {
+                val cachedGroup = prefs.getString("cached_group_students", null)
+                val cachedMarks = prefs.getString("cached_marks", null)
+                val cachedProfile = prefs.getString("cached_profile", null)
+
+                for (cachedJson in listOfNotNull(cachedGroup, cachedMarks, cachedProfile)) {
+                    val parsedCache = extractStudentsFromAnySource(cachedJson, currentFio)
+                    if (parsedCache.isNotEmpty()) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            students = parsedCache
+                            isLoading = false
+                        }
+                        break
                     }
-                    break
                 }
             }
 
-            if (token.isBlank()) {
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    if (students.isEmpty()) {
-                        if (currentFio.isNotBlank()) {
-                            students = listOf(GroupStudentInfo(fio = currentFio, position = 1, isCurrentUser = true))
-                            isLoading = false
-                        } else {
-                            errorMessage = "Требуется авторизация"
-                            isLoading = false
+            // Function to perform re-login if token expired or missing
+            suspend fun doRelogin(): String? {
+                if (gradebookNum.isBlank() || savedPass.isBlank()) return null
+                try {
+                    val loginJson = org.json.JSONObject().apply {
+                        put("username", gradebookNum.trim())
+                        put("password", savedPass)
+                    }
+                    val body = loginJson.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                    val req = okhttp3.Request.Builder()
+                        .url("https://iis.bsuir.by/api/v1/auth/login")
+                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                        .addHeader("Accept", "application/json, text/plain, */*")
+                        .post(body)
+                        .build()
+                    com.example.schedule.NetworkClient.client.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            var newToken = ""
+                            val cookies = resp.headers("Set-Cookie")
+                            for (cookie in cookies) {
+                                if (cookie.contains("SESSION") || cookie.contains("JSESSIONID") || cookie.contains("jwt") || cookie.contains("token")) {
+                                    newToken = cookie.substringBefore(";")
+                                    break
+                                }
+                            }
+                            if (newToken.isEmpty()) newToken = resp.body?.string() ?: ""
+                            if (newToken.isNotEmpty()) {
+                                prefs.edit().putString("auth_token", newToken).apply()
+                                return newToken
+                            }
                         }
                     }
-                }
-                return@withContext
+                } catch (e: Exception) {}
+                return null
+            }
+
+            if (forceReauth || token.isBlank()) {
+                val fresh = doRelogin()
+                if (fresh != null) token = fresh
             }
 
             var fetchedSuccessfully = false
             val urlsToTry = mutableListOf<String>()
+            urlsToTry.add("https://iis.bsuir.by/api/v1/grade-book/group-students")
             urlsToTry.add("https://iis.bsuir.by/api/v1/omissions")
             if (userGroup.isNotBlank()) {
                 urlsToTry.add("https://iis.bsuir.by/api/v1/rating/group?studentGroup=$userGroup")
                 urlsToTry.add("https://iis.bsuir.by/api/v1/rating/last?studentGroup=$userGroup")
             }
-            urlsToTry.add("https://iis.bsuir.by/api/v1/grade-book/group-students")
 
-            for (url in urlsToTry) {
-                try {
-                    val client = com.example.schedule.NetworkClient.client
-                    val request = okhttp3.Request.Builder()
-                        .url(url)
-                        .addHeader("Cookie", token)
-                        .addHeader("User-Agent", "Mozilla/5.0")
-                        .addHeader("Accept", "application/json")
-                        .build()
+            for (attempt in 1..2) {
+                for (url in urlsToTry) {
+                    try {
+                        val client = com.example.schedule.NetworkClient.client
+                        val request = okhttp3.Request.Builder()
+                            .url(url)
+                            .addHeader("Cookie", token)
+                            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            .addHeader("Accept", "application/json, text/plain, */*")
+                            .build()
 
-                    client.newCall(request).execute().use { response ->
-                        val body = response.body?.string()
-                        if (response.isSuccessful && !body.isNullOrBlank()) {
-                            val parsed = extractStudentsFromAnySource(body, currentFio)
-                            if (parsed.isNotEmpty()) {
-                                prefs.edit().putString("cached_group_students", body).apply()
-                                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    students = parsed
-                                    errorMessage = null
-                                    isLoading = false
+                        client.newCall(request).execute().use { response ->
+                            val body = response.body?.string()
+                            if (response.code in listOf(401, 403) && attempt == 1) {
+                                val refreshedToken = doRelogin()
+                                if (refreshedToken != null) {
+                                    token = refreshedToken
                                 }
-                                fetchedSuccessfully = true
-                                return@use
+                            } else if (response.isSuccessful && !body.isNullOrBlank()) {
+                                val parsed = extractStudentsFromAnySource(body, currentFio)
+                                if (parsed.size >= 1) {
+                                    prefs.edit().putString("cached_group_students", body).apply()
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        students = parsed
+                                        errorMessage = null
+                                        isLoading = false
+                                        isRefreshing = false
+                                    }
+                                    fetchedSuccessfully = true
+                                    return@use
+                                }
                             }
                         }
-                    }
-                } catch (e: Exception) {
-                    // Try next source
+                    } catch (e: Exception) {}
+                    if (fetchedSuccessfully) break
                 }
                 if (fetchedSuccessfully) break
             }
 
-            if (!fetchedSuccessfully && students.isEmpty()) {
-                withContext(kotlinx.coroutines.Dispatchers.Main) {
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                isLoading = false
+                isRefreshing = false
+                if (!fetchedSuccessfully && students.isEmpty()) {
                     if (currentFio.isNotBlank()) {
                         students = listOf(GroupStudentInfo(fio = currentFio, position = 1, isCurrentUser = true))
                         errorMessage = null
                     } else {
                         errorMessage = "Не удалось загрузить список группы"
                     }
-                    isLoading = false
                 }
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        performFetch()
     }
 
     val filteredStudents = remember(students, searchQuery) {
@@ -3492,6 +3536,20 @@ fun MinGroupScreen(
                         )
                     }
                 }
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.weight(1f))
+                val scope = rememberCoroutineScope()
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Outlined.Refresh,
+                    contentDescription = "Обновить",
+                    tint = if (isRefreshing) currentAccent else MinTextSecondary,
+                    modifier = androidx.compose.ui.Modifier.size(24.dp).clickable {
+                        if (!isRefreshing) {
+                            isRefreshing = true
+                            isLoading = true
+                            scope.launch { performFetch(forceReauth = true) }
+                        }
+                    }
+                )
             }
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
 
