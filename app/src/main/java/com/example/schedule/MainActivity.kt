@@ -5062,16 +5062,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 }
                             }
                         }
-
-                        // Top Pin Indicator Icon
-                        if (note.isPinned) {
-                            Icon(
-                                Icons.Outlined.PushPin,
-                                contentDescription = "Закреплено",
-                                tint = Color(0xFFFF9500),
-                                modifier = Modifier.size((18 * scaleLevel).dp)
-                            )
-                        }
                     }
 
                     // Title & Content (Apple Notes typography hierarchy)
@@ -5100,16 +5090,13 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         // 1. PINNED NOTES SECTION
         if (pinnedNotes.isNotEmpty()) {
             item {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Outlined.PushPin, contentDescription = null, tint = Color(0xFFFF9500), modifier = Modifier.size(16.dp))
-                    Text(
-                        "ЗАКРЕПЛЁННЫЕ",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFFFF9500),
-                        letterSpacing = 1.5.sp
-                    )
-                }
+                Text(
+                    "ЗАКРЕПЛЁННЫЕ",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFFFF9500),
+                    letterSpacing = 1.5.sp
+                )
             }
 
             if (isGridMode) {
