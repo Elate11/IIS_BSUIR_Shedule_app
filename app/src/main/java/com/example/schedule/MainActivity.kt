@@ -4822,51 +4822,105 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                         contract = ActivityResultContracts.GetContent()
                     ) { uri -> photoUri = uri }
 
+                    val scope = rememberCoroutineScope()
+                    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+                    var isVibratingActive by remember { mutableStateOf(MaxVibrationController.isVibrating) }
+                    var holdProgress by remember { mutableFloatStateOf(0f) }
+                    val context = androidx.compose.ui.platform.LocalContext.current
+
                     Box(contentAlignment = Alignment.BottomEnd) {
                         val finalPhoto: Any? = photoUri ?: if (userPhoto.isNotEmpty()) userPhoto else null
-                        if (finalPhoto != null) {
-                            if (finalPhoto is android.net.Uri) {
-                                androidx.compose.foundation.Image(
-                                    painter = coil.compose.rememberAsyncImagePainter(finalPhoto),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(200.dp).clip(CircleShape),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
-                            } else if (finalPhoto is String) {
-                                var bitmap: androidx.compose.ui.graphics.ImageBitmap? = null
-                                try {
-                                    val base64String = if (finalPhoto.contains(",")) finalPhoto.substringAfter(",") else finalPhoto
-                                    val bytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
-                                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                    if (bmp != null) {
-                                        bitmap = bmp.asImageBitmap()
-                                    }
-                                } catch (e: Exception) {}
-                                
-                                if (bitmap != null) {
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(200.dp)
+                                .clip(CircleShape)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onPress = {
+                                            val startTime = System.currentTimeMillis()
+                                            var completed = false
+                                            val holdJob = scope.launch {
+                                                while (true) {
+                                                    val elapsed = System.currentTimeMillis() - startTime
+                                                    holdProgress = (elapsed / 5000f).coerceIn(0f, 1f)
+                                                    if (elapsed >= 5000L) {
+                                                        completed = true
+                                                        val active = MaxVibrationController.toggle(context)
+                                                        isVibratingActive = active
+                                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                        break
+                                                    }
+                                                    kotlinx.coroutines.delay(30)
+                                                }
+                                                holdProgress = 0f
+                                            }
+                                            tryAwaitRelease()
+                                            holdJob.cancel()
+                                            holdProgress = 0f
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (finalPhoto != null) {
+                                if (finalPhoto is android.net.Uri) {
                                     androidx.compose.foundation.Image(
-                                        bitmap = bitmap,
+                                        painter = coil.compose.rememberAsyncImagePainter(finalPhoto),
                                         contentDescription = null,
-                                        modifier = Modifier.size(200.dp).clip(CircleShape),
+                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
                                         contentScale = androidx.compose.ui.layout.ContentScale.Crop
                                     )
-                                } else {
-                                    androidx.compose.foundation.Image(
-                                        painter = androidx.compose.ui.res.painterResource(id = R.drawable.avatar),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(200.dp).clip(CircleShape),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                } else if (finalPhoto is String) {
+                                    var bitmap: androidx.compose.ui.graphics.ImageBitmap? = null
+                                    try {
+                                        val base64String = if (finalPhoto.contains(",")) finalPhoto.substringAfter(",") else finalPhoto
+                                        val bytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
+                                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                        if (bmp != null) {
+                                            bitmap = bmp.asImageBitmap()
+                                        }
+                                    } catch (e: Exception) {}
+                                    
+                                    if (bitmap != null) {
+                                        androidx.compose.foundation.Image(
+                                            bitmap = bitmap,
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    } else {
+                                        androidx.compose.foundation.Image(
+                                            painter = androidx.compose.ui.res.painterResource(id = R.drawable.avatar),
+                                            contentDescription = null,
+                                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        )
+                                    }
+                                }
+                            } else {
+                                androidx.compose.foundation.Image(
+                                    painter = androidx.compose.ui.res.painterResource(id = R.drawable.avatar),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                )
+                            }
+
+                            // Circular progress or glowing ring while holding or active
+                            if (holdProgress > 0f) {
+                                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                                    drawArc(
+                                        color = Color(0xFFFF3366),
+                                        startAngle = -90f,
+                                        sweepAngle = 360f * holdProgress,
+                                        useCenter = false,
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 6.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                                     )
                                 }
                             }
-                        } else {
-                            androidx.compose.foundation.Image(
-                                painter = androidx.compose.ui.res.painterResource(id = R.drawable.avatar),
-                                contentDescription = null,
-                                modifier = Modifier.size(200.dp).clip(CircleShape),
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                            )
                         }
+
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
@@ -6309,3 +6363,55 @@ fun Modifier.liquidGlassEffect(
             )
         }
 )
+
+object MaxVibrationController {
+    var isVibrating = false
+        private set
+
+    fun toggle(context: android.content.Context): Boolean {
+        return if (isVibrating) {
+            stop(context)
+            false
+        } else {
+            start(context)
+            true
+        }
+    }
+
+    fun start(context: android.content.Context) {
+        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        }
+
+        if (vibrator != null && vibrator.hasVibrator()) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val pattern = longArrayOf(0, 1000, 10)
+                val amplitudes = intArrayOf(0, 255, 0)
+                val effect = android.os.VibrationEffect.createWaveform(pattern, amplitudes, 1)
+                vibrator.vibrate(effect)
+            } else {
+                @Suppress("DEPRECATION")
+                val pattern = longArrayOf(0, 1000, 10)
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(pattern, 1)
+            }
+            isVibrating = true
+        }
+    }
+
+    fun stop(context: android.content.Context) {
+        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        }
+        vibrator?.cancel()
+        isVibrating = false
+    }
+}
