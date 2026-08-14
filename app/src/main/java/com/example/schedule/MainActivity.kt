@@ -1519,7 +1519,10 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             MinAccent = MinAccent,
                             MinCardBg = MinCardBg,
                             hasNotes = subjectsWithNotes.contains(lesson.title),
-                            onClick = { selectedLessonForSheet = lesson },
+                            onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                selectedLessonForSheet = lesson
+                            },
                             onLongClick = { noteLessonToAdd = lesson },
                             onTeacherClick = { urlId, name -> teacherScheduleData = urlId to name }
                         )
@@ -1696,7 +1699,10 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             Box(modifier = Modifier.fillMaxSize()) {
                 MinScheduleScreen(MinBg, actualBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent, isDarkTheme, teacherScheduleData!!.first, {}, selectedSubgroup, {}, teacherScheduleData!!.second)
                 androidx.compose.material3.IconButton(
-                    onClick = { teacherScheduleData = null },
+                    onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                teacherScheduleData = null
+                            },
                     modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
                 ) {
                     Icon(Icons.Outlined.Close, contentDescription = "Close", tint = MinTextPrimary)
@@ -4369,6 +4375,7 @@ fun NotionAttachmentChip(
     onDelete: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val chipBg = if (isDarkTheme) Color(0xFF22232C) else Color(0xFFEFEFF4)
     val chipBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFD8D8E0)
     val ext = attachment.name.substringAfterLast('.', "").lowercase()
@@ -4392,7 +4399,10 @@ fun NotionAttachmentChip(
             .clip(RoundedCornerShape(10.dp))
             .background(chipBg)
             .border(1.dp, chipBorder, RoundedCornerShape(10.dp))
-            .clickable { onClick() }
+            .clickable {
+             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+             onClick()
+         }
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -6007,6 +6017,8 @@ fun MinNotesCalendar(
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     val monthNames = listOf("Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь")
     val dayNames = listOf("Пн","Вт","Ср","Чт","Пт","Сб","Вс")
     val cal = remember(viewYear, viewMonth) { java.util.Calendar.getInstance().apply { set(viewYear, viewMonth, 1) } }
@@ -6016,11 +6028,17 @@ fun MinNotesCalendar(
         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, MinBorder, RoundedCornerShape(16.dp)).padding(16.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(32.dp).clip(CircleShape).clickable { onPrevMonth() }, contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.size(32.dp).clip(CircleShape).clickable {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                onPrevMonth()
+            }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.KeyboardArrowLeft, contentDescription = null, tint = MinTextPrimary, modifier = Modifier.size(20.dp))
             }
             Text("${monthNames[viewMonth]} $viewYear", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple))
-            Box(modifier = Modifier.size(32.dp).clip(CircleShape).clickable { onNextMonth() }, contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.size(32.dp).clip(CircleShape).clickable {
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                onNextMonth()
+            }, contentAlignment = Alignment.Center) {
                 Icon(Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = MinTextPrimary, modifier = Modifier.size(20.dp))
             }
         }
@@ -6517,7 +6535,10 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                 .size(44.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFFEEEEEE))
-                                .clickable { launcher.launch("image/*") },
+                                .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                launcher.launch("image/*")
+                            },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -6576,6 +6597,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             val localContext = androidx.compose.ui.platform.LocalContext.current
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Выйти", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F), modifier = Modifier.clickable {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     val prefs = localContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                     prefs.edit().clear().apply()
                     val activity = localContext as? android.app.Activity
@@ -6585,6 +6607,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 }.padding(vertical = 8.dp))
 
                 Row(modifier = Modifier.clickable {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Elate11/IIS_BSUIR_Shedule_app"))
                     localContext.startActivity(intent)
                 }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -7062,6 +7085,7 @@ fun InfoDialog(
 fun MinCustomizationView(
     MinBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean, currentAccent: androidx.compose.ui.graphics.Color, particlesEnabled: Boolean, particleSizeMultiplier: Float, transitionsEnabled: Boolean, transitionType: TransitionType, transitionSpeedMultiplier: Float, fontFamily: androidx.compose.ui.text.font.FontFamily, textSizeMultiplier: Float, bgMode: String, bgImageUri: String?, bgBlur: Float, bgDim: Float, bgEmoji: String, customParticleColor: androidx.compose.ui.graphics.Color?, onThemeToggle: () -> Unit, onAccentChange: (androidx.compose.ui.graphics.Color) -> Unit, onParticlesToggle: (Boolean) -> Unit, onParticleSizeChange: (Float) -> Unit, onTransitionsToggle: (Boolean) -> Unit, onTransitionTypeChange: (TransitionType) -> Unit, onTransitionSpeedChange: (Float) -> Unit, onFontChange: (androidx.compose.ui.text.font.FontFamily) -> Unit, onTextSizeChange: (Float) -> Unit, onPrimaryColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBackgroundColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBgModeChange: (String) -> Unit, onBgImageUriChange: (String?) -> Unit, onBgBlurChange: (Float) -> Unit, onBgDimChange: (Float) -> Unit, onBgEmojiChange: (String) -> Unit, onParticleColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onStyleChange: (StyleType) -> Unit, onBack: () -> Unit
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var showPrimaryStrip by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var showBackgroundStrip by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var showAccentStrip by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -7112,7 +7136,10 @@ fun MinCustomizationView(
                 StyleType.values().forEach { style ->
                     val isSelected = style == LocalStyleType.current
                     androidx.compose.material3.Button(
-                        onClick = { onStyleChange(style) },
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            onStyleChange(style)
+                        },
                         modifier = androidx.compose.ui.Modifier.weight(1f).height(48.dp),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
@@ -7135,7 +7162,10 @@ fun MinCustomizationView(
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
                     androidx.compose.material3.Text("Тема", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(if (isDarkTheme) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White).clickable { onThemeToggle() })
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(if (isDarkTheme) androidx.compose.ui.graphics.Color.Black else androidx.compose.ui.graphics.Color.White).clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        onThemeToggle()
+                    })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                     androidx.compose.material3.Text(if (isDarkTheme) "Темная" else "Светлая", fontSize = 17.sp, color = MinTextSecondary)
                 }
@@ -7143,17 +7173,29 @@ fun MinCustomizationView(
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
                     androidx.compose.material3.Text("Основной", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinTextPrimary).clickable { showPrimaryStrip = true })
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinTextPrimary).clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        showPrimaryStrip = true
+                    })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable { onPrimaryColorChange(null) })
+                    androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        onPrimaryColorChange(null)
+                    })
                 }
     
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
                     androidx.compose.material3.Text("Фон", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinBg).clickable { showBackgroundStrip = true })
+                    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.size(48.dp).border(1.dp, MinTextSecondary.copy(alpha=0.5f), androidx.compose.foundation.shape.CircleShape).clip(androidx.compose.foundation.shape.CircleShape).background(MinBg).clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        showBackgroundStrip = true
+                    })
                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                    androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable { onBackgroundColorChange(null) })
+                    androidx.compose.material3.Text("Сброс", fontSize = 17.sp, color = MinTextSecondary, modifier = androidx.compose.ui.Modifier.clickable {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        onBackgroundColorChange(null)
+                    })
                 }
             }
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
@@ -7201,6 +7243,7 @@ fun MinCustomizationView(
                             .background(palette.second)
                             .border(1.dp, MinTextSecondary.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 onPrimaryColorChange(palette.first)
                                 onBackgroundColorChange(palette.second)
                             },
@@ -7233,6 +7276,7 @@ fun MinCustomizationView(
                             .background(palette.second)
                             .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
                             .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 onPrimaryColorChange(palette.first)
                                 onBackgroundColorChange(palette.second)
                             },
@@ -7254,7 +7298,10 @@ fun MinCustomizationView(
             Row(modifier = Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Solid" to "Сплошной", "Gallery" to "Фото", "Gradient" to "Градиент").forEach { (mode, name) ->
                     androidx.compose.material3.TextButton(
-                        onClick = { onBgModeChange(mode) },
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            onBgModeChange(mode)
+                        },
                         colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                             contentColor = if (bgMode == mode) MinTextPrimary else MinTextSecondary
                         )
@@ -7270,7 +7317,10 @@ fun MinCustomizationView(
                     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                         if (uri != null) onBgImageUriChange(uri.toString())
                     }
-                    OutlinedButton(onClick = { launcher.launch("image/*") }, border = androidx.compose.foundation.BorderStroke(2.dp, MinTextPrimary), colors = ButtonDefaults.outlinedButtonColors(contentColor = MinTextPrimary)) { Text("Выбрать фото", color = MinTextPrimary, fontWeight = FontWeight.Bold) }
+                    OutlinedButton(onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                        launcher.launch("image/*")
+                    }, border = androidx.compose.foundation.BorderStroke(2.dp, MinTextPrimary), colors = ButtonDefaults.outlinedButtonColors(contentColor = MinTextPrimary)) { Text("Выбрать фото", color = MinTextPrimary, fontWeight = FontWeight.Bold) }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
                 
@@ -7485,7 +7535,10 @@ fun MinCustomizationView(
                 Text("Анимации переходов", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple))
                 Switch(
                     checked = transitionsEnabled,
-                    onCheckedChange = { onTransitionsToggle(it) },
+                    onCheckedChange = {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    onTransitionsToggle(it)
+                },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = MinBg,
                         checkedTrackColor = MinTextPrimary,
@@ -7523,6 +7576,8 @@ fun MinCustomizationView(
 
 @Composable
 fun TransitionDemoBox(type: TransitionType, speedMultiplier: Float, isSelected: Boolean, onClick: () -> Unit, MinTextPrimary: Color, MinBorder: Color) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     val infiniteTransition = rememberInfiniteTransition()
     val progress by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -7537,7 +7592,10 @@ fun TransitionDemoBox(type: TransitionType, speedMultiplier: Float, isSelected: 
         Box(modifier = Modifier
              .size(40.dp)
              .clip(RoundedCornerShape(8.dp))
-             .clickable { onClick() }
+             .clickable {
+             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+             onClick()
+         }
              .border(if (isSelected) 2.dp else 1.dp, if (isSelected) MinTextPrimary else MinBorder, RoundedCornerShape(8.dp))
              .padding(4.dp)
         ) {
@@ -7586,7 +7644,11 @@ fun MoonIcon(tint: Color) {
 
 @Composable
 fun MinStat(label: String, value: String, MinTextPrimary: Color, MinTextSecondary: Color, onClick: (() -> Unit)? = null) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClick() }.padding(horizontal=16.dp, vertical=8.dp) else Modifier.padding(horizontal=16.dp, vertical=8.dp)) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable {
+             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+             onClick()
+         }.padding(horizontal=16.dp, vertical=8.dp) else Modifier.padding(horizontal=16.dp, vertical=8.dp)) {
         AutoResizedText(label, fontSize = 17.sp, minFontSize = 11.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
         Spacer(modifier = Modifier.height(8.dp))
         AutoResizedText(value, fontSize = 29.sp, minFontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
@@ -8009,6 +8071,8 @@ fun ColorWheel(modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modi
 
 @Composable
 fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, isDarkTheme: Boolean, onLoginSuccess: (String, String) -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     var gradebookNumber by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -8083,7 +8147,10 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     trailingIcon = {
                         val icon = if (passwordVisible) androidx.compose.material.icons.Icons.Outlined.Visibility else androidx.compose.material.icons.Icons.Outlined.VisibilityOff
-                        androidx.compose.material3.IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        androidx.compose.material3.IconButton(onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            passwordVisible = !passwordVisible
+                        }) {
                             androidx.compose.material3.Icon(icon, contentDescription = null, tint = MinTextSecondary)
                         }
                     },
@@ -8108,6 +8175,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
 
                 Button(
                     onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                         val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                         if (gradebookNumber.isBlank() || password.isBlank()) {
                             errorMessage = "Пожалуйста, заполните все поля"
@@ -8446,6 +8514,8 @@ fun IosTimePickerDialog(
     MinCardBg: androidx.compose.ui.graphics.Color,
     MinAccent: androidx.compose.ui.graphics.Color
 ) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     var selectedHour by remember { mutableStateOf(initialHour) }
     var selectedMinute by remember { mutableStateOf(initialMinute) }
     
@@ -8509,7 +8579,10 @@ fun IosTimePickerDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
-                        onClick = onDismiss,
+                        onClick = {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            onDismiss()
+                        },
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
