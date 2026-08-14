@@ -5201,6 +5201,66 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     var userBirthDate by remember { mutableStateOf("Не указана") }
     var showGroupDescToggle by remember { mutableStateOf(false) }
 
+    val profilePrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+    var memoryAvatarBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    val scope = rememberCoroutineScope()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
+    // Load saved avatar immediately
+    LaunchedEffect(Unit) {
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val avatarFile = java.io.File(context.filesDir, "custom_avatar.png")
+                if (avatarFile.exists()) {
+                    val bmp = android.graphics.BitmapFactory.decodeFile(avatarFile.absolutePath)
+                    if (bmp != null) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            memoryAvatarBitmap = bmp.asImageBitmap()
+                        }
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        val originalBmp = android.graphics.BitmapFactory.decodeStream(inputStream)
+                        if (originalBmp != null) {
+                            val maxDim = 800
+                            val width = originalBmp.width
+                            val height = originalBmp.height
+                            val scaledBmp = if (width > maxDim || height > maxDim) {
+                                val ratio = width.toFloat() / height.toFloat()
+                                val newW = if (ratio > 1) maxDim else (maxDim * ratio).toInt()
+                                val newH = if (ratio > 1) (maxDim / ratio).toInt() else maxDim
+                                android.graphics.Bitmap.createScaledBitmap(originalBmp, newW, newH, true)
+                            } else {
+                                originalBmp
+                            }
+                            val avatarFile = java.io.File(context.filesDir, "custom_avatar.png")
+                            avatarFile.outputStream().use { out ->
+                                scaledBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 90, out)
+                            }
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                memoryAvatarBitmap = scaledBmp.asImageBitmap()
+                                profilePrefs.edit().putLong("custom_avatar_timestamp", System.currentTimeMillis()).apply()
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         while(true) {
             kotlinx.coroutines.delay(4000)
@@ -5214,8 +5274,6 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
         targetValue = if (isRefreshing) 72f else pullDistance.coerceIn(0f, 130f),
         animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
     )
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
 
     suspend fun fetchProfileData(forceRefresh: Boolean = false) {
         val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
@@ -5467,43 +5525,11 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 ) {
                     item {
                         Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    val profileContext = androidx.compose.ui.platform.LocalContext.current
-                    val profilePrefs = remember { profileContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
-                    var customAvatarTimestamp by remember { mutableLongStateOf(profilePrefs.getLong("custom_avatar_timestamp", 0L)) }
-
-                    val launcher = rememberLauncherForActivityResult(
-                        contract = ActivityResultContracts.GetContent()
-                    ) { uri ->
-                        if (uri != null) {
-                            try {
-                                profileContext.contentResolver.openInputStream(uri)?.use { inputStream ->
-                                    val avatarFile = java.io.File(profileContext.filesDir, "custom_avatar.png")
-                                    avatarFile.outputStream().use { outputStream ->
-                                        inputStream.copyTo(outputStream)
-                                    }
-                                    val now = System.currentTimeMillis()
-                                    profilePrefs.edit().putLong("custom_avatar_timestamp", now).apply()
-                                    customAvatarTimestamp = now
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                    }
-
-                    val scope = rememberCoroutineScope()
-                    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
                     var isVibratingActive by remember { mutableStateOf(MaxVibrationController.isVibrating) }
                     var holdProgress by remember { mutableFloatStateOf(0f) }
-                    val context = profileContext
 
-                    val avatarBitmap = remember(customAvatarTimestamp, userPhoto) {
-                        val avatarFile = java.io.File(profileContext.filesDir, "custom_avatar.png")
-                        if (customAvatarTimestamp > 0L && avatarFile.exists()) {
-                            try {
-                                android.graphics.BitmapFactory.decodeFile(avatarFile.absolutePath)?.asImageBitmap()
-                            } catch (e: Exception) { null }
-                        } else if (userPhoto.isNotEmpty()) {
+                    val finalAvatar = memoryAvatarBitmap ?: remember(userPhoto) {
+                        if (userPhoto.isNotEmpty()) {
                             try {
                                 val base64String = if (userPhoto.contains(",")) userPhoto.substringAfter(",") else userPhoto
                                 val bytes = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
@@ -5545,9 +5571,9 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                 },
                             contentAlignment = Alignment.Center
                         ) {
-                            if (avatarBitmap != null) {
+                            if (finalAvatar != null) {
                                 androidx.compose.foundation.Image(
-                                    bitmap = avatarBitmap,
+                                    bitmap = finalAvatar,
                                     contentDescription = "Аватар",
                                     modifier = Modifier.fillMaxSize().clip(CircleShape),
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
