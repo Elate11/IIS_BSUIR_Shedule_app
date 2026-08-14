@@ -4425,9 +4425,12 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             .fillMaxWidth()
                             .height(56.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.12f))
+                            .background(Color.White.copy(alpha = 0.08f))
                             .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
-                            .clickable { radialExpanded = !radialExpanded }
+                            .clickable {
+                                radialExpanded = !radialExpanded
+                                if (radialExpanded) isCalendarExpanded = false
+                            }
                             .padding(horizontal = 16.dp),
                         contentAlignment = Alignment.CenterStart
                     ) {
@@ -4435,21 +4438,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             Text(selectedSubject, color = MinTextPrimary, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
                             Spacer(modifier = Modifier.width(8.dp))
                             Icon(if (radialExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = MinTextSecondary)
-                        }
-                    }
-                    DropdownMenu(
-                        expanded = radialExpanded,
-                        onDismissRequest = { radialExpanded = false },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.15f))
-                            .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
-                    ) {
-                        subjects.forEach { subject ->
-                            DropdownMenuItem(
-                                text = { Text(subject, color = if (subject == selectedSubject) MinAccent else MinTextPrimary, fontWeight = FontWeight.Bold) },
-                                onClick = { selectedSubject = subject; radialExpanded = false }
-                            )
                         }
                     }
                 }
@@ -4460,15 +4448,52 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     modifier = Modifier
                         .height(56.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.12f))
+                        .background(Color.White.copy(alpha = 0.08f))
                         .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
-                        .clickable { isCalendarExpanded = !isCalendarExpanded }
+                        .clickable {
+                            isCalendarExpanded = !isCalendarExpanded
+                            if (isCalendarExpanded) radialExpanded = false
+                        }
                         .padding(horizontal = 16.dp),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(formatDate(selectedDay, selectedMonth, selectedYear), color = MinTextPrimary, fontWeight = FontWeight.Bold)
                         Icon(if (isCalendarExpanded) Icons.Outlined.KeyboardArrowLeft else Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = MinTextSecondary)
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = radialExpanded, enter = expandVertically(), exit = shrinkVertically()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.White.copy(alpha = 0.06f))
+                        .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
+                        .padding(6.dp)
+                ) {
+                    subjects.forEach { subject ->
+                        val isSel = subject == selectedSubject
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSel) Color.White.copy(alpha = 0.18f) else Color.Transparent)
+                                .clickable {
+                                    selectedSubject = subject
+                                    radialExpanded = false
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = subject,
+                                color = if (isSel) MinAccent else MinTextPrimary,
+                                fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
                 }
             }
