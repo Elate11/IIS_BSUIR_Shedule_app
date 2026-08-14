@@ -4419,15 +4419,13 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         item {
             Row(modifier = Modifier.fillMaxWidth().zIndex(10f), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
 
-                val isDark = MinBg.luminance() < 0.5f
-
                 Box(modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = if (isDark) 0.08f else 0.45f))
+                            .background(Color.White.copy(alpha = 0.12f))
                             .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                             .clickable { radialExpanded = !radialExpanded }
                             .padding(horizontal = 16.dp),
@@ -4444,7 +4442,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         onDismissRequest = { radialExpanded = false },
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (isDark) Color(0xFF14161F).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.90f))
+                            .background(Color.White.copy(alpha = 0.15f))
                             .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                     ) {
                         subjects.forEach { subject ->
@@ -4462,7 +4460,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     modifier = Modifier
                         .height(56.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = if (isDark) 0.08f else 0.45f))
+                        .background(Color.White.copy(alpha = 0.12f))
                         .border(1.5.dp, Color.White, RoundedCornerShape(16.dp))
                         .clickable { isCalendarExpanded = !isCalendarExpanded }
                         .padding(horizontal = 16.dp),
@@ -6226,3 +6224,99 @@ fun copyUriToInternalStorage(context: android.content.Context, uri: android.net.
         return null
     }
 }
+
+fun Modifier.liquidGlassEffect(
+    cornerRadius: androidx.compose.ui.unit.Dp = 20.dp,
+    tint: Color = Color.Unspecified,
+    accentColor: Color = Color(0xFF6C63FF),
+    isDarkTheme: Boolean = true,
+    tiltX: Float = 0f,
+    tiltY: Float = 0f,
+    isActive: Boolean = true
+): Modifier = this.then(
+    Modifier
+        .clip(RoundedCornerShape(cornerRadius))
+        .drawWithContent {
+            val w = size.width
+            val h = size.height
+            val r = cornerRadius.toPx().coerceAtMost(minOf(w, h) / 2f)
+
+            if (!isActive) {
+                drawContent()
+                return@drawWithContent
+            }
+
+            // 1. Subsurface Bloom Glow
+            val glowColor = (if (tint != Color.Unspecified) tint else accentColor)
+                .copy(alpha = if (isDarkTheme) 0.30f else 0.40f)
+            drawRoundRect(
+                color = glowColor,
+                topLeft = androidx.compose.ui.geometry.Offset(-1.5.dp.toPx() + tiltX * 4.dp.toPx(), -1.5.dp.toPx() + tiltY * 4.dp.toPx()),
+                size = androidx.compose.ui.geometry.Size(w + 3.dp.toPx(), h + 3.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r + 1.5.dp.toPx(), r + 1.5.dp.toPx())
+            )
+
+            // 2. Optical Liquid Glass Body
+            val glassBodyBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                colors = if (isDarkTheme) listOf(
+                    Color.White.copy(alpha = 0.28f),
+                    accentColor.copy(alpha = 0.22f),
+                    Color.White.copy(alpha = 0.08f),
+                    accentColor.copy(alpha = 0.18f)
+                ) else listOf(
+                    Color.White.copy(alpha = 0.85f),
+                    accentColor.copy(alpha = 0.25f),
+                    Color.White.copy(alpha = 0.40f),
+                    accentColor.copy(alpha = 0.20f)
+                ),
+                start = androidx.compose.ui.geometry.Offset(tiltX * 15f, tiltY * 15f),
+                end = androidx.compose.ui.geometry.Offset(w - tiltX * 15f, h - tiltY * 15f)
+            )
+            drawRoundRect(
+                brush = glassBodyBrush,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
+            )
+
+            // 3. Draw Inner Content
+            drawContent()
+
+            // 4. Specular Highlight & Caustic Lens Reflection
+            val highlightAngle = kotlin.math.atan2(tiltY, tiltX)
+            val normalX = kotlin.math.cos(highlightAngle)
+            val normalY = kotlin.math.sin(highlightAngle)
+            
+            val causticBrush = androidx.compose.ui.graphics.Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = if (isDarkTheme) 0.65f else 0.85f),
+                    Color.White.copy(alpha = if (isDarkTheme) 0.20f else 0.35f),
+                    Color.Transparent
+                ),
+                center = androidx.compose.ui.geometry.Offset(w / 2f + normalX * (w * 0.25f), h / 2f + normalY * (h * 0.25f)),
+                radius = maxOf(w, h) * 0.75f
+            )
+            drawRoundRect(
+                brush = causticBrush,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                blendMode = androidx.compose.ui.graphics.BlendMode.Plus
+            )
+
+            // 5. Prismatic Diamond-Cut Bevel Rim
+            val hueShift = ((highlightAngle * 180 / Math.PI + 360) % 360).toFloat()
+            val prismColor = Color.hsl(hueShift, 0.70f, if (isDarkTheme) 0.75f else 0.55f)
+            val rimBrush = androidx.compose.ui.graphics.Brush.sweepGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.90f),
+                    prismColor.copy(alpha = 0.60f),
+                    Color.White.copy(alpha = 0.35f),
+                    prismColor.copy(alpha = 0.50f),
+                    Color.White.copy(alpha = 0.90f)
+                ),
+                center = androidx.compose.ui.geometry.Offset(w / 2f + tiltX * 10f, h / 2f + tiltY * 10f)
+            )
+            drawRoundRect(
+                brush = rimBrush,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+            )
+        }
+)
