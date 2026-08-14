@@ -239,6 +239,54 @@ fun MatrixRainLayer(content: @Composable () -> Unit) {
 }
 
 @Composable
+fun AutoResizedText(
+    text: String,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    color: androidx.compose.ui.graphics.Color = androidx.compose.ui.graphics.Color.Unspecified,
+    fontSize: androidx.compose.ui.unit.TextUnit = 14.sp,
+    minFontSize: androidx.compose.ui.unit.TextUnit = 9.sp,
+    fontWeight: androidx.compose.ui.text.font.FontWeight? = null,
+    fontFamily: androidx.compose.ui.text.font.FontFamily? = null,
+    textAlign: androidx.compose.ui.text.style.TextAlign? = null,
+    maxLines: Int = 1,
+    style: androidx.compose.ui.text.TextStyle = androidx.compose.material3.LocalTextStyle.current
+) {
+    var resizedFontSize by androidx.compose.runtime.remember(text, fontSize) { 
+        androidx.compose.runtime.mutableStateOf(fontSize) 
+    }
+    var readyToDraw by androidx.compose.runtime.remember(text, fontSize) { 
+        androidx.compose.runtime.mutableStateOf(false) 
+    }
+
+    androidx.compose.material3.Text(
+        text = text,
+        color = color,
+        modifier = modifier.drawWithContent {
+            if (readyToDraw) drawContent()
+        },
+        fontSize = resizedFontSize,
+        fontWeight = fontWeight,
+        fontFamily = fontFamily,
+        textAlign = textAlign,
+        maxLines = maxLines,
+        softWrap = false,
+        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+        style = style,
+        onTextLayout = { result ->
+            if (result.didOverflowWidth || result.didOverflowHeight) {
+                if (resizedFontSize.value > minFontSize.value) {
+                    resizedFontSize = (resizedFontSize.value - 1f).sp
+                } else {
+                    readyToDraw = true
+                }
+            } else {
+                readyToDraw = true
+            }
+        }
+    )
+}
+
+@Composable
 fun ParticleTrailLayer(isDarkTheme: Boolean, particleSizeMultiplier: Float, customParticleColor: Color?, content: @Composable () -> Unit) {
     var particles by remember { mutableStateOf(listOf<Particle>()) }
     val particleColor = customParticleColor ?: if (isDarkTheme) Color.White else Color.Black
@@ -5318,12 +5366,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
+                        AutoResizedText(
                             text = selectedSubject,
                             fontSize = 14.sp,
+                            minFontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = MinTextPrimary,
-                            maxLines = 1
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f).padding(end = 6.dp)
                         )
                         Icon(
                             if (radialExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
@@ -5754,10 +5804,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                     .background(MinAccent.copy(alpha = 0.16f))
                                     .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
                             ) {
-                                Text(
+                                AutoResizedText(
                                     note.subject,
                                     color = MinAccent,
                                     fontSize = (12 * scaleLevel).sp,
+                                    minFontSize = (9 * scaleLevel).sp,
                                     fontWeight = FontWeight.ExtraBold,
                                     maxLines = 1
                                 )
@@ -7286,11 +7337,13 @@ fun MinCustomizationView(
                             .padding(horizontal = 16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
+                        AutoResizedText(
                             label,
                             fontSize = 15.sp,
+                            minFontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isSelected) MinTextPrimary else MinTextSecondary
+                            color = if (isSelected) MinTextPrimary else MinTextSecondary,
+                            maxLines = 1
                         )
                     }
                 }
@@ -7534,9 +7587,9 @@ fun MoonIcon(tint: Color) {
 @Composable
 fun MinStat(label: String, value: String, MinTextPrimary: Color, MinTextSecondary: Color, onClick: (() -> Unit)? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable { onClick() }.padding(horizontal=16.dp, vertical=8.dp) else Modifier.padding(horizontal=16.dp, vertical=8.dp)) {
-        Text(label, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
+        AutoResizedText(label, fontSize = 17.sp, minFontSize = 11.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
         Spacer(modifier = Modifier.height(8.dp))
-        Text(value, fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+        AutoResizedText(value, fontSize = 29.sp, minFontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
     }
 }
 
@@ -7549,12 +7602,12 @@ fun MinListAction(label: String, MinBorder: Color, MinTextPrimary: Color, MinTex
         onClick() 
     }.then(padding)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                 if (icon != null) {
                     Icon(icon, contentDescription = null, tint = MinTextPrimary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(16.dp))
                 }
-                Text(label, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple))
+                AutoResizedText(label, fontSize = 24.sp, minFontSize = 14.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple))
             }
             Icon(Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = MinTextSecondary)
         }
@@ -8464,7 +8517,7 @@ fun IosTimePickerDialog(
                             contentColor = androidx.compose.ui.graphics.Color.White
                         )
                     ) {
-                        Text("Отмена", fontWeight = FontWeight.Bold)
+                        AutoResizedText("Отмена", fontWeight = FontWeight.Bold, minFontSize = 10.sp)
                     }
                     
                     Button(
@@ -8479,7 +8532,7 @@ fun IosTimePickerDialog(
                             contentColor = androidx.compose.ui.graphics.Color.White
                         )
                     ) {
-                        Text("Готово", fontWeight = FontWeight.Bold)
+                        AutoResizedText("Готово", fontWeight = FontWeight.Bold, minFontSize = 10.sp)
                     }
                 }
             }
