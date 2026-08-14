@@ -1877,7 +1877,8 @@ data class Note(
     val subject: String,
     val text: String,
     val date: String,
-    val isEvent: Boolean = false
+    val isEvent: Boolean = false,
+    val isPinned: Boolean = false
 )
 
 @Composable
@@ -4160,7 +4161,7 @@ fun MinMarksScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "114001") {
+fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "114001", isDarkTheme: Boolean = true) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE) }
     val gson = remember { com.google.gson.Gson() }
@@ -4281,6 +4282,9 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     var viewMonth by remember { mutableStateOf(todayCal.get(java.util.Calendar.MONTH)) }
     var viewYear by remember { mutableStateOf(todayCal.get(java.util.Calendar.YEAR)) }
 
+    var scaleLevel by remember { mutableFloatStateOf(1.0f) }
+    var isGridMode by remember { mutableStateOf(false) }
+
     var notes by remember { mutableStateOf<List<Note>>(emptyList()) }
 
     // Reload notes every time this composable becomes active
@@ -4291,13 +4295,16 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         } catch (e: Exception) { notes = emptyList() }
     }
     var noteToDelete by remember { mutableStateOf<Note?>(null) }
+    var noteToEdit by remember { mutableStateOf<Note?>(null) }
 
     var isCalendarExpanded by remember { mutableStateOf(false) }
     var radialExpanded by remember { mutableStateOf(false) }
 
-    androidx.activity.compose.BackHandler(enabled = noteToDelete != null || radialExpanded || isCalendarExpanded) {
+    androidx.activity.compose.BackHandler(enabled = noteToDelete != null || noteToEdit != null || radialExpanded || isCalendarExpanded) {
         if (noteToDelete != null) {
             noteToDelete = null
+        } else if (noteToEdit != null) {
+            noteToEdit = null
         } else if (radialExpanded) {
             radialExpanded = false
         } else if (isCalendarExpanded) {
@@ -4344,11 +4351,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedByDescending { it.date }
     }
 
+    val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned } }
+    val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned } }
+
     if (noteToDelete != null) {
         AlertDialog(
             onDismissRequest = { noteToDelete = null },
-            title = { Text("Удалить заметку?", color = androidx.compose.ui.graphics.Color.White) },
-            text = { Text("Удержите для удаления. Действие нельзя отменить.", color = androidx.compose.ui.graphics.Color(0xFFEEEEEE)) },
+            title = { Text("Удалить заметку?", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold) },
+            text = { Text("Действие нельзя отменить.", color = androidx.compose.ui.graphics.Color(0xFFEEEEEE)) },
             confirmButton = {
                 TextButton(onClick = { saveNotes(notes.filter { it.id != noteToDelete!!.id }); noteToDelete = null }) {
                     Text("Удалить", color = Color(0xFFFF6B6B), fontWeight = FontWeight.Bold)
@@ -4357,30 +4367,300 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             dismissButton = {
                 TextButton(onClick = { noteToDelete = null }) { Text("Отмена", color = androidx.compose.ui.graphics.Color.White) }
             },
-            containerColor = Color.Transparent
+            containerColor = Color(0xFF1E202E),
+            shape = RoundedCornerShape(20.dp)
         )
+    }
+
+    // iOS Note Edit Dialog
+    if (noteToEdit != null) {
+        var editText by remember(noteToEdit) { mutableStateOf(noteToEdit!!.text) }
+        var editSubject by remember(noteToEdit) { mutableStateOf(noteToEdit!!.subject) }
+        var editIsEvent by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isEvent) }
+        var editIsPinned by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isPinned) }
+        var editSubjectExpanded by remember { mutableStateOf(false) }
+
+        Dialog(onDismissRequest = { noteToEdit = null }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFF7F7FA))
+                    .padding(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Редактировать", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+                        IconButton(onClick = { noteToEdit = null }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = MinTextSecondary)
+                        }
+                    }
+
+                    // Oval badges summary in editor
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Subject Selector Pill
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MinAccent.copy(alpha = 0.15f))
+                                .clickable { editSubjectExpanded = !editSubjectExpanded }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(editSubject, color = MinAccent, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = MinAccent, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        // Date Pill
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.08f))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(noteToEdit!!.date, color = MinTextSecondary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        }
+                    }
+
+                    AnimatedVisibility(visible = editSubjectExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.06f))
+                                .padding(6.dp)
+                        ) {
+                            allSubjects.forEach { s ->
+                                Text(
+                                    s,
+                                    color = if (s == editSubject) MinAccent else MinTextPrimary,
+                                    fontWeight = if (s == editSubject) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            editSubject = s
+                                            editSubjectExpanded = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Text Editor Field
+                    OutlinedTextField(
+                        value = editText,
+                        onValueChange = { editText = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = MinTextPrimary,
+                            unfocusedTextColor = MinTextPrimary,
+                            cursorColor = MinAccent,
+                            focusedBorderColor = MinAccent,
+                            unfocusedBorderColor = MinBorder
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+
+                    // Toggles Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Pin Toggle Button
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (editIsPinned) Color(0xFFFF9500).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
+                                .clickable { editIsPinned = !editIsPinned },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Outlined.PushPin,
+                                    contentDescription = null,
+                                    tint = if (editIsPinned) Color(0xFFFF9500) else MinTextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    "Закрепить",
+                                    color = if (editIsPinned) Color(0xFFFF9500) else MinTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+
+                        // Event Toggle Button
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (editIsEvent) Color(0xFFFFB800).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f))
+                                .clickable { editIsEvent = !editIsEvent },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    if (editIsEvent) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
+                                    contentDescription = null,
+                                    tint = if (editIsEvent) Color(0xFFFFB800) else MinTextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    "Событие",
+                                    color = if (editIsEvent) Color(0xFFFFB800) else MinTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Action Buttons Row (Delete & Save)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                saveNotes(notes.filter { it.id != noteToEdit!!.id })
+                                noteToEdit = null
+                            },
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF3B30).copy(alpha = 0.15f), contentColor = Color(0xFFFF3B30))
+                        ) {
+                            Text("Удалить", fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (editText.isNotBlank()) {
+                                    val updated = noteToEdit!!.copy(
+                                        text = editText,
+                                        subject = editSubject,
+                                        isEvent = editIsEvent,
+                                        isPinned = editIsPinned
+                                    )
+                                    saveNotes(notes.map { if (it.id == updated.id) updated else it })
+                                    noteToEdit = null
+                                }
+                            },
+                            modifier = Modifier.weight(1.3f).height(48.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MinAccent, contentColor = Color.White)
+                        ) {
+                            Text("Сохранить", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     val styleType = LocalStyleType.current
     LazyColumn(
         modifier = Modifier
             .fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp)
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 36.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Header with Title & Scaling Controls
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Text("Заметки", fontSize = 33.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("Заметки", fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+                    Text(
+                        "${subjectNotes.size} ${if (subjectNotes.size == 1) "заметка" else if (subjectNotes.size in 2..4) "заметки" else "заметок"}",
+                        fontSize = 14.sp,
+                        color = MinTextSecondary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Apple-style scaling and view mode controls
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Zoom Out Button
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.08f))
+                            .clickable {
+                                scaleLevel = (scaleLevel - 0.15f).coerceIn(0.75f, 1.40f)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("A-", color = MinTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Zoom In Button
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.08f))
+                            .clickable {
+                                scaleLevel = (scaleLevel + 0.15f).coerceIn(0.75f, 1.40f)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("A+", color = MinTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    // Grid / List View Toggle
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (isGridMode) MinAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                            .clickable { isGridMode = !isGridMode },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            if (isGridMode) Icons.Outlined.GridView else Icons.Outlined.ViewAgenda,
+                            contentDescription = "Вид",
+                            tint = if (isGridMode) MinAccent else MinTextPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
+
+        // Top Filter Bar (Subject & Date Selectors)
         item {
-            Row(modifier = Modifier.fillMaxWidth().zIndex(10f), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+            Row(modifier = Modifier.fillMaxWidth().zIndex(10f), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
 
                 Box(modifier = Modifier.weight(1f)) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .height(52.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color.White.copy(alpha = 0.08f))
                             .clickable {
@@ -4392,17 +4672,15 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     ) {
                         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Text(selectedSubject, color = MinTextPrimary, fontWeight = FontWeight.Bold, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Icon(if (radialExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = MinTextSecondary)
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(16.dp))
-
                 Box(
                     modifier = Modifier
-                        .height(56.dp)
+                        .height(52.dp)
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.White.copy(alpha = 0.08f))
                         .clickable {
@@ -4454,7 +4732,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
             AnimatedVisibility(visible = isCalendarExpanded, enter = expandVertically(), exit = shrinkVertically()) {
                 Column {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     MinNotesCalendar(
                         viewMonth = viewMonth, viewYear = viewYear,
                         selectedDay = selectedDay, selectedMonth = selectedMonth, selectedYear = selectedYear,
@@ -4468,126 +4746,363 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 }
             }
         }
-        item {
-            OutlinedTextField(
-                value = noteText,
-                onValueChange = { noteText = it },
-                placeholder = { Text("Введите текст заметки или события...") },
-                modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = MinTextPrimary,
-                    unfocusedTextColor = MinTextPrimary,
-                    cursorColor = MinTextPrimary,
-                    focusedBorderColor = MinAccent,
-                    unfocusedBorderColor = MinBorder,
-                    focusedPlaceholderColor = MinTextSecondary,
-                    unfocusedPlaceholderColor = MinTextSecondary
-                ),
-                maxLines = 6,
-                shape = RoundedCornerShape(16.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                // "Событие" button toggle
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isEventNote) MinAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
-                        .clickable { isEventNote = !isEventNote },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+        // Add Note Card Input
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    placeholder = { Text("Новая заметка или событие...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MinTextPrimary,
+                        unfocusedTextColor = MinTextPrimary,
+                        cursorColor = MinAccent,
+                        focusedBorderColor = MinAccent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedPlaceholderColor = MinTextSecondary,
+                        unfocusedPlaceholderColor = MinTextSecondary,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    maxLines = 5,
+                    shape = RoundedCornerShape(14.dp)
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // "Событие" button toggle
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                            .clickable { isEventNote = !isEventNote },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            if (isEventNote) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
-                            contentDescription = null,
-                            tint = if (isEventNote) MinAccent else MinTextSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (isEventNote) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
+                                contentDescription = null,
+                                tint = if (isEventNote) Color(0xFFFFB800) else MinTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                "Событие",
+                                color = if (isEventNote) Color(0xFFFFB800) else MinTextPrimary,
+                                fontWeight = if (isEventNote) FontWeight.ExtraBold else FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+
+                    // "Сохранить" button
+                    Box(
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MinAccent)
+                            .clickable {
+                                if (noteText.isNotBlank()) {
+                                    val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
+                                    val newNote = Note(
+                                        subject = subjectForNote,
+                                        text = noteText,
+                                        date = formatDate(selectedDay, selectedMonth, selectedYear),
+                                        isEvent = isEventNote
+                                    )
+                                    saveNotes(notes + newNote)
+                                    scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
+                                    noteText = ""
+                                    isEventNote = false
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(
-                            "Событие",
-                            color = if (isEventNote) MinAccent else MinTextPrimary,
-                            fontWeight = if (isEventNote) FontWeight.ExtraBold else FontWeight.Bold,
-                            fontSize = 15.sp
+                            if (isEventNote) "Сохранить событие" else "Сохранить",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
                         )
                     }
-                }
-
-                // "Сохранить" button
-                Box(
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MinAccent)
-                        .clickable {
-                            if (noteText.isNotBlank()) {
-                                val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
-                                val newNote = Note(
-                                    subject = subjectForNote,
-                                    text = noteText,
-                                    date = formatDate(selectedDay, selectedMonth, selectedYear),
-                                    isEvent = isEventNote
-                                )
-                                saveNotes(notes + newNote)
-                                scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear)
-                                noteText = ""
-                                isEventNote = false
-                            }
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        if (isEventNote) "Сохранить событие" else "Сохранить",
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
                 }
             }
         }
-        if (subjectNotes.isNotEmpty()) {
-            item {
-                Text("Сохранённые", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary, letterSpacing = 2.sp)
-            }
-            items(subjectNotes, key = { it.id }) { note ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
-                        .combinedClickable(onClick = {}, onLongClick = { noteToDelete = note })
-                        .padding(16.dp)
-                ) {
-                    Column {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f, fill = false)) {
-                                Text(note.subject, maxLines = 1, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = MinAccent)
-                                if (note.isEvent) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(MinAccent.copy(alpha = 0.18f))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+
+        // Helper lambda for rendering a single iOS Note Card
+        val renderNoteCard = @Composable { note: Note, isCompact: Boolean ->
+            val lines = note.text.lines()
+            val noteTitle = lines.firstOrNull() ?: ""
+            val noteBody = lines.drop(1).joinToString("\n")
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape((20 * scaleLevel).dp))
+                    .background(Color.White.copy(alpha = 0.08f))
+                    .combinedClickable(
+                        onClick = { noteToEdit = note },
+                        onLongClick = { noteToDelete = note }
+                    )
+                    .padding((16 * scaleLevel).dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy((10 * scaleLevel).dp)) {
+                    // Header with Oval Badges
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Oval Badges flow
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy((6 * scaleLevel).dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            // Subject Oval Badge
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(MinAccent.copy(alpha = 0.16f))
+                                    .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
+                            ) {
+                                Text(
+                                    note.subject,
+                                    color = MinAccent,
+                                    fontSize = (12 * scaleLevel).sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1
+                                )
+                            }
+
+                            // Date Oval Badge
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
+                            ) {
+                                Text(
+                                    note.date,
+                                    color = MinTextSecondary,
+                                    fontSize = (11 * scaleLevel).sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            // Event Oval Badge (if event)
+                            if (note.isEvent) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFFFB800).copy(alpha = 0.20f))
+                                        .padding(horizontal = (8 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = MinAccent, modifier = Modifier.size(12.dp))
-                                            Text("Событие", color = MinAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                        Icon(
+                                            Icons.Outlined.NotificationsActive,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFFB800),
+                                            modifier = Modifier.size((12 * scaleLevel).dp)
+                                        )
+                                        Text(
+                                            "Событие",
+                                            color = Color(0xFFFFB800),
+                                            fontSize = (10 * scaleLevel).sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
                                     }
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(note.date, fontSize = 17.sp, color = MinTextSecondary, fontWeight = FontWeight.Bold)
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(note.text, fontSize = 20.sp, color = MinTextPrimary)
+
+                        // Top Pin Indicator Icon
+                        if (note.isPinned) {
+                            Icon(
+                                Icons.Outlined.PushPin,
+                                contentDescription = "Закреплено",
+                                tint = Color(0xFFFF9500),
+                                modifier = Modifier.size((18 * scaleLevel).dp)
+                            )
+                        }
                     }
+
+                    // Title & Content (Apple Notes typography hierarchy)
+                    Column(verticalArrangement = Arrangement.spacedBy((4 * scaleLevel).dp)) {
+                        Text(
+                            text = noteTitle,
+                            fontSize = (19 * scaleLevel).sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MinTextPrimary,
+                            maxLines = if (isCompact) 2 else 4
+                        )
+                        if (noteBody.isNotBlank()) {
+                            Text(
+                                text = noteBody,
+                                fontSize = (14 * scaleLevel).sp,
+                                color = MinTextSecondary,
+                                maxLines = if (isCompact) 3 else 6,
+                                lineHeight = (18 * scaleLevel).sp
+                            )
+                        }
+                    }
+
+                    // Card Bottom Quick Actions
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Pin Action
+                        IconButton(
+                            onClick = {
+                                saveNotes(notes.map { if (it.id == note.id) it.copy(isPinned = !it.isPinned) else it })
+                            },
+                            modifier = Modifier.size((32 * scaleLevel).dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.PushPin,
+                                contentDescription = "Закрепить",
+                                tint = if (note.isPinned) Color(0xFFFF9500) else MinTextSecondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size((18 * scaleLevel).dp)
+                            )
+                        }
+
+                        // Edit Action
+                        IconButton(
+                            onClick = { noteToEdit = note },
+                            modifier = Modifier.size((32 * scaleLevel).dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = "Редактировать",
+                                tint = MinTextSecondary.copy(alpha = 0.8f),
+                                modifier = Modifier.size((18 * scaleLevel).dp)
+                            )
+                        }
+
+                        // Delete Action
+                        IconButton(
+                            onClick = { noteToDelete = note },
+                            modifier = Modifier.size((32 * scaleLevel).dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Delete,
+                                contentDescription = "Удалить",
+                                tint = Color(0xFFFF453A).copy(alpha = 0.8f),
+                                modifier = Modifier.size((18 * scaleLevel).dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. PINNED NOTES SECTION
+        if (pinnedNotes.isNotEmpty()) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Outlined.PushPin, contentDescription = null, tint = Color(0xFFFF9500), modifier = Modifier.size(16.dp))
+                    Text(
+                        "ЗАКРЕПЛЁННЫЕ",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFFFF9500),
+                        letterSpacing = 1.5.sp
+                    )
+                }
+            }
+
+            if (isGridMode) {
+                val chunks = pinnedNotes.chunked(2)
+                items(chunks.size) { chunkIdx ->
+                    val pair = chunks[chunkIdx]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            renderNoteCard(pair[0], true)
+                        }
+                        if (pair.size > 1) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                renderNoteCard(pair[1], true)
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                items(pinnedNotes, key = { it.id }) { note ->
+                    renderNoteCard(note, false)
+                }
+            }
+        }
+
+        // 2. REGULAR NOTES SECTION
+        if (regularNotes.isNotEmpty()) {
+            if (pinnedNotes.isNotEmpty()) {
+                item {
+                    Text(
+                        "ДРУГИЕ ЗАМЕТКИ",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MinTextSecondary,
+                        letterSpacing = 1.5.sp
+                    )
+                }
+            } else {
+                item {
+                    Text(
+                        "ВСЕ ЗАМЕТКИ",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MinTextSecondary,
+                        letterSpacing = 1.5.sp
+                    )
+                }
+            }
+
+            if (isGridMode) {
+                val chunks = regularNotes.chunked(2)
+                items(chunks.size) { chunkIdx ->
+                    val pair = chunks[chunkIdx]
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            renderNoteCard(pair[0], true)
+                        }
+                        if (pair.size > 1) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                renderNoteCard(pair[1], true)
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                items(regularNotes, key = { it.id }) { note ->
+                    renderNoteCard(note, false)
                 }
             }
         }
