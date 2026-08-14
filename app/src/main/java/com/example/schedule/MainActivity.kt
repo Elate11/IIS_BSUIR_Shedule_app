@@ -4399,32 +4399,37 @@ fun parseNoteDateMillis(dateStr: String): Long {
     } catch (e: Exception) { 0L }
 }
 
-fun calculateReminderTime(timing: String, d: Int, m: Int, y: Int, hour: Int = 9, minute: Int = 0): Long {
+fun calculateReminderTime(timing: String, d: Int, m: Int, y: Int, hour: Int = 9, minute: Int = 0, customHours: Int = 3): Long {
     val cal = java.util.Calendar.getInstance()
-    when (timing) {
-        "1_day_before_18" -> {
+    when {
+        timing == "custom_hours" || timing.startsWith("custom_hours_") -> {
+            val hrs = if (timing.startsWith("custom_hours_")) timing.removePrefix("custom_hours_").toIntOrNull() ?: customHours else customHours
+            cal.set(y, m, d, hour, minute, 0)
+            cal.add(java.util.Calendar.HOUR_OF_DAY, -hrs)
+        }
+        timing == "1_day_before_18" -> {
             cal.set(y, m, d, 18, 0, 0)
             cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
         }
-        "1_day_before_21" -> {
+        timing == "1_day_before_21" -> {
             cal.set(y, m, d, 21, 0, 0)
             cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
         }
-        "same_day_08" -> {
+        timing == "same_day_08" -> {
             cal.set(y, m, d, 8, 0, 0)
         }
-        "same_day_09" -> {
+        timing == "same_day_09" -> {
             cal.set(y, m, d, 9, 0, 0)
         }
-        "2_hours_before" -> {
+        timing == "2_hours_before" -> {
             cal.set(y, m, d, hour, minute, 0)
             cal.add(java.util.Calendar.HOUR_OF_DAY, -2)
         }
-        "1_hour_before" -> {
+        timing == "1_hour_before" -> {
             cal.set(y, m, d, hour, minute, 0)
             cal.add(java.util.Calendar.HOUR_OF_DAY, -1)
         }
-        "15_min_before" -> {
+        timing == "15_min_before" -> {
             cal.set(y, m, d, hour, minute, 0)
             cal.add(java.util.Calendar.MINUTE, -15)
         }
@@ -4714,8 +4719,9 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     fun scheduleAlarm(context: android.content.Context, note: Note, d: Int, m: Int, y: Int, hour: Int, minute: Int) {
         val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-        val timing = appPrefs.getString("event_reminder_timing", "1_day_before_18") ?: "1_day_before_18"
-        val triggerTime = calculateReminderTime(timing, d, m, y, hour, minute)
+        val timing = appPrefs.getString("event_reminder_timing", "15_min_before") ?: "15_min_before"
+        val customHours = appPrefs.getInt("custom_reminder_hours", 3)
+        val triggerTime = calculateReminderTime(timing, d, m, y, hour, minute, customHours)
 
         val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE) as android.app.AlarmManager
         val intent = android.content.Intent(context, NoteReminderReceiver::class.java).apply {
@@ -7250,18 +7256,22 @@ fun MinCustomizationView(
             var selectedTiming by remember {
                 mutableStateOf(reminderPrefs.getString("event_reminder_timing", "15_min_before") ?: "15_min_before")
             }
+            var customHours by remember {
+                mutableIntStateOf(reminderPrefs.getInt("custom_reminder_hours", 3))
+            }
             val timingOptions = listOf(
                 "15_min_before" to "За 15 мин",
                 "1_hour_before" to "За 1 час",
                 "2_hours_before" to "За 2 часа",
-                "1_day_before_18" to "За 1 день"
+                "1_day_before_18" to "За 1 день",
+                "custom_hours" to "Свой вариант"
             )
 
             Spacer(modifier = Modifier.height(16.dp))
             Text("Напоминания о событиях", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
             Spacer(modifier = Modifier.height(12.dp))
             
-            // Carousel of 4 options
+            // Carousel of options
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -7298,6 +7308,65 @@ fun MinCustomizationView(
                     }
                 }
             }
+
+            if (selectedTiming == "custom_hours") {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Уведомить за (часов):", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MinTextPrimary)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, MinBorder, RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (customHours > 1) {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        customHours--
+                                        reminderPrefs.edit().putInt("custom_reminder_hours", customHours).apply()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("-", color = MinTextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .height(38.dp)
+                                .padding(horizontal = 12.dp)
+                                .border(1.dp, MinTextPrimary, RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("$customHours ч.", color = MinTextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.dp, MinBorder, RoundedCornerShape(10.dp))
+                                .clickable {
+                                    if (customHours < 72) {
+                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                        customHours++
+                                        reminderPrefs.edit().putInt("custom_reminder_hours", customHours).apply()
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("+", color = MinTextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+                    }
+                }
+            }
             
             Spacer(modifier = Modifier.height(14.dp))
             
@@ -7311,9 +7380,10 @@ fun MinCustomizationView(
                     .border(1.dp, MinTextPrimary, RoundedCornerShape(14.dp))
                     .clickable {
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        val textMsg = if (selectedTiming == "custom_hours") "Напоминание сработает за $customHours ч. до события!" else "Напоминание сработает за выбранное время!"
                         val testIntent = android.content.Intent(reminderContext, NoteReminderReceiver::class.java).apply {
                             putExtra("SUBJECT", "Тестовое событие")
-                            putExtra("TEXT", "Напоминание сработает за выбранное время!")
+                            putExtra("TEXT", textMsg)
                             putExtra("IS_EVENT", true)
                         }
                         reminderContext.sendBroadcast(testIntent)
