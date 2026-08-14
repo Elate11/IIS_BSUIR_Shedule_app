@@ -16,7 +16,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.padding
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -4950,25 +4951,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                     modifier = Modifier
                                         .clip(CircleShape)
                                         .background(Color(0xFFFFB800).copy(alpha = 0.20f))
-                                        .padding(horizontal = (8 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
+                                        .padding(horizontal = (7 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
                                 ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.NotificationsActive,
-                                            contentDescription = null,
-                                            tint = Color(0xFFFFB800),
-                                            modifier = Modifier.size((12 * scaleLevel).dp)
-                                        )
-                                        Text(
-                                            "Событие",
-                                            color = Color(0xFFFFB800),
-                                            fontSize = (10 * scaleLevel).sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
+                                    Icon(
+                                        Icons.Outlined.NotificationsActive,
+                                        contentDescription = "Событие",
+                                        tint = Color(0xFFFFB800),
+                                        modifier = Modifier.size((14 * scaleLevel).dp)
+                                    )
                                 }
                             }
                         }
@@ -5000,61 +4990,6 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 color = MinTextSecondary,
                                 maxLines = if (isCompact) 3 else 6,
                                 lineHeight = (18 * scaleLevel).sp
-                            )
-                        }
-                    }
-
-                    // Card Bottom Quick Actions
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Pin Action
-                        IconButton(
-                            onClick = {
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                saveNotes(notes.map { if (it.id == note.id) it.copy(isPinned = !it.isPinned) else it })
-                            },
-                            modifier = Modifier.size((32 * scaleLevel).dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.PushPin,
-                                contentDescription = "Закрепить",
-                                tint = if (note.isPinned) Color(0xFFFF9500) else MinTextSecondary.copy(alpha = 0.6f),
-                                modifier = Modifier.size((18 * scaleLevel).dp)
-                            )
-                        }
-
-                        // Edit Action
-                        IconButton(
-                            onClick = { 
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                noteToEdit = note 
-                            },
-                            modifier = Modifier.size((32 * scaleLevel).dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Edit,
-                                contentDescription = "Редактировать",
-                                tint = MinTextSecondary.copy(alpha = 0.8f),
-                                modifier = Modifier.size((18 * scaleLevel).dp)
-                            )
-                        }
-
-                        // Delete Action
-                        IconButton(
-                            onClick = { 
-                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                noteToDelete = note 
-                            },
-                            modifier = Modifier.size((32 * scaleLevel).dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                contentDescription = "Удалить",
-                                tint = Color(0xFFFF453A).copy(alpha = 0.8f),
-                                modifier = Modifier.size((18 * scaleLevel).dp)
                             )
                         }
                     }
@@ -5258,7 +5193,16 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
         }
     }
 
-    LaunchedEffect(Unit) {
+    var isRefreshing by remember { mutableStateOf(false) }
+    var pullDistance by remember { mutableFloatStateOf(0f) }
+    val animatedPullOffset by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isRefreshing) 72f else pullDistance.coerceIn(0f, 130f),
+        animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
+    )
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+
+    suspend fun fetchProfileData(forceRefresh: Boolean = false) {
         val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
         val token = prefs.getString("auth_token", "") ?: ""
         val cachedFio = prefs.getString("login_fio", null)
@@ -5266,15 +5210,55 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
         val cachedPhoto = prefs.getString("login_photo", null)
         val cachedDesc = prefs.getString("login_desc", null)
 
-        if (cachedFio != null) {
+        if (!forceRefresh && cachedFio != null) {
             userFio = cachedFio
             userDesc = cachedDesc ?: cachedGroup ?: "БГУИР"
             userPhoto = cachedPhoto ?: ""
             userGroup = cachedGroup ?: "Неизвестно"
+        }
 
-            if (cachedGroup != null) {
-                withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
+        if (token.isNotEmpty()) {
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val client = com.example.schedule.NetworkClient.client
+                    val request = okhttp3.Request.Builder()
+                        .url("https://iis.bsuir.by/api/v1/markbook")
+                        .addHeader("Cookie", token)
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        val body = response.body?.string()
+                        if (response.isSuccessful && body != null) {
+                            prefs.edit().putString("cached_profile", body).apply()
+                            val json = org.json.JSONObject(body)
+                            val student = json.optJSONObject("student")
+                            if (student != null) {
+                                val lastName = student.optString("lastName", "")
+                                val firstName = student.optString("firstName", "")
+                                val middleName = student.optString("middleName", "")
+                                val fioStr = student.optString("fio", "")
+                                val calculatedFio = if (fioStr.isNotEmpty()) fioStr else listOf(lastName, firstName, middleName).filter { it.isNotEmpty() }.joinToString(" ")
+                                val fio = if (calculatedFio.isNotBlank()) calculatedFio else cachedFio ?: "Студент"
+                                val faculty = student.optString("facultyAbbrev", "")
+                                val course = student.optInt("course", 1)
+                                val currentGroup = student.optString("group", cachedGroup ?: "")
+                                
+                                val newDesc = if (faculty.isNotEmpty()) "$faculty, $course курс" else if (currentGroup.isNotEmpty()) "Группа $currentGroup" else "Студент БГУИР"
+                                prefs.edit().putString("login_fio", fio).putString("login_desc", newDesc).apply()
+                                
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    userFio = fio
+                                    userDesc = newDesc
+                                    if (currentGroup.isNotEmpty()) userGroup = currentGroup
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {}
+
+                // Also refresh group data from student-groups
+                try {
+                    val targetGrp = userGroup.ifBlank { cachedGroup ?: "" }
+                    if (targetGrp.isNotBlank()) {
                         val client = com.example.schedule.NetworkClient.client
                         val request = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/student-groups")
                         val response = client.newCall(request).execute()
@@ -5283,7 +5267,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                             val jsonArray = org.json.JSONArray(body)
                             for (i in 0 until jsonArray.length()) {
                                 val groupObj = jsonArray.optJSONObject(i)
-                                if (groupObj?.optString("name") == cachedGroup) {
+                                if (groupObj?.optString("name") == targetGrp) {
                                     val fac = groupObj.optString("facultyAbbrev", "")
                                     val spec = groupObj.optString("specialityAbbrev", "")
                                     val crs = groupObj.optInt("course", 0)
@@ -5302,72 +5286,62 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                 }
                             }
                         }
-                    } catch (e: Exception) {}
-                }
-            }
-        }
-
-        if (token.isNotEmpty()) {
-            withContext(kotlinx.coroutines.Dispatchers.IO) {
-                val cachedProfile = prefs.getString("cached_profile", null)
-                suspend fun parseProfile(body: String) {
-                    android.util.Log.d("API_RESPONSE", "Markbook API Response: $body")
-                    try {
-                        val json = org.json.JSONObject(body)
-                        val student = json.optJSONObject("student")
-                        if (student != null) {
-                            val lastName = student.optString("lastName", "")
-                            val firstName = student.optString("firstName", "")
-                            val middleName = student.optString("middleName", "")
-                            val fioStr = student.optString("fio", "")
-                            val calculatedFio = if (fioStr.isNotEmpty()) fioStr else listOf(lastName, firstName, middleName).filter { it.isNotEmpty() }.joinToString(" ")
-                            val fio = if (calculatedFio.isNotBlank()) calculatedFio else cachedFio ?: "Студент"
-                            val faculty = student.optString("facultyAbbrev", "")
-                            val course = student.optInt("course", 1)
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                userFio = fio
-                                userDesc = if (faculty.isNotEmpty()) "$faculty, $course курс" else cachedGroup ?: "Студент БГУИР"
-                                userPhoto = cachedPhoto ?: ""
-                            }
-                        }
-                    } catch (e: Exception) {}
-                }
-
-                try {
-                    val client = com.example.schedule.NetworkClient.client
-                    val request = okhttp3.Request.Builder()
-                        .url("https://iis.bsuir.by/api/v1/markbook")
-                        .addHeader("Cookie", token)
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        val body = response.body?.string()
-                        if (response.isSuccessful && body != null) {
-                            prefs.edit().putString("cached_profile", body).apply()
-                            parseProfile(body)
-                        } else if (cachedProfile != null) {
-                            parseProfile(cachedProfile)
-                        } else {
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                userFio = "Студент"
-                                userDesc = "БГУИР"
-                            }
-                        }
                     }
-                } catch (e: Exception) {
-                    if (cachedProfile != null) {
-                        parseProfile(cachedProfile)
-                    } else {
-                        withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            userFio = "Студент"
-                            userDesc = "БГУИР (офлайн)"
-                        }
-                    }
-                }
+                } catch (e: Exception) {}
             }
         } else {
             userFio = "Гость"
             userDesc = "Войдите в аккаунт"
         }
+    }
+
+    val nestedScrollConnection = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                if (available.y < 0 && pullDistance > 0f) {
+                    val consumed = available.y
+                    pullDistance = (pullDistance + available.y * 0.5f).coerceAtLeast(0f)
+                    return androidx.compose.ui.geometry.Offset(0f, consumed)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                    val newDistance = pullDistance + available.y * 0.45f
+                    if (pullDistance < 70f && newDistance >= 70f) {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    }
+                    pullDistance = newDistance
+                    return available
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (pullDistance >= 70f && !isRefreshing) {
+                    isRefreshing = true
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    scope.launch {
+                        fetchProfileData(forceRefresh = true)
+                        kotlinx.coroutines.delay(500)
+                        isRefreshing = false
+                        pullDistance = 0f
+                    }
+                } else {
+                    pullDistance = 0f
+                }
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        fetchProfileData(forceRefresh = false)
     }
 
     if (showCustomization) {
@@ -5433,11 +5407,47 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     } else {
         val isDialogOpen = false
         Box(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxSize().let { if (isDialogOpen) it.blur(16.dp) else it }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(nestedScrollConnection)
+                    .let { if (isDialogOpen) it.blur(16.dp) else it }
+            ) {
+                // Pull to refresh indicator at the top
+                if (animatedPullOffset > 0f || isRefreshing) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(animatedPullOffset.dp)
+                            .padding(top = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(26.dp),
+                                color = MinTextPrimary,
+                                strokeWidth = 2.5.dp
+                            )
+                        } else {
+                            val rotation = (animatedPullOffset / 70f * 180f).coerceIn(0f, 180f)
+                            Icon(
+                                Icons.Outlined.Refresh,
+                                contentDescription = "Потяните для обновления",
+                                tint = if (animatedPullOffset >= 70f) MinTextPrimary else MinTextSecondary,
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .rotate(rotation)
+                            )
+                        }
+                    }
+                }
+
                 val styleType = LocalStyleType.current
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
-                        .fillMaxSize(),
+                        .fillMaxSize()
+                        .offset(y = animatedPullOffset.dp),
                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 40.dp)
                 ) {
                     item {
