@@ -58,12 +58,19 @@ object BsuirApi {
     }
 
     suspend fun getGroupSchedule(groupNumber: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {
+        val trimmed = groupNumber.trim()
+        if (trimmed.isEmpty()) return@withContext null
         try {
-            val json = fetchJson("$BASE_URL/schedule?studentGroup=$groupNumber")
+            val json = fetchJson("$BASE_URL/schedule?studentGroup=$trimmed")
             gson.fromJson(json, BsuirScheduleResponse::class.java)
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            try {
+                val json = fetchJson("$BASE_URL/schedules?studentGroup=$trimmed")
+                gson.fromJson(json, BsuirScheduleResponse::class.java)
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+                null
+            }
         }
     }
 

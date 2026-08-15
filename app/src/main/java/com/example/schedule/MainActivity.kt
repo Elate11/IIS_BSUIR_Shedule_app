@@ -112,6 +112,112 @@ import androidx.compose.foundation.combinedClickable
 
 val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.example.schedule.R.font.vt323))
 
+fun fetchAndStoreStudentProfile(context: android.content.Context) {
+    val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+    val client = NetworkClient.client
+
+    // 1. Try /api/v1/profiles/personal-cv
+    try {
+        val req = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/profiles/personal-cv")
+        client.newCall(req).execute().use { resp ->
+            if (resp.isSuccessful) {
+                val body = resp.body?.string()
+                if (!body.isNullOrBlank()) {
+                    val json = org.json.JSONObject(body)
+                    val fio = json.optString("fio", "").ifBlank {
+                        val fn = json.optString("firstName", "")
+                        val ln = json.optString("lastName", "")
+                        val mn = json.optString("middleName", "")
+                        "$ln $fn $mn".trim()
+                    }
+                    val group = json.optString("studentGroup", "").ifBlank {
+                        json.optString("group", "").ifBlank {
+                            json.optJSONObject("studentGroup")?.optString("name", "") ?: ""
+                        }
+                    }
+                    val photo = json.optString("photoUrl", "").ifBlank { json.optString("photoLink", "") }
+                    val faculty = json.optString("faculty", "").ifBlank { json.optString("facultyAbbrev", "") }
+                    val course = json.optInt("course", 0)
+
+                    val edit = prefs.edit()
+                    if (fio.isNotBlank()) edit.putString("login_fio", fio).putString("user_fio", fio)
+                    if (group.isNotBlank()) {
+                        edit.putString("login_group", group)
+                        edit.putString("selectedGroup", group)
+                    }
+                    if (photo.isNotBlank()) edit.putString("login_photo", photo)
+                    if (faculty.isNotBlank() || course > 0) {
+                        edit.putString("login_desc", "$faculty${if (course > 0) ", $course курс" else ""}".trim())
+                    }
+                    edit.apply()
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
+    // 2. Try /api/v1/markbook if group is still empty or to supplement data
+    val currentSavedGroup = prefs.getString("login_group", "") ?: ""
+    if (currentSavedGroup.isBlank()) {
+        try {
+            val req = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/markbook")
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = org.json.JSONObject(body)
+                        val student = json.optJSONObject("student")
+                        val group = student?.optString("group", "")?.ifBlank {
+                            student.optString("studentGroup", "")
+                        } ?: json.optJSONObject("markBookGroupDto")?.optString("studentGroup", "") ?: json.optString("studentGroup", "")
+
+                        val fio = student?.optString("fio", "")?.ifBlank {
+                            val fn = student.optString("firstName", "")
+                            val ln = student.optString("lastName", "")
+                            val mn = student.optString("middleName", "")
+                            "$ln $fn $mn".trim()
+                        } ?: ""
+
+                        val edit = prefs.edit()
+                        if (group.isNotBlank()) {
+                            edit.putString("login_group", group)
+                            edit.putString("selectedGroup", group)
+                        }
+                        if (fio.isNotBlank()) edit.putString("login_fio", fio).putString("user_fio", fio)
+                        edit.apply()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // 3. Try /api/v1/omissions if still missing
+    val afterGroup = prefs.getString("login_group", "") ?: ""
+    if (afterGroup.isBlank()) {
+        try {
+            val req = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/omissions")
+            client.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string()
+                    if (!body.isNullOrBlank()) {
+                        val json = org.json.JSONObject(body)
+                        val group = json.optString("studentGroup", "")
+                        if (group.isNotBlank()) {
+                            prefs.edit().putString("login_group", group).putString("selectedGroup", group).apply()
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
+
 object AppHapticManager {
     var isEnabled: Boolean = true
     var strength: Float = 0.6f
@@ -417,7 +523,7 @@ fun MinimalistApp() {
     }
     var fontFamily: androidx.compose.ui.text.font.FontFamily by remember { mutableStateOf(GoogleSans) }
     var textSizeMultiplier by remember { mutableStateOf(sharedPreferences.getFloat("textSizeMultiplier", 1.25f).let { if (it == 1f) 1.25f else it }) }
-    var selectedGroup by remember { mutableStateOf(sharedPreferences.getString("login_group", "114001") ?: "114001") }
+    var selectedGroup by remember { mutableStateOf(sharedPreferences.getString("selectedGroup", null) ?: sharedPreferences.getString("login_group", "114001") ?: "114001") }
 
     var isLoggedIn by remember { mutableStateOf(sharedPreferences.getBoolean("is_logged_in", false)) }
     if (!isLoggedIn) {
@@ -429,11 +535,12 @@ fun MinimalistApp() {
             isDarkTheme = true,
             onLoginSuccess = { gradebook, token ->
                 val realGroup = sharedPreferences.getString("login_group", null)
-                val groupStr = realGroup ?: (if (gradebook.length >= 6) gradebook.take(6) else gradebook)
+                val groupStr = if (!realGroup.isNullOrBlank()) realGroup else (if (gradebook.length >= 6) gradebook.take(6) else gradebook)
                 sharedPreferences.edit().putBoolean("is_logged_in", true)
                      .putString("gradebook", gradebook)
                      .putString("auth_token", token)
                      .putString("selectedGroup", groupStr)
+                     .putString("login_group", groupStr)
                      .apply()
                 selectedGroup = groupStr
                 isLoggedIn = true
@@ -1181,7 +1288,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         horizontalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (styleType == StyleType.Techno) "> _" else (displayTitle ?: selectedGroup),
+                            text = if (styleType == StyleType.Techno) "> ${displayTitle ?: selectedGroup}_" else (displayTitle ?: selectedGroup),
                             fontSize = 33.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MinTextPrimary,
@@ -6265,6 +6372,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
         if (token.isNotEmpty()) {
             withContext(kotlinx.coroutines.Dispatchers.IO) {
+                fetchAndStoreStudentProfile(context)
                 try {
                     val client = com.example.schedule.NetworkClient.client
                     val request = okhttp3.Request.Builder()
@@ -8350,6 +8458,7 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                                                 .putString("saved_password", password)
                                                 .putString("gradebook_number", gradebookNumber)
                                                 .apply()
+                                            fetchAndStoreStudentProfile(context)
                                             onLoginSuccess(gradebookNumber, extractedToken)
                                         } else {
                                             when (response.code) {
