@@ -1659,6 +1659,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     )
                 }
             }
+        } else {
             filteredLessons.forEachIndexed { idx, lesson ->
                 item {
                     val parallaxDepth = 1f + (idx % 3) * 0.35f
