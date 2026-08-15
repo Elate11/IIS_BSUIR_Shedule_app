@@ -1139,19 +1139,34 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 else 0
             dayLessons.forEach { bl ->
                 val teacher = bl.employees?.firstOrNull()
+                val teacherShort = if (teacher != null) {
+                    val ln = teacher.lastName ?: ""
+                    val fn = teacher.firstName?.take(1)?.let { "$it." } ?: ""
+                    val mn = teacher.middleName?.take(1)?.let { "$it." } ?: ""
+                    "$ln $fn$mn".trim()
+                } else ""
+                val aud = bl.auditories?.filter { it.isNotBlank() }?.joinToString(", ") ?: ""
+                val lType = bl.lessonTypeAbbrev ?: ""
+                val parts = mutableListOf<String>()
+                if (lType.isNotBlank()) parts.add(lType)
+                if (teacherShort.isNotBlank()) parts.add(teacherShort)
+                if (aud.isNotBlank()) parts.add("ауд. $aud")
+                val detailsStr = if (parts.isNotEmpty()) parts.joinToString(" • ") else ""
+
                 newLessons.add(Lesson(
                     startTime = bl.startLessonTime ?: "",
                     endTime = bl.endLessonTime ?: "",
                     title = bl.subject ?: "Предмет",
-                    details = ", ауд. ",
+                    details = detailsStr,
                     isActive = false,
                     progress = null,
                     subjectFullName = bl.subjectFullName ?: "",
-                    lessonType = bl.lessonTypeAbbrev ?: "",
-                    teacherName = teacher?.lastName?.let { " .." } ?: "",
-                    teacherFullName = teacher?.fullName ?: "",
-                    teacherPhoto = teacher?.photoLink ?: "", teacherUrlId = teacher?.urlId ?: "",
-                    auditory = bl.auditories?.joinToString() ?: "",
+                    lessonType = lType,
+                    teacherName = teacherShort,
+                    teacherFullName = teacher?.fullName ?: teacherShort,
+                    teacherPhoto = teacher?.photoLink ?: "",
+                    teacherUrlId = teacher?.urlId ?: "",
+                    auditory = aud,
                     subgroup = bl.numSubgroup ?: 0,
                     weeks = bl.weekNumber ?: emptyList(),
                     dayOfWeek = dow
@@ -1160,19 +1175,33 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         }
         response?.exams?.forEach { bl ->
            val teacher = bl.employees?.firstOrNull()
+           val teacherShort = if (teacher != null) {
+               val ln = teacher.lastName ?: ""
+               val fn = teacher.firstName?.take(1)?.let { "$it." } ?: ""
+               val mn = teacher.middleName?.take(1)?.let { "$it." } ?: ""
+               "$ln $fn$mn".trim()
+           } else ""
+           val aud = bl.auditories?.filter { it.isNotBlank() }?.joinToString(", ") ?: ""
+           val parts = mutableListOf<String>()
+           parts.add("Экзамен")
+           if (teacherShort.isNotBlank()) parts.add(teacherShort)
+           if (aud.isNotBlank()) parts.add("ауд. $aud")
+           val detailsStr = parts.joinToString(" • ")
+
            newLessons.add(Lesson(
                startTime = bl.startLessonTime ?: "",
                endTime = bl.endLessonTime ?: "",
-                    title = bl.subject ?: "Предмет",
-                    details = "ЛК, ауд. ",
+               title = bl.subject ?: "Экзамен",
+               details = detailsStr,
                isActive = false,
                progress = null,
                subjectFullName = bl.subjectFullName ?: "",
-                    lessonType = "ЛК",
-               teacherName = teacher?.lastName?.let { " .." } ?: "",
-               teacherFullName = teacher?.fullName ?: "",
-               teacherPhoto = teacher?.photoLink ?: "", teacherUrlId = teacher?.urlId ?: "",
-               auditory = bl.auditories?.joinToString() ?: "",
+               lessonType = "Экзамен",
+               teacherName = teacherShort,
+               teacherFullName = teacher?.fullName ?: teacherShort,
+               teacherPhoto = teacher?.photoLink ?: "",
+               teacherUrlId = teacher?.urlId ?: "",
+               auditory = aud,
                subgroup = bl.numSubgroup ?: 0,
                weeks = listOf(1, 2, 3, 4),
                dayOfWeek = 0
@@ -1794,16 +1823,41 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text("Тип занятия", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
-                    Text(lesson.details, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    if (lesson.lessonType.isNotBlank()) {
+                        Text("Тип занятия", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text(lesson.lessonType, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
 
-                    Text("Подгруппа", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
-                    Text(if (lesson.subgroup == 0) "Вся группа" else "${lesson.subgroup} подгруппа", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    if (lesson.teacherFullName.isNotBlank() || lesson.teacherName.isNotBlank()) {
+                        Text("Преподаватель", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        val tName = lesson.teacherFullName.ifBlank { lesson.teacherName }
+                        Text(
+                            tName,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (lesson.teacherUrlId.isNotBlank()) MinAccent else androidx.compose.ui.graphics.Color.White,
+                            textAlign = TextAlign.Center,
+                            modifier = if (lesson.teacherUrlId.isNotBlank()) Modifier.clickable {
+                                teacherScheduleData = lesson.teacherUrlId to tName
+                                selectedLessonForSheet = null
+                            } else Modifier
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
 
-                    Text("Учебные недели", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
-                    Text(lesson.weeks.joinToString(", "), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                    if (lesson.auditory.isNotBlank()) {
+                        Text("Аудитория", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text("ауд. ${lesson.auditory}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    Text("Время и подгруппа", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                    Text("${lesson.startTime} — ${lesson.endTime} • ${if (lesson.subgroup == 0) "Вся группа" else "${lesson.subgroup} подгруппа"}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text("Учебные недели", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                    Text(lesson.weeks.joinToString(", "), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
                     
                     val upcomingDates = remember(lesson) {
                         val dates = mutableListOf<Pair<Int, String>>()
