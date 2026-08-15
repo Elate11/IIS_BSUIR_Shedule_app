@@ -12,8 +12,8 @@ android {
         applicationId = "com.example.schedule"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.2.5"
+        versionCode = 16
+        versionName = "1.2.6"
     }
     buildTypes {
         release {
