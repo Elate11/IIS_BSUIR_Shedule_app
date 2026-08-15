@@ -523,9 +523,26 @@ fun MinimalistApp() {
     }
     var fontFamily: androidx.compose.ui.text.font.FontFamily by remember { mutableStateOf(GoogleSans) }
     var textSizeMultiplier by remember { mutableStateOf(sharedPreferences.getFloat("textSizeMultiplier", 1.25f).let { if (it == 1f) 1.25f else it }) }
-    var selectedGroup by remember { mutableStateOf(sharedPreferences.getString("selectedGroup", null) ?: sharedPreferences.getString("login_group", "114001") ?: "114001") }
-
     var isLoggedIn by remember { mutableStateOf(sharedPreferences.getBoolean("is_logged_in", false)) }
+    var selectedGroup by remember { mutableStateOf(
+        sharedPreferences.getString("selectedGroup", null)?.takeIf { it != "114001" && it.isNotBlank() }
+            ?: sharedPreferences.getString("login_group", null)?.takeIf { it != "114001" && it.isNotBlank() }
+            ?: "310101"
+    ) }
+
+    androidx.compose.runtime.LaunchedEffect(isLoggedIn) {
+        if (isLoggedIn) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                fetchAndStoreStudentProfile(context)
+                val syncedGroup = sharedPreferences.getString("login_group", null)?.takeIf { it.isNotBlank() }
+                if (!syncedGroup.isNullOrBlank() && (selectedGroup == "114001" || selectedGroup == "310101" || selectedGroup.isBlank())) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        selectedGroup = syncedGroup
+                    }
+                }
+            }
+        }
+    }
     if (!isLoggedIn) {
         MinLoginScreen(
             MinBg = Color(0xFF101116),
@@ -1112,8 +1129,14 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     LaunchedEffect(selectedGroup) {
-        val week = BsuirApi.getCurrentWeek() ?: 0
-        baseCurrentWeek = week
+        val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
+        val targetGrp = if (selectedGroup == "114001" && realLoginGrp != null) realLoginGrp else selectedGroup
+        if (targetGrp != selectedGroup) {
+            onGroupSelected(targetGrp)
+            return@LaunchedEffect
+        }
+        val week = BsuirApi.getCurrentWeek() ?: 1
+        baseCurrentWeek = if (week in 1..4) week else 1
         
         val response = if (selectedGroup.any { it.isLetter() }) {
             BsuirApi.getEmployeeSchedule(selectedGroup)
@@ -1124,16 +1147,15 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         val newLessons = mutableListOf<Lesson>()
         val schedMap = (if (!response?.schedules.isNullOrEmpty()) response?.schedules else response?.nextSchedules) ?: emptyMap()
         schedMap.forEach { (dayName, dayLessons) ->
-            val dow = when(dayName.lowercase().trim()) {
-                "понедельник", "пн", "monday", "mon" -> 1
-                "вторник", "вт", "tuesday", "tue" -> 2
-                "среда", "ср", "wednesday", "wed" -> 3
-                "четверг", "чт", "thursday", "thu" -> 4
-                "пятница", "пт", "friday", "fri" -> 5
-                "суббота", "сб", "saturday", "sat" -> 6
-                "воскресенье", "вс", "sunday", "sun" -> 7
-                else -> 0
-            }
+            val dn = dayName.lowercase().trim()
+            val dow = if ("пон" in dn || "mon" in dn) 1
+                else if ("втор" in dn || "tue" in dn) 2
+                else if ("сред" in dn || "wed" in dn) 3
+                else if ("чет" in dn || "thu" in dn) 4
+                else if ("пят" in dn || "fri" in dn) 5
+                else if ("суб" in dn || "sat" in dn) 6
+                else if ("вос" in dn || "sun" in dn) 7
+                else 0
             dayLessons.forEach { bl ->
                 val teacher = bl.employees?.firstOrNull()
                 newLessons.add(Lesson(
