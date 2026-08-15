@@ -1872,6 +1872,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             MinAccent = MinAccent,
                             MinCardBg = MinCardBg,
                             hasNotes = subjectsWithNotes.contains(lesson.title),
+                            isDarkTheme = isDarkTheme,
                             onClick = {
                                 AppHapticManager.playClick()
                                 selectedLessonForSheet = lesson
@@ -2247,7 +2248,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
-fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color, MinBorder: Color, MinAccent: Color, MinCardBg: Color, hasNotes: Boolean = false, onClick: () -> Unit = {}, onLongClick: () -> Unit = {}, onTeacherClick: (String, String) -> Unit = { _, _ -> }) {
+fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color, MinBorder: Color, MinAccent: Color, MinCardBg: Color, hasNotes: Boolean = false, isDarkTheme: Boolean = true, onClick: () -> Unit = {}, onLongClick: () -> Unit = {}, onTeacherClick: (String, String) -> Unit = { _, _ -> }) {
     val styleType = LocalStyleType.current
     val isTechno = styleType == StyleType.Techno
     val monoFont = if (isTechno) vt323FontFamily else null
