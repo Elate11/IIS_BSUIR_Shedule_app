@@ -1237,11 +1237,43 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         }
     }
 
-    val filteredLessons = remember(lessons, selectedSubgroup, selectedDayOfWeek, currentWeek) {
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTimeMillis = System.currentTimeMillis()
+            kotlinx.coroutines.delay(10000L)
+        }
+    }
+
+    val filteredLessons = remember(lessons, selectedSubgroup, selectedDayOfWeek, currentWeek, selectedDayIndex, currentTimeMillis) {
+        val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+        val nowMinutes = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
+        val isTodaySelected = (selectedDayIndex == 7)
+
         lessons.filter { 
             (it.subgroup == 0 || it.subgroup == selectedSubgroup || selectedSubgroup == 0) &&
             (it.dayOfWeek == selectedDayOfWeek || it.dayOfWeek == 0) &&
             (it.weeks.isEmpty() || it.weeks.contains(currentWeek))
+        }.map { lesson ->
+            if (isTodaySelected) {
+                try {
+                    val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
+                    val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
+                    val sMin = sParts[0] * 60 + sParts[1]
+                    val eMin = eParts[0] * 60 + eParts[1]
+                    val dur = (eMin - sMin).coerceAtLeast(1)
+                    if (nowMinutes in sMin until eMin) {
+                        val prog = ((nowMinutes - sMin).toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                        lesson.copy(isActive = true, progress = prog)
+                    } else {
+                        lesson.copy(isActive = false, progress = null)
+                    }
+                } catch (e: Exception) {
+                    lesson.copy(isActive = false, progress = null)
+                }
+            } else {
+                lesson.copy(isActive = false, progress = null)
+            }
         }
     }
     var selectedLessonForSheet by remember { mutableStateOf<Lesson?>(null) }
