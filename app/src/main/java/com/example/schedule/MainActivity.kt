@@ -2314,29 +2314,15 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
         ) {
             // Строка 1: Название предмета (около полосочки)
             val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} подгр.)" else lesson.title
-            Row(
+            AutoSizeText(
+                displayTitle,
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AutoSizeText(
-                    displayTitle,
-                    modifier = Modifier.weight(1f, fill = false),
-                    maxLines = 2,
-                    fontSize = 17.sp,
-                    fontWeight = if (lesson.isActive) FontWeight.ExtraBold else FontWeight.Bold,
-                    color = if (isTechno) technoAccent else MinTextPrimary,
-                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
-                )
-                if (hasNotes) {
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Box(
-                        modifier = Modifier.size(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Outlined.Edit, contentDescription = null, tint = MinAccent, modifier = Modifier.size(10.dp))
-                    }
-                }
-            }
+                maxLines = 2,
+                fontSize = 17.sp,
+                fontWeight = if (lesson.isActive) FontWeight.ExtraBold else FontWeight.Bold,
+                color = if (isTechno) technoAccent else MinTextPrimary,
+                style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
+            )
 
             // Строка 2: Тип занятия (ЛК, ПЗ, ЛР) и только фамилия с инициалами (чуть больше шрифт)
             val teacherInitials = remember(lesson.teacherName, lesson.teacherFullName) {
