@@ -1807,20 +1807,14 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
 
                 val mainStatus = "Отличный день"
                 val subStatus = "Пар не найдено"
-                val emoji = "☀️"
 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 50.dp, start = 20.dp, end = 20.dp),
+                        .padding(top = 60.dp, start = 20.dp, end = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        emoji,
-                        fontSize = 44.sp
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         mainStatus,
                         color = if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinTextPrimary,
