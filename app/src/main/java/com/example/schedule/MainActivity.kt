@@ -1805,19 +1805,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 val isSummerVacation = (month == java.util.Calendar.JULY || month == java.util.Calendar.AUGUST)
                 val isSunday = (selectedDayOfWeek == 7)
 
-                val (mainStatus, subStatus, emoji) = when {
-                    isSummerVacation -> {
-                        val year = selectedCal.get(java.util.Calendar.YEAR)
-                        val sep1Cal = java.util.Calendar.getInstance().apply {
-                            set(year, java.util.Calendar.SEPTEMBER, 1, 0, 0, 0)
-                        }
-                        val diffDays = ((sep1Cal.timeInMillis - selectedCal.timeInMillis) / (24 * 60 * 60 * 1000L)).coerceAtLeast(0)
-                        val daysMsg = if (diffDays > 0) "До начала пар: $diffDays дн. (с 1 сентября)" else "Учебный семестр начинается 1 сентября!"
-                        Triple("Летние каникулы", daysMsg, "🏖️")
-                    }
-                    isSunday -> Triple("Выходной день", "Пар нет, можно отлично отдохнуть!", "☀️")
-                    else -> Triple("Свободный день", "На этот день пар в расписании нет", "🎉")
-                }
+                val mainStatus = "Отличный день"
+                val subStatus = "Пар не найдено"
+                val emoji = "☀️"
 
                 Column(
                     modifier = Modifier
