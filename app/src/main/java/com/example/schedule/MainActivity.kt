@@ -2391,28 +2391,27 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
             }
         }
 
-        // 4. Отдельно справа около края экрана: Аудитория
-        if (lesson.auditory.isNotBlank()) {
+        // 4. Отдельно справа около края экрана: Аудитория без слова 'ауд.' в пузырьке как в меню
+        val cleanAuditory = remember(lesson.auditory) {
+            lesson.auditory
+                .replace(Regex("^(ауд\\.?\\s*|aud\\.?\\s*)", RegexOption.IGNORE_CASE), "")
+                .trim()
+        }
+
+        if (cleanAuditory.isNotBlank()) {
             Spacer(modifier = Modifier.width(10.dp))
-            val audText = if (lesson.auditory.startsWith("ауд", ignoreCase = true)) lesson.auditory else "ауд. ${lesson.auditory}"
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
                     .background(
-                        if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.12f)
-                        else if (isDarkTheme) Color(0xFF222430)
-                        else Color(0xFFE8EDF5)
+                        if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.22f)
+                        else MinAccent.copy(alpha = 0.22f)
                     )
-                    .border(
-                        width = 1.dp,
-                        color = if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.4f) else MinBorder.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = audText,
+                    text = cleanAuditory,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold,
                     color = if (styleType == StyleType.Techno) technoAccent else MinTextPrimary,
