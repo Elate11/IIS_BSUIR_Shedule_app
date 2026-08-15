@@ -1105,6 +1105,20 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val prefs = remember { context.getSharedPreferences("group_prefs", android.content.Context.MODE_PRIVATE) }
     var lessons by remember { mutableStateOf<List<Lesson>>(emptyList()) }
 
+    var allGroups by remember { mutableStateOf<List<BsuirStudentGroup>>(emptyList()) }
+    var allEmployees by remember { mutableStateOf<List<BsuirEmployee>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val grps = BsuirApi.getAllGroups()
+            val emps = BsuirApi.getAllEmployees()
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                allGroups = grps
+                allEmployees = emps
+            }
+        }
+    }
+
     val validDayIndices = remember { (0..90).toList() }
     val dayInfo = remember(selectedDayIndex) { getBsuirWeekForCalendarDay(selectedDayIndex) }
     val selectedDayOfWeek = dayInfo.first
@@ -1405,24 +1419,138 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             )
                         )
 
-                        // Subgroup selector
-                        Spacer(modifier = Modifier.height(10.dp))
-                        // Assuming MinSubgroupSegmented is defined elsewhere in the file
-                        
+                        val trimmedInput = inputText.trim()
+                        val matchingGroups = remember(trimmedInput, allGroups) {
+                            if (trimmedInput.isEmpty()) emptyList()
+                            else allGroups.filter { it.name?.contains(trimmedInput, ignoreCase = true) == true }.take(5)
+                        }
+
+                        val matchingEmployees = remember(trimmedInput, allEmployees) {
+                            if (trimmedInput.length < 2) emptyList()
+                            else allEmployees.filter { 
+                                it.fullName.contains(trimmedInput, ignoreCase = true) || 
+                                (it.lastName != null && it.lastName.contains(trimmedInput, ignoreCase = true))
+                            }.take(5)
+                        }
+
+                        // Autocomplete suggestions
+                        if (matchingGroups.isNotEmpty() || matchingEmployees.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                "Подсказки",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MinAccent,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                            
+                            matchingGroups.forEach { grp ->
+                                val gName = grp.name ?: ""
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            AppHapticManager.playClick()
+                                            onGroupSelected(gName)
+                                            val newHistory = (listOf(gName) + groupHistory).distinct().take(5)
+                                            groupHistory = newHistory
+                                            prefs.edit().putStringSet("group_history", newHistory.toSet()).apply()
+                                            expanded = false
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Search,
+                                        contentDescription = null,
+                                        tint = MinAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        gName,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MinTextPrimary
+                                    )
+                                    if (!grp.facultyAbbrev.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "(${grp.facultyAbbrev} • ${grp.course ?: 1} курс)",
+                                            fontSize = 12.sp,
+                                            color = MinTextSecondary
+                                        )
+                                    }
+                                }
+                            }
+
+                            matchingEmployees.forEach { emp ->
+                                val eFullName = emp.fullName
+                                val eUrlId = emp.urlId ?: ""
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable {
+                                            AppHapticManager.playClick()
+                                            teacherScheduleData = eUrlId to eFullName
+                                            val newHistory = (listOf(eFullName) + groupHistory).distinct().take(5)
+                                            groupHistory = newHistory
+                                            prefs.edit().putStringSet("group_history", newHistory.toSet()).apply()
+                                            expanded = false
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Person,
+                                        contentDescription = null,
+                                        tint = MinAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            eFullName,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MinTextPrimary
+                                        )
+                                        if (!emp.degree.isNullOrBlank()) {
+                                            Text(
+                                                emp.degree,
+                                                fontSize = 11.sp,
+                                                color = MinTextSecondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // History list
                         if (groupHistory.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                "Недавние",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MinTextSecondary.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
                             groupHistory.forEach { group ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable {
+                                            AppHapticManager.playClick()
                                             inputText = group
                                             onGroupSelected(group)
                                             expanded = false
                                         }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                        .padding(horizontal = 8.dp, vertical = 7.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -1434,7 +1562,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
                                         group,
-                                        fontSize = 15.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = MinTextPrimary,
                                         modifier = Modifier.weight(1f)

@@ -39,7 +39,9 @@ data class BsuirEmployee(
     val degree: String?,
     val rank: String?,
     val id: Int?,
-    val urlId: String?
+    val urlId: String?,
+    val fio: String?,
+    val academicDepartment: List<String>?
 ) {
     val fullName: String get() = "${lastName ?: ""} ${firstName ?: ""} ${middleName ?: ""}".trim()
 }
@@ -60,6 +62,28 @@ object BsuirApi {
         val request = NetworkClient.buildGetRequest(urlString)
         val response = NetworkClient.client.newCall(request).execute()
         return response.body?.string() ?: throw java.io.IOException("Empty response body")
+    }
+
+    suspend fun getAllGroups(): List<BsuirStudentGroup> = withContext(Dispatchers.IO) {
+        try {
+            val json = fetchJson("$BASE_URL/student-groups")
+            val type = object : com.google.gson.reflect.TypeToken<List<BsuirStudentGroup>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getAllEmployees(): List<BsuirEmployee> = withContext(Dispatchers.IO) {
+        try {
+            val json = fetchJson("$BASE_URL/employees/all")
+            val type = object : com.google.gson.reflect.TypeToken<List<BsuirEmployee>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
     }
 
     suspend fun getGroupSchedule(groupNumber: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {
