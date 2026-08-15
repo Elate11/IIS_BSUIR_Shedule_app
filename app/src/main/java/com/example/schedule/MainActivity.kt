@@ -2079,12 +2079,17 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     if (teacherScheduleData != null) {
         androidx.compose.ui.window.Dialog(
             onDismissRequest = { teacherScheduleData = null },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MinBg.copy(alpha = 0.96f))
+                    .background(if (styleType == StyleType.Techno) Color(0xFF000000) else actualBg)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
             ) {
                 MinScheduleScreen(
                     MinBg = MinBg,
@@ -2107,11 +2112,27 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         teacherScheduleData = null
                     },
                     modifier = Modifier
-                        .padding(start = 16.dp, top = 16.dp)
+                        .padding(start = 16.dp, top = 8.dp)
                         .align(Alignment.TopStart)
-                        .background(MinCardBg.copy(alpha = 0.85f), CircleShape)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.2f)
+                            else MinCardBg.copy(alpha = 0.90f)
+                        )
+                        .border(
+                            1.dp,
+                            if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.5f)
+                            else MinBorder.copy(alpha = 0.4f),
+                            CircleShape
+                        )
                 ) {
-                    Icon(Icons.Outlined.Close, contentDescription = "Close", tint = MinTextPrimary)
+                    Icon(
+                        Icons.Outlined.KeyboardArrowLeft,
+                        contentDescription = "Назад",
+                        tint = if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinTextPrimary,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
         }
