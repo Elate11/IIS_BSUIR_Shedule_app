@@ -1795,24 +1795,58 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
 
         if (filteredLessons.isEmpty()) {
             item {
+                val selectedCal = remember(selectedDayIndex) {
+                    val cal = java.util.Calendar.getInstance()
+                    cal.add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
+                    cal
+                }
+                val month = selectedCal.get(java.util.Calendar.MONTH)
+                val dayOfMonth = selectedCal.get(java.util.Calendar.DAY_OF_MONTH)
+                val isSummerVacation = (month == java.util.Calendar.JULY || month == java.util.Calendar.AUGUST)
+                val isSunday = (selectedDayOfWeek == 7)
+
+                val (mainStatus, subStatus, emoji) = when {
+                    isSummerVacation -> {
+                        val year = selectedCal.get(java.util.Calendar.YEAR)
+                        val sep1Cal = java.util.Calendar.getInstance().apply {
+                            set(year, java.util.Calendar.SEPTEMBER, 1, 0, 0, 0)
+                        }
+                        val diffDays = ((sep1Cal.timeInMillis - selectedCal.timeInMillis) / (24 * 60 * 60 * 1000L)).coerceAtLeast(0)
+                        val daysMsg = if (diffDays > 0) "До начала пар: $diffDays дн. (с 1 сентября)" else "Учебный семестр начинается 1 сентября!"
+                        Triple("Летние каникулы", daysMsg, "🏖️")
+                    }
+                    isSunday -> Triple("Выходной день", "Пар нет, можно отлично отдохнуть!", "☀️")
+                    else -> Triple("Свободный день", "На этот день пар в расписании нет", "🎉")
+                }
+
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(top = 60.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 50.dp, start = 20.dp, end = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Spacer(modifier = Modifier.height(24.dp))
                     Text(
-                        "Отличный день!",
-                        color = MinTextPrimary,
+                        emoji,
+                        fontSize = 44.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        mainStatus,
+                        color = if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinTextPrimary,
                         fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null,
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "На сегодня пар не найдено",
-                        color = MinTextSecondary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Medium
+                        subStatus,
+                        color = if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.7f) else MinTextSecondary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
