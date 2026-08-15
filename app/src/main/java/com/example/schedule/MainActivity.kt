@@ -2251,7 +2251,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
     val styleType = LocalStyleType.current
     val isTechno = styleType == StyleType.Techno
     val monoFont = if (isTechno) vt323FontFamily else null
-    val technoAccent = Color(0xFF00FF41) // matrix green
+    val technoAccent = Color(0xFF00FF41)
     val technoCardBg = Color(0xFF0A0A0A)
     Box(
         modifier = if (isTechno) Modifier.fillMaxWidth().border(1.dp, Color(0xFF00FF41).copy(alpha = 0.3f), androidx.compose.ui.graphics.RectangleShape).padding(horizontal = 12.dp) else Modifier.fillMaxWidth()
@@ -2265,15 +2265,31 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 onClick = onClick,
                 onLongClick = onLongClick
             )
-            .padding(vertical = 8.dp)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.width(60.dp)) {
-            AutoSizeText(lesson.startTime, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = if (isTechno) technoAccent else MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont))
-            Spacer(modifier = Modifier.height(4.dp))
-            AutoSizeText(lesson.endTime, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (isTechno) technoAccent.copy(alpha=0.6f) else MinTextSecondary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont))
+        Column(
+            modifier = Modifier.width(54.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AutoSizeText(
+                lesson.startTime,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = if (isTechno) technoAccent else MinTextPrimary,
+                style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            AutoSizeText(
+                lesson.endTime,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (isTechno) technoAccent.copy(alpha = 0.6f) else MinTextSecondary,
+                style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
+            )
         }
         
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(10.dp))
         val typeColor = when {
             lesson.lessonType.contains("ЛК", ignoreCase = true) -> Color(0xFF4CAF50)
             lesson.lessonType.contains("ПЗ", ignoreCase = true) -> Color(0xFFFF9800)
@@ -2283,53 +2299,80 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
         Box(
             modifier = Modifier
                 .width(4.dp)
-                .height(if (lesson.progress != null) 90.dp else 50.dp)
+                .height(if (lesson.progress != null) 72.dp else 56.dp)
                 .clip(if (isTechno) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
                 .background(if (isTechno) technoAccent else typeColor)
         )
-        Spacer(modifier = Modifier.width(16.dp))
+        Spacer(modifier = Modifier.width(10.dp))
         
         Column(modifier = Modifier.weight(1f)) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (lesson.teacherPhoto.isNotEmpty()) {
-                            coil.compose.AsyncImage(
-                                model = lesson.teacherPhoto,
-                                contentDescription = "Teacher photo",
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                modifier = Modifier.size(72.dp).clip(androidx.compose.foundation.shape.CircleShape).clickable {
-                                    if (lesson.teacherUrlId.isNotEmpty()) {
-                                        onTeacherClick(lesson.teacherUrlId, lesson.teacherFullName)
-                                    }
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                        }
-                        val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} подгруппа)" else lesson.title
-                        AutoSizeText(displayTitle, modifier = Modifier.weight(1f, fill = false), maxLines = 2, fontSize = 21.sp, fontWeight = if(lesson.isActive) FontWeight.ExtraBold else FontWeight.Bold, color = if (isTechno) technoAccent else MinTextPrimary, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont))
-                        if (hasNotes) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Box(
-                                modifier = Modifier.size(18.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Outlined.Edit, contentDescription = null, tint = MinAccent, modifier = Modifier.size(10.dp))
-                            }
-                        }
+            // Строка 1: Название предмета (около полосочки)
+            val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} подгр.)" else lesson.title
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AutoSizeText(
+                    displayTitle,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 2,
+                    fontSize = 16.sp,
+                    fontWeight = if (lesson.isActive) FontWeight.ExtraBold else FontWeight.Bold,
+                    color = if (isTechno) technoAccent else MinTextPrimary,
+                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
+                )
+                if (hasNotes) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier.size(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Edit, contentDescription = null, tint = MinAccent, modifier = Modifier.size(10.dp))
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(lesson.details, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = if (isTechno) technoAccent.copy(alpha=0.7f) else MinTextSecondary, fontFamily = monoFont, style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple))
                 }
-                
+            }
 
+            // Строка 2: Тип занятия (ЛК, ПЗ, ЛР) и ФИО преподавателя (компактный шрифт)
+            val line2Parts = mutableListOf<String>()
+            if (lesson.lessonType.isNotBlank()) line2Parts.add(lesson.lessonType)
+            val teacherName = lesson.teacherFullName.ifBlank { lesson.teacherName }
+            if (teacherName.isNotBlank()) line2Parts.add(teacherName)
+            val line2Text = line2Parts.joinToString(" • ")
+
+            if (line2Text.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = line2Text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isTechno) technoAccent.copy(alpha = 0.80f) else MinTextSecondary,
+                    fontFamily = monoFont,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
+                )
+            }
+
+            // Строка 3: Аудитория с новой строки
+            if (lesson.auditory.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "ауд. ${lesson.auditory}",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = if (isTechno) technoAccent.copy(alpha = 0.65f) else MinTextSecondary.copy(alpha = 0.80f),
+                    fontFamily = monoFont,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
+                )
             }
             
             val progress = lesson.progress
             if (progress != null) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Canvas(modifier = Modifier.fillMaxWidth().height(4.dp)) {
-                    val cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                Spacer(modifier = Modifier.height(8.dp))
+                Canvas(modifier = Modifier.fillMaxWidth().height(3.dp)) {
+                    val cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5f.dp.toPx(), 1.5f.dp.toPx())
                     val totalWidth = size.width
                     
                     val w1 = totalWidth * (45f / 95f)
@@ -2350,7 +2393,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                         drawRoundRect(color = MinTextPrimary, topLeft = Offset(w1 + g, 0f), size = androidx.compose.ui.geometry.Size(w2 * p2, size.height), cornerRadius = cornerRadius)
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 val progressTime = progress * 95f
                 val statusText = when {
                     progressTime < 45f -> "До перерыва: ${((45f - progressTime).toInt())} мин"
@@ -2358,7 +2401,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                     progressTime < 95f -> "До конца пары: ${((95f - progressTime).toInt())} мин"
                     else -> "Пара окончена"
                 }
-                Text(statusText, fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, color = if (isTechno) technoAccent else MinAccent, fontFamily = monoFont)
+                Text(statusText, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isTechno) technoAccent else MinAccent, fontFamily = monoFont)
             }
         }
     }
