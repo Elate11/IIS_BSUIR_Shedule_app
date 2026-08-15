@@ -1060,7 +1060,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             var dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
             if (dow == 0) dow = 7
             
-            var w = baseCurrentWeek
+            var w = if (baseCurrentWeek in 1..4) baseCurrentWeek else 1
             val wCal = java.util.Calendar.getInstance()
             if (offset > 0) {
                 for (i in 1..offset) {
@@ -1081,8 +1081,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
     
     val currentWeek = remember(baseCurrentWeek, selectedDayIndex) {
-        if (baseCurrentWeek == 0) return@remember 0
-        var w = baseCurrentWeek
+        var w = if (baseCurrentWeek in 1..4) baseCurrentWeek else 1
         val cal = java.util.Calendar.getInstance()
         val offset = selectedDayIndex - 7
         if (offset > 0) {
@@ -1123,9 +1122,17 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         }
         
         val newLessons = mutableListOf<Lesson>()
-        response?.schedules?.forEach { (dayName, dayLessons) ->
-            val dow = when(dayName.lowercase()) {
-                "понедельник" -> 1; "вторник" -> 2; "среда" -> 3; "четверг" -> 4; "пятница" -> 5; "суббота" -> 6; "воскресенье" -> 7; else -> 0
+        val schedMap = (if (!response?.schedules.isNullOrEmpty()) response?.schedules else response?.nextSchedules) ?: emptyMap()
+        schedMap.forEach { (dayName, dayLessons) ->
+            val dow = when(dayName.lowercase().trim()) {
+                "понедельник", "пн", "monday", "mon" -> 1
+                "вторник", "вт", "tuesday", "tue" -> 2
+                "среда", "ср", "wednesday", "wed" -> 3
+                "четверг", "чт", "thursday", "thu" -> 4
+                "пятница", "пт", "friday", "fri" -> 5
+                "суббота", "сб", "saturday", "sat" -> 6
+                "воскресенье", "вс", "sunday", "sun" -> 7
+                else -> 0
             }
             dayLessons.forEach { bl ->
                 val teacher = bl.employees?.firstOrNull()
@@ -1185,10 +1192,11 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     val filteredLessons = remember(lessons, selectedSubgroup, selectedDayOfWeek, currentWeek) {
+        val targetWeek = if (currentWeek in 1..4) currentWeek else 1
         lessons.filter { 
             (it.subgroup == 0 || it.subgroup == selectedSubgroup || selectedSubgroup == 0) &&
             (it.dayOfWeek == selectedDayOfWeek || it.dayOfWeek == 0) &&
-            (it.weeks.isEmpty() || it.weeks.contains(currentWeek))
+            (it.weeks.isEmpty() || it.weeks.contains(targetWeek))
         }
     }
     var selectedLessonForSheet by remember { mutableStateOf<Lesson?>(null) }
@@ -2237,7 +2245,8 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                             com.example.schedule.BsuirApi.getGroupSchedule(loginGroup)
                         }
                         
-                        scheduleResp?.schedules?.forEach { (_, dayLessons) ->
+                        val actualSchedules = (if (!scheduleResp?.schedules.isNullOrEmpty()) scheduleResp?.schedules else scheduleResp?.nextSchedules) ?: emptyMap()
+                    actualSchedules.forEach { (_, dayLessons) ->
                             dayLessons.forEach { lesson ->
                                 val sName = lesson.subject?.takeIf { it.isNotBlank() } ?: lesson.subjectFullName
                                 if (!sName.isNullOrBlank()) semesterSubjectsSet.add(sName.trim())
@@ -4777,7 +4786,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             if (!sName.isNullOrBlank()) sessionSubjects.add(sName.trim())
                         }
 
-                        scheduleResp?.schedules?.forEach { (_, dayLessons) ->
+                        val actualSchedules = (if (!scheduleResp?.schedules.isNullOrEmpty()) scheduleResp?.schedules else scheduleResp?.nextSchedules) ?: emptyMap()
+                    actualSchedules.forEach { (_, dayLessons) ->
                             dayLessons.forEach { lesson ->
                                 val sName = lesson.subject?.takeIf { it.isNotBlank() } ?: lesson.subjectFullName
                                 if (!sName.isNullOrBlank()) sessionSubjects.add(sName.trim())

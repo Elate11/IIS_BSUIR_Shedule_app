@@ -7,10 +7,15 @@ import java.net.URL
 
 data class BsuirScheduleResponse(
     val schedules: Map<String, List<BsuirLesson>>?,
+    val nextSchedules: Map<String, List<BsuirLesson>>?,
     val exams: List<BsuirLesson>?,
     val currentWeekNumber: Int?,
     val studentGroupDto: BsuirStudentGroup?,
-    val employeeDto: BsuirEmployee?
+    val employeeDto: BsuirEmployee?,
+    val startDate: String?,
+    val endDate: String?,
+    val currentTerm: String?,
+    val nextTerm: String?
 )
 
 data class BsuirLesson(
@@ -86,17 +91,12 @@ object BsuirApi {
 
     suspend fun getCurrentWeek(): Int? = withContext(Dispatchers.IO) {
         try {
-            val cal = java.util.Calendar.getInstance()
-            val month = cal.get(java.util.Calendar.MONTH)
-            if (month == java.util.Calendar.JULY || month == java.util.Calendar.AUGUST) {
-                return@withContext 0
-            }
-
             val json = fetchJson("$BASE_URL/schedule/current-week")
-            json.toIntOrNull()
+            val num = json.trim().toIntOrNull()
+            if (num != null && num in 1..4) num else 1
         } catch (e: Exception) {
             e.printStackTrace()
-            null
+            1
         }
     }
 }
