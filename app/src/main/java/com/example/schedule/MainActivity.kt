@@ -1902,14 +1902,35 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             onDismissRequest = { teacherScheduleData = null },
             properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                MinScheduleScreen(MinBg, actualBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, MinAccent, isDarkTheme, teacherScheduleData!!.first, {}, selectedSubgroup, {}, teacherScheduleData!!.second)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MinBg.copy(alpha = 0.96f))
+            ) {
+                MinScheduleScreen(
+                    MinBg = MinBg,
+                    actualBg = actualBg,
+                    MinCardBg = MinCardBg,
+                    MinBorder = MinBorder,
+                    MinTextPrimary = MinTextPrimary,
+                    MinTextSecondary = MinTextSecondary,
+                    MinAccent = MinAccent,
+                    isDarkTheme = isDarkTheme,
+                    selectedGroup = teacherScheduleData!!.first,
+                    onGroupSelected = {},
+                    selectedSubgroup = selectedSubgroup,
+                    onSubgroupChange = {},
+                    displayTitle = teacherScheduleData!!.second
+                )
                 androidx.compose.material3.IconButton(
                     onClick = {
-                                AppHapticManager.playClick()
-                                teacherScheduleData = null
-                            },
-                    modifier = Modifier.padding(16.dp).align(Alignment.TopStart)
+                        AppHapticManager.playClick()
+                        teacherScheduleData = null
+                    },
+                    modifier = Modifier
+                        .padding(start = 16.dp, top = 16.dp)
+                        .align(Alignment.TopStart)
+                        .background(MinCardBg.copy(alpha = 0.85f), CircleShape)
                 ) {
                     Icon(Icons.Outlined.Close, contentDescription = "Close", tint = MinTextPrimary)
                 }
