@@ -112,6 +112,46 @@ import androidx.compose.foundation.combinedClickable
 
 val vt323FontFamily = androidx.compose.ui.text.font.FontFamily(androidx.compose.ui.text.font.Font(com.example.schedule.R.font.vt323))
 
+
+fun getBsuirWeekForCalendarDay(selectedDayIndex: Int): Pair<Int, Int> {
+    val cal = java.util.Calendar.getInstance()
+    cal.add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
+
+    var dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
+    if (dow == 0) dow = 7
+
+    val year = cal.get(java.util.Calendar.YEAR)
+    val month = cal.get(java.util.Calendar.MONTH)
+    val sep1Year = if (month < java.util.Calendar.AUGUST) year - 1 else year
+
+    val sep1Cal = java.util.Calendar.getInstance().apply {
+        set(java.util.Calendar.YEAR, sep1Year)
+        set(java.util.Calendar.MONTH, java.util.Calendar.SEPTEMBER)
+        set(java.util.Calendar.DAY_OF_MONTH, 1)
+        set(java.util.Calendar.HOUR_OF_DAY, 12)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }
+
+    var sep1Dow = sep1Cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
+    if (sep1Dow == 0) sep1Dow = 7
+    sep1Cal.add(java.util.Calendar.DAY_OF_MONTH, -(sep1Dow - 1))
+
+    val targetMonday = (cal.clone() as java.util.Calendar).apply {
+        set(java.util.Calendar.HOUR_OF_DAY, 12)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+        add(java.util.Calendar.DAY_OF_MONTH, -(dow - 1))
+    }
+
+    val diffMillis = targetMonday.timeInMillis - sep1Cal.timeInMillis
+    val diffWeeks = (diffMillis / (7L * 24 * 60 * 60 * 1000)).toInt()
+    val weekNum = ((diffWeeks % 4 + 4) % 4) + 1
+    return Pair(dow, weekNum)
+}
+
 fun fetchAndStoreStudentProfile(context: android.content.Context) {
     val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
     val client = NetworkClient.client
@@ -1065,68 +1105,10 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val prefs = remember { context.getSharedPreferences("group_prefs", android.content.Context.MODE_PRIVATE) }
     var lessons by remember { mutableStateOf<List<Lesson>>(emptyList()) }
 
-    var baseCurrentWeek by remember { mutableStateOf(1) }
-
-    val validDayIndices = remember(lessons, baseCurrentWeek, displayTitle) {
-        if (displayTitle == null) return@remember (0..90).toList()
-        val valid = mutableListOf<Int>()
-        for (index in 0..90) {
-            val offset = index - 7
-            val cal = java.util.Calendar.getInstance()
-            cal.add(java.util.Calendar.DAY_OF_MONTH, offset)
-            var dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
-            if (dow == 0) dow = 7
-            
-            var w = if (baseCurrentWeek in 1..4) baseCurrentWeek else 1
-            val wCal = java.util.Calendar.getInstance()
-            if (offset > 0) {
-                for (i in 1..offset) {
-                    wCal.add(java.util.Calendar.DAY_OF_MONTH, 1)
-                    if (wCal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.MONDAY) w = (w % 4) + 1
-                }
-            } else if (offset < 0) {
-                for (i in 1..(-offset)) {
-                    if (wCal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.MONDAY) { w = w - 1; if (w == 0) w = 4 }
-                    wCal.add(java.util.Calendar.DAY_OF_MONTH, -1)
-                }
-            }
-            
-            val hasLessons = lessons.any { it.dayOfWeek == dow && (it.weeks.isEmpty() || it.weeks.contains(w)) }
-            if (hasLessons || index == 7) valid.add(index)
-        }
-        valid
-    }
-    
-    val currentWeek = remember(baseCurrentWeek, selectedDayIndex) {
-        var w = if (baseCurrentWeek in 1..4) baseCurrentWeek else 1
-        val cal = java.util.Calendar.getInstance()
-        val offset = selectedDayIndex - 7
-        if (offset > 0) {
-            for (i in 1..offset) {
-                cal.add(java.util.Calendar.DAY_OF_MONTH, 1)
-                if (cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.MONDAY) {
-                    w = (w % 4) + 1
-                }
-            }
-        } else if (offset < 0) {
-            for (i in 1..(-offset)) {
-                if (cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.MONDAY) {
-                    w = w - 1
-                    if (w == 0) w = 4
-                }
-                cal.add(java.util.Calendar.DAY_OF_MONTH, -1)
-            }
-        }
-        w
-    }
-
-    val selectedDayOfWeek = remember(selectedDayIndex) {
-        val cal = java.util.Calendar.getInstance()
-        cal.add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
-        var dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
-        if (dow == 0) dow = 7
-        dow
-    }
+    val validDayIndices = remember { (0..90).toList() }
+    val dayInfo = remember(selectedDayIndex) { getBsuirWeekForCalendarDay(selectedDayIndex) }
+    val selectedDayOfWeek = dayInfo.first
+    val currentWeek = dayInfo.second
 
     LaunchedEffect(selectedGroup) {
         val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
@@ -1135,8 +1117,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             onGroupSelected(targetGrp)
             return@LaunchedEffect
         }
-        val week = BsuirApi.getCurrentWeek() ?: 1
-        baseCurrentWeek = if (week in 1..4) week else 1
+        // Fetch schedule
         
         val response = if (selectedGroup.any { it.isLetter() }) {
             BsuirApi.getEmployeeSchedule(selectedGroup)
@@ -1214,11 +1195,10 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     val filteredLessons = remember(lessons, selectedSubgroup, selectedDayOfWeek, currentWeek) {
-        val targetWeek = if (currentWeek in 1..4) currentWeek else 1
         lessons.filter { 
             (it.subgroup == 0 || it.subgroup == selectedSubgroup || selectedSubgroup == 0) &&
             (it.dayOfWeek == selectedDayOfWeek || it.dayOfWeek == 0) &&
-            (it.weeks.isEmpty() || it.weeks.contains(targetWeek))
+            (it.weeks.isEmpty() || it.weeks.contains(currentWeek))
         }
     }
     var selectedLessonForSheet by remember { mutableStateOf<Lesson?>(null) }
@@ -1824,26 +1804,16 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Text("Учебные недели", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
                     Text(lesson.weeks.joinToString(", "), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
                     
-                    val upcomingDates = remember(lesson, baseCurrentWeek) {
+                    val upcomingDates = remember(lesson) {
                         val dates = mutableListOf<Pair<Int, String>>()
                         val cal = java.util.Calendar.getInstance()
                         for (offset in 1..75) {
-                            cal.time = java.util.Date()
-                            cal.add(java.util.Calendar.DAY_OF_MONTH, offset)
-                            var dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
-                            if (dow == 0) dow = 7
-                            
-                            val todayCal = java.util.Calendar.getInstance()
-                            var w = baseCurrentWeek
-                            for (i in 1..offset) {
-                                todayCal.add(java.util.Calendar.DAY_OF_MONTH, 1)
-                                if (todayCal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.MONDAY) {
-                                    w = (w % 4) + 1
-                                }
-                            }
-                            
+                            val info = getBsuirWeekForCalendarDay(7 + offset)
+                            val dow = info.first
+                            val w = info.second
                             if (dow == lesson.dayOfWeek && (lesson.weeks.isEmpty() || lesson.weeks.contains(w))) {
-                                val dateStr = String.format("%02d.%02d", cal.get(java.util.Calendar.DAY_OF_MONTH), cal.get(java.util.Calendar.MONTH)+1)
+                                val itemCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
+                                val dateStr = String.format("%02d.%02d", itemCal.get(java.util.Calendar.DAY_OF_MONTH), itemCal.get(java.util.Calendar.MONTH) + 1)
                                 dates.add((7 + offset) to dateStr)
                                 if (dates.size == 3) break
                             }
