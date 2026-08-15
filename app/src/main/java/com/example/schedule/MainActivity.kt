@@ -2259,6 +2259,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
             .combinedClickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = androidx.compose.material.ripple.rememberRipple(),
@@ -2270,7 +2271,8 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
     ) {
         Column(
             modifier = Modifier.width(54.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             AutoSizeText(
                 lesson.startTime,
@@ -2299,13 +2301,16 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
         Box(
             modifier = Modifier
                 .width(4.dp)
-                .height(if (lesson.progress != null) 72.dp else 56.dp)
+                .fillMaxHeight()
                 .clip(if (isTechno) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
                 .background(if (isTechno) technoAccent else typeColor)
         )
         Spacer(modifier = Modifier.width(10.dp))
         
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
+        ) {
             // Строка 1: Название предмета (около полосочки)
             val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} подгр.)" else lesson.title
             Row(
@@ -2316,7 +2321,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                     displayTitle,
                     modifier = Modifier.weight(1f, fill = false),
                     maxLines = 2,
-                    fontSize = 16.sp,
+                    fontSize = 17.sp,
                     fontWeight = if (lesson.isActive) FontWeight.ExtraBold else FontWeight.Bold,
                     color = if (isTechno) technoAccent else MinTextPrimary,
                     style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
@@ -2332,20 +2337,34 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 }
             }
 
-            // Строка 2: Тип занятия (ЛК, ПЗ, ЛР) и ФИО преподавателя (компактный шрифт)
+            // Строка 2: Тип занятия (ЛК, ПЗ, ЛР) и только фамилия с инициалами (чуть больше шрифт)
+            val teacherInitials = remember(lesson.teacherName, lesson.teacherFullName) {
+                val src = if (lesson.teacherName.isNotBlank()) lesson.teacherName else lesson.teacherFullName
+                val parts = src.split(" ").filter { it.isNotBlank() }
+                if (parts.size >= 3) {
+                    val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
+                    val mInit = parts[2].firstOrNull()?.let { "$it." } ?: ""
+                    "${parts[0]} $fInit$mInit".trim()
+                } else if (parts.size == 2) {
+                    val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
+                    "${parts[0]} $fInit".trim()
+                } else {
+                    src
+                }
+            }
+
             val line2Parts = mutableListOf<String>()
             if (lesson.lessonType.isNotBlank()) line2Parts.add(lesson.lessonType)
-            val teacherName = lesson.teacherFullName.ifBlank { lesson.teacherName }
-            if (teacherName.isNotBlank()) line2Parts.add(teacherName)
+            if (teacherInitials.isNotBlank()) line2Parts.add(teacherInitials)
             val line2Text = line2Parts.joinToString(" • ")
 
             if (line2Text.isNotBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = line2Text,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isTechno) technoAccent.copy(alpha = 0.80f) else MinTextSecondary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isTechno) technoAccent.copy(alpha = 0.85f) else MinTextSecondary,
                     fontFamily = monoFont,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -2353,14 +2372,14 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 )
             }
 
-            // Строка 3: Аудитория с новой строки
+            // Строка 3: Аудитория с новой строки (чуть больше шрифт)
             if (lesson.auditory.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = "ауд. ${lesson.auditory}",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Normal,
-                    color = if (isTechno) technoAccent.copy(alpha = 0.65f) else MinTextSecondary.copy(alpha = 0.80f),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isTechno) technoAccent.copy(alpha = 0.70f) else MinTextSecondary.copy(alpha = 0.85f),
                     fontFamily = monoFont,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
