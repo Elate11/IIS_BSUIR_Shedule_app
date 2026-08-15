@@ -2260,8 +2260,9 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // 1. Время пары
         Column(
-            modifier = Modifier.width(54.dp),
+            modifier = Modifier.width(52.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -2289,6 +2290,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
             lesson.lessonType.contains("ЛР", ignoreCase = true) -> Color(0xFF2196F3)
             else -> if (lesson.isActive) MinAccent else MinBorder
         }
+        // 2. Цветная полоска на всю высоту
         Box(
             modifier = Modifier
                 .width(4.dp)
@@ -2298,11 +2300,14 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
         )
         Spacer(modifier = Modifier.width(10.dp))
         
+        // 3. Центральная часть (Предмет + Тип и Преподаватель с отчеством)
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
             verticalArrangement = Arrangement.Center
         ) {
-            // Строка 1: Название предмета (около полосочки)
+            // Строка 1: Название предмета
             val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} подгр.)" else lesson.title
             AutoSizeText(
                 displayTitle,
@@ -2314,14 +2319,14 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
             )
 
-            // Строка 2: Тип занятия (ЛК, ПЗ, ЛР) и только фамилия с инициалами (чуть больше шрифт)
-            val teacherInitials = remember(lesson.teacherName, lesson.teacherFullName) {
-                val src = if (lesson.teacherName.isNotBlank()) lesson.teacherName else lesson.teacherFullName
+            // Строка 2: Тип пары и Фамилия И. О. (с именем и отчеством)
+            val teacherDisplayName = remember(lesson.teacherName, lesson.teacherFullName) {
+                val src = if (lesson.teacherFullName.isNotBlank()) lesson.teacherFullName else lesson.teacherName
                 val parts = src.split(" ").filter { it.isNotBlank() }
                 if (parts.size >= 3) {
                     val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
                     val mInit = parts[2].firstOrNull()?.let { "$it." } ?: ""
-                    "${parts[0]} $fInit$mInit".trim()
+                    "${parts[0]} $fInit $mInit".trim()
                 } else if (parts.size == 2) {
                     val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
                     "${parts[0]} $fInit".trim()
@@ -2332,31 +2337,16 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
 
             val line2Parts = mutableListOf<String>()
             if (lesson.lessonType.isNotBlank()) line2Parts.add(lesson.lessonType)
-            if (teacherInitials.isNotBlank()) line2Parts.add(teacherInitials)
+            if (teacherDisplayName.isNotBlank()) line2Parts.add(teacherDisplayName)
             val line2Text = line2Parts.joinToString(" • ")
 
             if (line2Text.isNotBlank()) {
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = line2Text,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isTechno) technoAccent.copy(alpha = 0.85f) else MinTextSecondary,
-                    fontFamily = monoFont,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
-                )
-            }
-
-            // Строка 3: Аудитория с новой строки (чуть больше шрифт)
-            if (lesson.auditory.isNotBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "ауд. ${lesson.auditory}",
-                    fontSize = 13.sp,
+                    fontSize = 13.5.sp,
                     fontWeight = FontWeight.Medium,
-                    color = if (isTechno) technoAccent.copy(alpha = 0.70f) else MinTextSecondary.copy(alpha = 0.85f),
+                    color = if (isTechno) technoAccent.copy(alpha = 0.85f) else MinTextSecondary,
                     fontFamily = monoFont,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -2366,7 +2356,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
             
             val progress = lesson.progress
             if (progress != null) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Canvas(modifier = Modifier.fillMaxWidth().height(3.dp)) {
                     val cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5f.dp.toPx(), 1.5f.dp.toPx())
                     val totalWidth = size.width
@@ -2385,11 +2375,11 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                         drawRoundRect(color = MinTextPrimary, size = androidx.compose.ui.geometry.Size(w1 * p1, size.height), cornerRadius = cornerRadius)
                     }
                     if (progressTime > 50f) {
-                        val p2 = (progressTime - 50f).coerceAtMost(45f) / 45f
+                        val p2 = ((progressTime - 50f).coerceAtMost(45f)) / 45f
                         drawRoundRect(color = MinTextPrimary, topLeft = Offset(w1 + g, 0f), size = androidx.compose.ui.geometry.Size(w2 * p2, size.height), cornerRadius = cornerRadius)
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 val progressTime = progress * 95f
                 val statusText = when {
                     progressTime < 45f -> "До перерыва: ${((45f - progressTime).toInt())} мин"
@@ -2397,7 +2387,38 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                     progressTime < 95f -> "До конца пары: ${((95f - progressTime).toInt())} мин"
                     else -> "Пара окончена"
                 }
-                Text(statusText, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = if (isTechno) technoAccent else MinAccent, fontFamily = monoFont)
+                Text(statusText, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isTechno) technoAccent else MinAccent, fontFamily = monoFont)
+            }
+        }
+
+        // 4. Отдельно справа около края экрана: Аудитория
+        if (lesson.auditory.isNotBlank()) {
+            Spacer(modifier = Modifier.width(10.dp))
+            val audText = if (lesson.auditory.startsWith("ауд", ignoreCase = true)) lesson.auditory else "ауд. ${lesson.auditory}"
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.12f)
+                        else if (isDarkTheme) Color(0xFF222430)
+                        else Color(0xFFE8EDF5)
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.4f) else MinBorder.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = audText,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (styleType == StyleType.Techno) technoAccent else MinTextPrimary,
+                    fontFamily = monoFont,
+                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
+                )
             }
         }
     }
