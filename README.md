@@ -85,6 +85,22 @@
 
 ---
 
+## 📱 Скриншоты
+
+<p align="center">
+  <img src="docs/screenshots/intro_splash.png" width="31%" alt="Интро сплэш" />
+  <img src="docs/screenshots/schedule_main.png" width="31%" alt="Расписание" />
+  <img src="docs/screenshots/widget_homescreen.png" width="31%" alt="Виджет рабочего стола" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/notes_dropdown.png" width="31%" alt="Заметки и выбор предметов" />
+  <img src="docs/screenshots/profile_screen.png" width="31%" alt="Профиль студента" />
+  <img src="docs/screenshots/absences_screen.png" width="31%" alt="Пропуски" />
+</p>
+
+---
+
 ## 📄 Лицензия
 
 Проект распространяется для учебных и ознакомительных целей. Данные предоставляются API ИИС БГУИР.
