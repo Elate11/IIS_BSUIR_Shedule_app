@@ -530,7 +530,8 @@ fun AppleOptionChip(
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isDarkTheme: Boolean = false
+    isDarkTheme: Boolean = false,
+    accentColor: Color? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -541,11 +542,11 @@ fun AppleOptionChip(
     )
 
     val chipShape = RoundedCornerShape(AppleTokens.RadiusPill)
-    val actionBlue = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
+    val activeColor = accentColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
 
     val (bgColor, textColor, borderColor) = when {
         isSelected -> Triple(
-            if (isDarkTheme) AppleTokens.ActionBlue else AppleTokens.ActionBlue,
+            activeColor,
             Color.White,
             Color.Transparent
         )
@@ -657,6 +658,7 @@ fun AppleVerticalDateRail(
     onDaySelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
     isDarkTheme: Boolean = false,
+    selectedColor: Color? = null,
     todayIndex: Int = 7
 ) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -713,16 +715,16 @@ fun AppleVerticalDateRail(
                     label = "railItemScale"
                 )
 
-                val activeBlue = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
+                val activeColor = selectedColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
 
-                // In the air: selected is prominent Action Blue; unselected is soft translucent text
+                // In the air: selected is prominent theme accent; unselected is soft translucent text
                 val textColor = when {
-                    isSelected -> activeBlue
+                    isSelected -> activeColor
                     isDarkTheme -> Color.White.copy(alpha = 0.40f)
                     else -> Color.Black.copy(alpha = 0.35f)
                 }
                 val subTextColor = when {
-                    isSelected -> activeBlue.copy(alpha = 0.85f)
+                    isSelected -> activeColor.copy(alpha = 0.85f)
                     isDarkTheme -> Color.White.copy(alpha = 0.25f)
                     else -> Color.Black.copy(alpha = 0.22f)
                 }
@@ -775,7 +777,7 @@ fun AppleVerticalDateRail(
                                 modifier = Modifier
                                     .size(if (isSelected) 4.5.dp else 3.5.dp)
                                     .clip(CircleShape)
-                                    .background(if (isSelected) activeBlue else textColor)
+                                    .background(if (isSelected) activeColor else textColor)
                             )
                         }
                     }
@@ -841,6 +843,7 @@ fun AppleRadialMenu(
     selectedIndex: Int,
     onSelectIndex: (Int) -> Unit,
     isDarkTheme: Boolean = true,
+    accentColor: Color? = null,
     touchPosition: androidx.compose.ui.geometry.Offset? = null
 ) {
     if (!isOpen) return
@@ -889,7 +892,7 @@ fun AppleRadialMenu(
     val clampedXDp = targetCenterXDp.coerceIn(halfSizeDp + 8.dp, (screenWidthDp - halfSizeDp - 8.dp).coerceAtLeast(halfSizeDp + 8.dp))
     val clampedYDp = targetCenterYDp.coerceIn(halfSizeDp + 24.dp, (screenHeightDp - halfSizeDp - 24.dp).coerceAtLeast(halfSizeDp + 24.dp))
 
-    val activeBlue = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
+    val activeColor = accentColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
 
     // Full screen dimmed frosted overlay
     Box(
@@ -921,7 +924,7 @@ fun AppleRadialMenu(
                         .clip(CircleShape)
                         .border(
                             2.dp,
-                            activeBlue.copy(alpha = waveAlpha),
+                            activeColor.copy(alpha = waveAlpha),
                             CircleShape
                         )
                 )
@@ -1004,8 +1007,8 @@ fun AppleRadialMenu(
                     label = "itemScale_$i"
                 )
 
-                val itemBg = if (isSelected) activeBlue else if (isDarkTheme) Color(0xFF222224).copy(alpha = 0.96f) else Color(0xFFFAFAFC).copy(alpha = 0.96f)
-                val itemBorder = if (isSelected) activeBlue.copy(alpha = 0.6f) else if (isDarkTheme) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.08f)
+                val itemBg = if (isSelected) activeColor else if (isDarkTheme) Color(0xFF222224).copy(alpha = 0.96f) else Color(0xFFFAFAFC).copy(alpha = 0.96f)
+                val itemBorder = if (isSelected) activeColor.copy(alpha = 0.6f) else if (isDarkTheme) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.08f)
                 val iconColor = if (isSelected) Color.White else if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
 
                 // Kinetic angular whip during flight
@@ -1029,8 +1032,8 @@ fun AppleRadialMenu(
                                 .shadow(
                                     elevation = if (isSelected) 14.dp else 6.dp,
                                     shape = CircleShape,
-                                    spotColor = if (isSelected) activeBlue.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
-                                    ambientColor = if (isSelected) activeBlue.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
+                                    spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
+                                    ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
                                 )
                                 .clip(CircleShape)
                                 .background(itemBg)
@@ -1060,12 +1063,12 @@ fun AppleRadialMenu(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(AppleTokens.RadiusPill))
                                 .background(
-                                    if (isSelected) activeBlue.copy(alpha = 0.40f)
+                                    if (isSelected) activeColor.copy(alpha = 0.40f)
                                     else Color(0xD018181A)
                                 )
                                 .border(
                                     0.5.dp,
-                                    if (isSelected) activeBlue.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
+                                    if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
                                     RoundedCornerShape(AppleTokens.RadiusPill)
                                 )
                                 .padding(horizontal = 10.dp, vertical = 3.dp)

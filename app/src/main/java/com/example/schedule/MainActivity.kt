@@ -914,6 +914,7 @@ fun MinimalistApp() {
                 }
             },
             isDarkTheme = isDarkTheme,
+            accentColor = MinAccent,
             touchPosition = radialTouchPosition
         )
     }
@@ -1605,7 +1606,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             label = label,
                             isSelected = selectedSubgroup == sg,
                             onClick = { onSubgroupChange(sg) },
-                            isDarkTheme = isDarkTheme
+                            isDarkTheme = isDarkTheme,
+                            accentColor = MinAccent
                         )
                     }
                 }
@@ -1883,6 +1885,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 AppHapticManager.playClick()
             },
             isDarkTheme = isDarkTheme,
+            selectedColor = MinAccent,
             todayIndex = 7
         )
     }
@@ -2056,14 +2059,8 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .shadow(
-                elevation = if (isDarkTheme) 6.dp else 2.dp,
-                shape = cardShape,
-                spotColor = Color(0x2E000000),
-                ambientColor = Color(0x14000000)
-            )
             .clip(cardShape)
-            .background(cardBg)
+            .background(Color.Transparent)
             .border(1.dp, cardBorder, cardShape)
             .clickable(
                 interactionSource = interactionSource,
@@ -2238,16 +2235,15 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 }
             }
 
-            // 4. Auditory chip
+            // 4. Auditory chip (without "ауд.")
             val cleanAuditory = remember(lesson.auditory, lesson.title, lesson.lessonType) {
                 val raw = lesson.auditory.trim()
                 when {
                     raw.isNotBlank() -> {
-                        val stripped = raw.replace(Regex("^(ауд\\.?\\s*|aud\\.?\\s*)", RegexOption.IGNORE_CASE), "").trim()
-                        "ауд. $stripped"
+                        raw.replace(Regex("^(ауд\\.?\\s*|aud\\.?\\s*)", RegexOption.IGNORE_CASE), "").trim()
                     }
                     lesson.title.contains("Физ", ignoreCase = true) || lesson.lessonType.contains("Физ", ignoreCase = true) -> "спортзал"
-                    else -> "ауд. —"
+                    else -> "—"
                 }
             }
             if (cleanAuditory.isNotBlank()) {
@@ -2710,17 +2706,11 @@ fun MinMarksScreen(
         subjectsList.count { it.hasLabs }
     }
 
-    val filteredSubjects = remember(subjectsList, selectedFilter, searchQuery) {
-        subjectsList.filter { subj ->
-            val matchesFilter = when (selectedFilter) {
-                1 -> subj.hasLabs
-                2 -> subj.marks.isNotEmpty()
-                else -> true
-            }
-            val matchesSearch = if (searchQuery.isBlank()) true else {
+    val filteredSubjects = remember(subjectsList, searchQuery) {
+        if (searchQuery.isBlank()) subjectsList else {
+            subjectsList.filter { subj ->
                 subj.name.contains(searchQuery, ignoreCase = true) || subj.abbrev.contains(searchQuery, ignoreCase = true)
             }
-            matchesFilter && matchesSearch
         }
     }
 
@@ -3017,21 +3007,7 @@ fun MinMarksScreen(
                 }
             }
 
-            // 4. Apple Segmented Control Filter
-            item {
-                AppleSegmentedControl(
-                    items = listOf(
-                        "Все (${subjectsList.size})",
-                        "Лабы ($labSubjectsCount)",
-                        "С оценками ($gradedSubjectsCount)"
-                    ),
-                    selectedIndex = selectedFilter,
-                    onSelectIndex = { selectedFilter = it },
-                    isDarkTheme = isDarkTheme,
-                    accentColor = appleAccent,
-                    trackColor = MinCardBg
-                )
-            }
+
 
             // 5. Search Bar (if list is not empty)
             if (subjectsList.size > 3) {
@@ -3120,16 +3096,6 @@ fun MinMarksScreen(
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
-                                if (shortName != subj.name && subj.name.isNotBlank()) {
-                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(1.dp))
-                                    androidx.compose.material3.Text(
-                                        text = subj.name,
-                                        style = AppleTypography.finePrint().copy(fontSize = 11.5.sp),
-                                        color = appleTextSecondary,
-                                        maxLines = 1,
-                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                    )
-                                }
                             }
 
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
@@ -3252,8 +3218,7 @@ fun MinMarksScreen(
                                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                     ) {
-                                        // Category Pill Badge
-                                        val badgeBg = if (isDarkTheme) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.05f)
+                                        // Category Pill Badge (transparent)
                                         val badgeBorder = MinBorder
 
                                         androidx.compose.foundation.layout.Box(
@@ -3261,9 +3226,9 @@ fun MinMarksScreen(
                                                 .width(42.dp)
                                                 .height(26.dp)
                                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
-                                                .background(badgeBg)
+                                                .background(Color.Transparent)
                                                 .border(
-                                                    0.6.dp,
+                                                    0.8.dp,
                                                     badgeBorder,
                                                     androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
                                                 ),
@@ -3292,16 +3257,15 @@ fun MinMarksScreen(
                                         ) {
                                             marksInGroup.forEach { markInfo ->
                                                 val mVal = markInfo.mark
-                                                val markCardBg = if (isDarkTheme) MinCardBg else Color(0xFFF2F2F7)
                                                 val markCardBorder = MinBorder
 
                                                 androidx.compose.foundation.layout.Box(
                                                     modifier = androidx.compose.ui.Modifier
                                                         .size(36.dp)
                                                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp))
-                                                        .background(markCardBg)
+                                                        .background(Color.Transparent)
                                                         .border(
-                                                            0.7.dp,
+                                                            0.8.dp,
                                                             markCardBorder,
                                                             androidx.compose.foundation.shape.RoundedCornerShape(9.dp)
                                                         ),
