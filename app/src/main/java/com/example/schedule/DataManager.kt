@@ -19,7 +19,10 @@ data class Lesson(
     val teacherPhoto: String = "", val teacherUrlId: String = "",
     val auditory: String = "",
     val subgroup: Int = 0,
-    val weeks: List<Int> = listOf(1, 2, 3, 4), val dayOfWeek: Int = 0
+    val weeks: List<Int> = listOf(1, 2, 3, 4), val dayOfWeek: Int = 0,
+    val dateLesson: String? = null,
+    val note: String? = null,
+    val studentGroups: List<String> = emptyList()
 )
 
 class DataManager(context: Context) {
@@ -31,19 +34,69 @@ class DataManager(context: Context) {
         prefs.edit().putString("lessons", json).apply()
     }
 
+    fun saveLessonsForTarget(target: String, lessons: List<Lesson>) {
+        val json = gson.toJson(lessons)
+        prefs.edit()
+            .putString("lessons_target_${target.trim()}", json)
+            .putString("lessons", json)
+            .putLong("lessons_updated_at_${target.trim()}", System.currentTimeMillis())
+            .apply()
+    }
+
+    fun getLessonsForTarget(target: String): List<Lesson> {
+        val key = "lessons_target_${target.trim()}"
+        val json = prefs.getString(key, null)
+        if (!json.isNullOrBlank()) {
+            try {
+                val type = object : TypeToken<List<Lesson>>() {}.type
+                val parsed = gson.fromJson<List<Lesson>>(json, type)
+                if (!parsed.isNullOrEmpty()) return parsed
+            } catch (_: Exception) {}
+        }
+        return emptyList()
+    }
+
     fun getLessons(): List<Lesson> {
         val json = prefs.getString("lessons", null)
         return if (json != null) {
-            val type = object : TypeToken<List<Lesson>>() {}.type
-            gson.fromJson(json, type)
+            try {
+                val type = object : TypeToken<List<Lesson>>() {}.type
+                val list = gson.fromJson<List<Lesson>>(json, type) ?: emptyList()
+                if (list.size == 3 && list[0].title == "Матан") emptyList() else list
+            } catch (_: Exception) {
+                emptyList()
+            }
         } else {
-            // Default dummy data if empty
-            listOf(
-                Lesson("08:00", "09:35", "Матан", "Лекция, ауд. 414-2", true, 0.65f, "Математический анализ", "ЛК", "Иванов И.И.", "Иванов Иван Иванович", "", "", "414-2", 0, listOf(1, 2, 3, 4)),
-                Lesson("09:50", "11:25", "Физика", "Лаб. работа, ауд. 101-1", false, null, "Физика", "ЛР", "Петров П.П.", "Петров Петр Петрович", "", "", "101-1", 1, listOf(1, 3)),
-                Lesson("11:40", "13:15", "ОАиП", "Практика, ауд. 210-4", false, null, "Основы алгоритмизации и программирования", "ПЗ", "Сидоров С.С.", "Сидоров Сергей Сергеевич", "", "", "210-4", 2, listOf(2, 4))
-            )
+            emptyList()
         }
+    }
+
+    fun saveExams(group: String, exams: List<Lesson>) {
+        val json = gson.toJson(exams)
+        prefs.edit().putString("exams_list_$group", json).apply()
+    }
+
+    fun getExams(group: String): List<Lesson> {
+        val json = prefs.getString("exams_list_$group", null) ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<Lesson>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveSessionPeriod(group: String, start: String?, end: String?) {
+        prefs.edit()
+            .putString("start_exams_date_$group", start ?: "")
+            .putString("end_exams_date_$group", end ?: "")
+            .apply()
+    }
+
+    fun getSessionPeriod(group: String): Pair<String, String> {
+        val s = prefs.getString("start_exams_date_$group", "") ?: ""
+        val e = prefs.getString("end_exams_date_$group", "") ?: ""
+        return s to e
     }
 
     fun saveMarks(marks: List<SubjectMarks>) {

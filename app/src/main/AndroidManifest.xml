@@ -28,6 +28,21 @@
             </intent-filter>
         </activity>
         <receiver android:name=".NoteReminderReceiver" android:exported="false" />
+        <receiver
+            android:name=".ScheduleWidgetProvider"
+            android:exported="true"
+            android:label="Расписание БГУИР">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.example.schedule.ACTION_REFRESH_WIDGET" />
+                <action android:name="com.example.schedule.ACTION_WIDGET_PREV_DAY" />
+                <action android:name="com.example.schedule.ACTION_WIDGET_NEXT_DAY" />
+                <action android:name="com.example.schedule.ACTION_WIDGET_TODAY" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/schedule_widget_info" />
+        </receiver>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

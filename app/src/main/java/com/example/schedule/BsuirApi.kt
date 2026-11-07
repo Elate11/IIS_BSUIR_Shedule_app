@@ -14,6 +14,8 @@ data class BsuirScheduleResponse(
     val employeeDto: BsuirEmployee?,
     val startDate: String?,
     val endDate: String?,
+    val startExamsDate: String?,
+    val endExamsDate: String?,
     val currentTerm: String?,
     val nextTerm: String?
 )
@@ -28,7 +30,12 @@ data class BsuirLesson(
     val weekNumber: List<Int>?,
     val auditories: List<String>?,
     val employees: List<BsuirEmployee>?,
-    val studentGroups: List<BsuirStudentGroup>?
+    val studentGroups: List<BsuirStudentGroup>?,
+    val dateLesson: String? = null,
+    val startLessonDate: String? = null,
+    val endLessonDate: String? = null,
+    val note: String? = null,
+    val announcement: Boolean? = null
 )
 
 data class BsuirEmployee(
@@ -109,6 +116,42 @@ data class BsuirRatingPercentageMark(
 object BsuirApi {
     private val gson = Gson()
     private const val BASE_URL = "https://iis.bsuir.by/api/v1"
+    @Volatile
+    private var storageDir: java.io.File? = null
+
+    fun initCache(context: android.content.Context) {
+        if (storageDir == null) {
+            storageDir = java.io.File(context.applicationContext.filesDir, "bsuir_schedule_cache").apply {
+                if (!exists()) mkdirs()
+            }
+        }
+    }
+
+    private fun sanitizeCacheKey(key: String): String {
+        return key.replace(Regex("[^a-zA-Z0-9_\\-.]"), "_")
+    }
+
+    private fun readDiskCache(key: String): String? {
+        val dir = storageDir ?: return null
+        return try {
+            val file = java.io.File(dir, "${sanitizeCacheKey(key)}.json")
+            if (file.exists() && file.length() > 2L) file.readText() else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun writeDiskCache(key: String, json: String) {
+        if (json.isBlank() || json == "{}" || json == "[]") return
+        val dir = storageDir ?: return
+        try {
+            if (!dir.exists()) dir.mkdirs()
+            val file = java.io.File(dir, "${sanitizeCacheKey(key)}.json")
+            file.writeText(json)
+        } catch (e: Exception) {
+            // ignore disk write errors
+        }
+    }
 
     private fun fetchJson(urlString: String): String {
         return try {
@@ -124,12 +167,36 @@ object BsuirApi {
         }
     }
 
+    fun getCachedAllGroups(): List<BsuirStudentGroup> {
+        val cached = readDiskCache("all_student_groups") ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<BsuirStudentGroup>>() {}.type
+            gson.fromJson<List<BsuirStudentGroup>>(cached, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     suspend fun getAllGroups(): List<BsuirStudentGroup> = withContext(Dispatchers.IO) {
         try {
             val json = fetchJson("$BASE_URL/student-groups")
-            if (json.isBlank()) return@withContext emptyList()
-            val type = object : com.google.gson.reflect.TypeToken<List<BsuirStudentGroup>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            if (json.isNotBlank() && json != "[]") {
+                writeDiskCache("all_student_groups", json)
+                val type = object : com.google.gson.reflect.TypeToken<List<BsuirStudentGroup>>() {}.type
+                gson.fromJson<List<BsuirStudentGroup>>(json, type) ?: getCachedAllGroups()
+            } else {
+                getCachedAllGroups()
+            }
+        } catch (e: Exception) {
+            getCachedAllGroups()
+        }
+    }
+
+    fun getCachedAllEmployees(): List<BsuirEmployee> {
+        val cached = readDiskCache("all_employees") ?: return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<BsuirEmployee>>() {}.type
+            gson.fromJson<List<BsuirEmployee>>(cached, type) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
@@ -138,26 +205,63 @@ object BsuirApi {
     suspend fun getAllEmployees(): List<BsuirEmployee> = withContext(Dispatchers.IO) {
         try {
             val json = fetchJson("$BASE_URL/employees/all")
-            if (json.isBlank()) return@withContext emptyList()
-            val type = object : com.google.gson.reflect.TypeToken<List<BsuirEmployee>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
+            if (json.isNotBlank() && json != "[]") {
+                writeDiskCache("all_employees", json)
+                val type = object : com.google.gson.reflect.TypeToken<List<BsuirEmployee>>() {}.type
+                gson.fromJson<List<BsuirEmployee>>(json, type) ?: getCachedAllEmployees()
+            } else {
+                getCachedAllEmployees()
+            }
         } catch (e: Exception) {
-            emptyList()
+            getCachedAllEmployees()
+        }
+    }
+
+    fun getCachedGroupSchedule(groupNumber: String): BsuirScheduleResponse? {
+        var trimmed = groupNumber.trim()
+        if (trimmed == "114001" || trimmed.isEmpty()) trimmed = "310101"
+        val cached = readDiskCache("sched_group_$trimmed") ?: return null
+        return try {
+            gson.fromJson(cached, BsuirScheduleResponse::class.java)
+        } catch (e: Exception) {
+            null
         }
     }
 
     suspend fun getGroupSchedule(groupNumber: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {
         var trimmed = groupNumber.trim()
         if (trimmed == "114001" || trimmed.isEmpty()) trimmed = "310101"
+        val cacheKey = "sched_group_$trimmed"
         try {
             val json = fetchJson("$BASE_URL/schedule?studentGroup=$trimmed")
             if (json.isNotBlank() && json != "{}") {
-                gson.fromJson(json, BsuirScheduleResponse::class.java)
-            } else {
-                val fallbackJson = fetchJson("$BASE_URL/schedules?studentGroup=$trimmed")
-                if (fallbackJson.isNotBlank() && fallbackJson != "{}") {
-                    gson.fromJson(fallbackJson, BsuirScheduleResponse::class.java)
-                } else null
+                val parsed = gson.fromJson(json, BsuirScheduleResponse::class.java)
+                if (parsed != null) {
+                    writeDiskCache(cacheKey, json)
+                    return@withContext parsed
+                }
+            }
+            val fallbackJson = fetchJson("$BASE_URL/schedules?studentGroup=$trimmed")
+            if (fallbackJson.isNotBlank() && fallbackJson != "{}") {
+                val parsed = gson.fromJson(fallbackJson, BsuirScheduleResponse::class.java)
+                if (parsed != null) {
+                    writeDiskCache(cacheKey, fallbackJson)
+                    return@withContext parsed
+                }
+            }
+            getCachedGroupSchedule(trimmed)
+        } catch (e: Exception) {
+            getCachedGroupSchedule(trimmed)
+        }
+    }
+
+    fun getCachedEmployeeSchedule(urlId: String): BsuirScheduleResponse? {
+        if (urlId.isBlank()) return null
+        employeeScheduleCache[urlId]?.let { return it }
+        val cached = readDiskCache("sched_emp_${urlId.trim()}") ?: return null
+        return try {
+            gson.fromJson(cached, BsuirScheduleResponse::class.java)?.also {
+                employeeScheduleCache[urlId] = it
             }
         } catch (e: Exception) {
             null
@@ -165,13 +269,110 @@ object BsuirApi {
     }
 
     suspend fun getEmployeeSchedule(urlId: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {
+        val cleanId = urlId.trim()
+        val cacheKey = "sched_emp_$cleanId"
         try {
-            val json = fetchJson("$BASE_URL/employees/schedule/$urlId")
-            gson.fromJson(json, BsuirScheduleResponse::class.java)
+            val json = fetchJson("$BASE_URL/employees/schedule/$cleanId")
+            if (json.isNotBlank() && json != "{}") {
+                val parsed = gson.fromJson(json, BsuirScheduleResponse::class.java)
+                if (parsed != null) {
+                    writeDiskCache(cacheKey, json)
+                    employeeScheduleCache[cleanId] = parsed
+                    return@withContext parsed
+                }
+            }
+            getCachedEmployeeSchedule(cleanId)
         } catch (e: Exception) {
-            e.printStackTrace()
-            null
+            getCachedEmployeeSchedule(cleanId)
         }
+    }
+
+    private val employeeScheduleCache = java.util.concurrent.ConcurrentHashMap<String, BsuirScheduleResponse>()
+
+    suspend fun getOrFetchEmployeeSchedule(urlId: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {
+        if (urlId.isBlank()) return@withContext null
+        employeeScheduleCache[urlId]?.let { return@withContext it }
+        getCachedEmployeeSchedule(urlId)?.let { return@withContext it }
+        val sched = getEmployeeSchedule(urlId)
+        if (sched != null) {
+            employeeScheduleCache[urlId] = sched
+        }
+        sched
+    }
+
+    suspend fun resolveAllGroupsForLesson(
+        teacherUrlId: String,
+        dayOfWeekInt: Int,
+        startTime: String,
+        subjectTitle: String,
+        lessonType: String,
+        fallbackGroups: List<String> = emptyList(),
+        currentGroup: String = "",
+        dateLesson: String? = null
+    ): List<String> = withContext(Dispatchers.IO) {
+        if (teacherUrlId.isBlank()) return@withContext fallbackGroups
+        val teacherSched = getOrFetchEmployeeSchedule(teacherUrlId) ?: return@withContext fallbackGroups
+
+        if (dateLesson != null) {
+            val exams = teacherSched.exams ?: emptyList()
+            for (el in exams) {
+                if (el.dateLesson == dateLesson && (startTime.isBlank() || el.startLessonTime == startTime)) {
+                    val grps = el.studentGroups?.mapNotNull { it.name?.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                    if (grps.isNotEmpty()) {
+                        if (currentGroup.isBlank() || grps.contains(currentGroup)) return@withContext grps
+                    }
+                }
+            }
+        }
+
+        val dayName = when (dayOfWeekInt) {
+            1 -> "Понедельник"
+            2 -> "Вторник"
+            3 -> "Среда"
+            4 -> "Четверг"
+            5 -> "Пятница"
+            6 -> "Суббота"
+            7 -> "Воскресенье"
+            else -> ""
+        }
+
+        val schedMap = (if (!teacherSched.schedules.isNullOrEmpty()) teacherSched.schedules else teacherSched.nextSchedules) ?: emptyMap()
+        val candidateLessons = mutableListOf<BsuirLesson>()
+
+        if (dayName.isNotBlank() && schedMap.containsKey(dayName)) {
+            candidateLessons.addAll(schedMap[dayName] ?: emptyList())
+        } else {
+            schedMap.values.forEach { candidateLessons.addAll(it) }
+        }
+
+        var bestMatch: List<String>? = null
+        val cleanSubj = subjectTitle.trim()
+
+        for (tl in candidateLessons) {
+            val tTime = tl.startLessonTime ?: ""
+            val tSubj = (tl.subject ?: tl.subjectFullName ?: "").trim()
+            val tType = tl.lessonTypeAbbrev ?: ""
+
+            val timeMatches = tTime == startTime
+            if (!timeMatches) continue
+
+            val subjMatches = cleanSubj.isBlank() || tSubj.contains(cleanSubj, ignoreCase = true) || cleanSubj.contains(tSubj, ignoreCase = true)
+            val typeMatches = lessonType.isBlank() || tType.equals(lessonType, ignoreCase = true)
+
+            if (subjMatches || typeMatches) {
+                val grps = tl.studentGroups?.mapNotNull { it.name?.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                if (grps.isNotEmpty()) {
+                    if (currentGroup.isNotBlank() && grps.contains(currentGroup)) {
+                        return@withContext grps
+                    }
+                    if (bestMatch == null || grps.size > bestMatch.size) {
+                        bestMatch = grps
+                    }
+                }
+            }
+        }
+
+        return@withContext bestMatch?.takeIf { it.isNotEmpty() } ?: fallbackGroups
     }
 
     suspend fun getCurrentWeek(): Int? = withContext(Dispatchers.IO) {

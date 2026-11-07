@@ -24,6 +24,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -156,6 +159,62 @@ fun getBsuirWeekForCalendarDay(selectedDayIndex: Int): Pair<Int, Int> {
     val diffWeeks = (diffMillis / (7L * 24 * 60 * 60 * 1000)).toInt()
     val weekNum = ((diffWeeks % 4 + 4) % 4) + 1
     return Pair(dow, weekNum)
+}
+
+data class NextLessonTarget(
+    val day: Int,
+    val month0Based: Int,
+    val year: Int,
+    val hour: Int,
+    val minute: Int,
+    val dateFormatted: String,
+    val timeFormatted: String,
+    val lessonType: String
+)
+
+fun findNextLessonForSubject(
+    context: android.content.Context,
+    group: String,
+    subject: String,
+    subgroup: Int = 0
+): NextLessonTarget? {
+    val dm = DataManager(context)
+    val allLessons = dm.getLessonsForTarget(group).ifEmpty { dm.getLessons() }
+    val cleanSubj = subject.trim()
+    if (allLessons.isEmpty() || cleanSubj.isBlank() || cleanSubj == "Общее" || cleanSubj == "Все") return null
+    val subjectLessons = allLessons.filter { l ->
+        l.title.equals(cleanSubj, ignoreCase = true) &&
+            (subgroup == 0 || l.subgroup == 0 || l.subgroup == subgroup)
+    }
+    if (subjectLessons.isEmpty()) return null
+
+    for (offset in 1..60) {
+        val (dow, wk) = getBsuirWeekForCalendarDay(7 + offset)
+        val matching = subjectLessons
+            .filter { it.dayOfWeek == dow && (it.weeks.isEmpty() || it.weeks.contains(wk)) }
+            .sortedBy { if (it.lessonType.contains("ЛР", true) || it.lessonType.contains("ПЗ", true)) 0 else 1 }
+            .firstOrNull()
+        if (matching != null) {
+            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
+            val d = cal.get(java.util.Calendar.DAY_OF_MONTH)
+            val m = cal.get(java.util.Calendar.MONTH)
+            val y = cal.get(java.util.Calendar.YEAR)
+            val timeParts = matching.startTime.split(":")
+            val h = timeParts.getOrNull(0)?.trim()?.toIntOrNull() ?: 9
+            val min = timeParts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+            return NextLessonTarget(
+                day = d,
+                month0Based = m,
+                year = y,
+                hour = h,
+                minute = min,
+                dateFormatted = "%02d.%02d.%04d".format(d, m + 1, y),
+                timeFormatted = "%02d:%02d".format(h, min),
+                lessonType = matching.lessonType
+            )
+        }
+    }
+    return null
 }
 
 fun fetchAndStoreStudentProfile(context: android.content.Context) {
@@ -318,6 +377,7 @@ class MainActivity : ComponentActivity() {
         }
         
         NetworkClient.init(applicationContext)
+        BsuirApi.initCache(applicationContext)
         AppHapticManager.init(applicationContext)
         val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         AppHapticManager.isEnabled = prefs.getBoolean("vibration_enabled", true)
@@ -546,11 +606,239 @@ fun ParticleTrailLayer(isDarkTheme: Boolean, particleSizeMultiplier: Float, cust
     }
 }
 
+object IntroVideoPreviewTrigger {
+    var requestReplay by mutableStateOf(false)
+}
+
+@Composable
+fun BsuirIntroVideoSplash(
+    onFinished: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isFadingOut by remember { mutableStateOf(false) }
+    var elapsedSec by remember { mutableFloatStateOf(0f) }
+
+    val fadeAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isFadingOut) 0f else 1f,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 360,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+        finishedListener = {
+            if (isFadingOut) onFinished()
+        },
+        label = "introFadeAlpha"
+    )
+    val fadeScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isFadingOut) 1.04f else 1f,
+        animationSpec = androidx.compose.animation.core.tween(
+            durationMillis = 360,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+        label = "introFadeScale"
+    )
+
+    // 60fps animation clock + safety fallback timer
+    LaunchedEffect(Unit) {
+        val startNanos = System.nanoTime()
+        while (!isFadingOut) {
+            androidx.compose.runtime.withFrameNanos { now ->
+                elapsedSec = ((now - startNanos) / 1_000_000_000f).coerceAtLeast(0f)
+                if (elapsedSec >= 2.35f && !isFadingOut) {
+                    isFadingOut = true
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = fadeAlpha
+                scaleX = fadeScale
+                scaleY = fadeScale
+            }
+            .background(Color(0xFF101116))
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) {
+                if (!isFadingOut) {
+                    isFadingOut = true
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // 1. Instant 60fps vector/canvas backdrop (spotlight, sonar radio-waves, particles & glowing logo)
+        // Guarantees 0ms visual start even while hardware MediaPlayer warms up
+        val t = elapsedSec
+        val logoScale = remember(t) {
+            val u = (t / 0.82f).coerceIn(0f, 1f)
+            val s = 1.15f
+            val u1 = u - 1f
+            val back = u1 * u1 * ((s + 1f) * u1 + s) + 1f
+            0.84f + 0.16f * back
+        }
+        val logoAlpha = remember(t) {
+            ((t / 0.45f).coerceIn(0f, 1f))
+        }
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val bloomAlpha = ((t / 0.7f).coerceIn(0f, 1f)) * 0.32f
+            drawCircle(
+                brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF2997FF).copy(alpha = bloomAlpha),
+                        Color(0xFF12326B).copy(alpha = bloomAlpha * 0.45f),
+                        Color.Transparent
+                    ),
+                    center = Offset(cx, cy),
+                    radius = size.minDimension * 0.62f
+                ),
+                radius = size.minDimension * 0.62f,
+                center = Offset(cx, cy)
+            )
+
+            // Expanding sonar / radio wave rings from top-right of logo
+            val waveOrigin = Offset(cx + 38.dp.toPx(), cy - 22.dp.toPx())
+            for (wIdx in 0..2) {
+                val wStart = 0.16f + wIdx * 0.22f
+                if (t > wStart) {
+                    val wt = ((t - wStart) / 1.35f).coerceIn(0f, 1f)
+                    if (wt < 1f) {
+                        val easeOut = 1f - (1f - wt) * (1f - wt) * (1f - wt)
+                        val rad = 24.dp.toPx() + easeOut * 195.dp.toPx()
+                        val ringAlpha = (1f - wt) * (1f - wt) * 0.34f
+                        drawCircle(
+                            color = Color(0xFF38A3FF).copy(alpha = ringAlpha),
+                            radius = rad,
+                            center = waveOrigin,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+                        )
+                    }
+                }
+            }
+        }
+
+        // Crisp tinted BSUIR logo in the center
+        androidx.compose.foundation.Image(
+            painter = androidx.compose.ui.res.painterResource(id = R.drawable.bsuir_logo),
+            contentDescription = null,
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF38A3FF)),
+            modifier = Modifier
+                .width(168.dp)
+                .graphicsLayer {
+                    scaleX = logoScale
+                    scaleY = logoScale
+                    alpha = logoAlpha
+                }
+        )
+
+        // 2. Hardware MP4 video layer (R.raw.intro_video)
+        androidx.compose.ui.viewinterop.AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                android.view.TextureView(ctx).apply {
+                    isOpaque = false
+                    alpha = 0f
+                    var mediaPlayer: android.media.MediaPlayer? = null
+
+                    fun applyCenterCropTransform(viewWidth: Int, viewHeight: Int, videoW: Int, videoH: Int) {
+                        if (viewWidth <= 0 || viewHeight <= 0 || videoW <= 0 || videoH <= 0) return
+                        val viewRatio = viewWidth.toFloat() / viewHeight.toFloat()
+                        val videoRatio = videoW.toFloat() / videoH.toFloat()
+                        val scaleX: Float
+                        val scaleY: Float
+                        if (videoRatio > viewRatio) {
+                            scaleX = videoRatio / viewRatio
+                            scaleY = 1f
+                        } else {
+                            scaleX = 1f
+                            scaleY = viewRatio / videoRatio
+                        }
+                        val matrix = android.graphics.Matrix()
+                        matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f)
+                        setTransform(matrix)
+                    }
+
+                    surfaceTextureListener = object : android.view.TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                            try {
+                                val afd = ctx.resources.openRawResourceFd(com.example.schedule.R.raw.intro_video) ?: return
+                                val mp = android.media.MediaPlayer()
+                                mediaPlayer = mp
+                                mp.setSurface(android.view.Surface(surfaceTexture))
+                                mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                                afd.close()
+                                mp.isLooping = false
+                                mp.setVolume(0f, 0f)
+                                mp.setOnVideoSizeChangedListener { _, vw, vh ->
+                                    applyCenterCropTransform(width, height, vw, vh)
+                                }
+                                mp.setOnInfoListener { _, what, _ ->
+                                    if (what == android.media.MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                                        alpha = 1f
+                                    }
+                                    false
+                                }
+                                mp.setOnPreparedListener { player ->
+                                    applyCenterCropTransform(width, height, player.videoWidth, player.videoHeight)
+                                    player.start()
+                                }
+                                mp.setOnCompletionListener {
+                                    isFadingOut = true
+                                }
+                                mp.setOnErrorListener { _, _, _ ->
+                                    false
+                                }
+                                mp.prepareAsync()
+                            } catch (_: Exception) {}
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(surfaceTexture: android.graphics.SurfaceTexture, width: Int, height: Int) {
+                            mediaPlayer?.let { mp ->
+                                applyCenterCropTransform(width, height, mp.videoWidth, mp.videoHeight)
+                            }
+                        }
+
+                        override fun onSurfaceTextureDestroyed(surfaceTexture: android.graphics.SurfaceTexture): Boolean {
+                            try {
+                                mediaPlayer?.stop()
+                            } catch (_: Exception) {}
+                            try {
+                                mediaPlayer?.release()
+                            } catch (_: Exception) {}
+                            mediaPlayer = null
+                            return true
+                        }
+
+                        override fun onSurfaceTextureUpdated(surfaceTexture: android.graphics.SurfaceTexture) {
+                            if (alpha < 1f) alpha = 1f
+                        }
+                    }
+                }
+            }
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun MinimalistApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val sharedPreferences = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+    var showIntroVideo by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf(sharedPreferences.getBoolean("intro_video_enabled", true))
+    }
+    LaunchedEffect(IntroVideoPreviewTrigger.requestReplay) {
+        if (IntroVideoPreviewTrigger.requestReplay) {
+            showIntroVideo = true
+            IntroVideoPreviewTrigger.requestReplay = false
+        }
+    }
     val groupPrefs = remember { context.getSharedPreferences("group_prefs", android.content.Context.MODE_PRIVATE) }
     var selectedSubgroup by remember { mutableStateOf(groupPrefs.getInt("subgroup", 0)) }
 
@@ -590,25 +878,49 @@ fun MinimalistApp() {
         }
     }
     if (!isLoggedIn) {
-        MinLoginScreen(
-            MinBg = Color(0xFF101116),
-            MinBorder = Color(0xFF222222),
-            MinTextPrimary = Color(0xFFEEEEEE),
-            MinTextSecondary = Color(0xFF888888),
-            isDarkTheme = true,
-            onLoginSuccess = { gradebook, token ->
-                val realGroup = sharedPreferences.getString("login_group", null)
-                val groupStr = if (!realGroup.isNullOrBlank()) realGroup else (if (gradebook.length >= 6) gradebook.take(6) else gradebook)
-                sharedPreferences.edit().putBoolean("is_logged_in", true)
-                     .putString("gradebook", gradebook)
-                     .putString("auth_token", token)
-                     .putString("selectedGroup", groupStr)
-                     .putString("login_group", groupStr)
-                     .apply()
-                selectedGroup = groupStr
-                isLoggedIn = true
+        Box(modifier = Modifier.fillMaxSize()) {
+            MinLoginScreen(
+                MinBg = Color(0xFF101116),
+                MinBorder = Color(0xFF222222),
+                MinTextPrimary = Color(0xFFEEEEEE),
+                MinTextSecondary = Color(0xFF888888),
+                isDarkTheme = true,
+                onLoginSuccess = { gradebook, token ->
+                    if (token.isBlank()) {
+                        // Guest mode: clear all previous private data so personal grades/FIO are never exposed
+                        sharedPreferences.edit()
+                            .putBoolean("is_logged_in", true)
+                            .remove("auth_token")
+                            .remove("login_fio")
+                            .remove("login_group")
+                            .remove("login_photo")
+                            .remove("login_desc")
+                            .remove("cached_academic_progress")
+                            .remove("cached_gradebook")
+                            .remove("cached_profile")
+                            .remove("gradebook_number")
+                            .remove("saved_password")
+                            .apply()
+                        selectedGroup = sharedPreferences.getString("selectedGroup", "510902") ?: "510902"
+                        isLoggedIn = true
+                    } else {
+                        val realGroup = sharedPreferences.getString("login_group", null)
+                        val groupStr = if (!realGroup.isNullOrBlank()) realGroup else (if (gradebook.length >= 6) gradebook.take(6) else gradebook)
+                        sharedPreferences.edit().putBoolean("is_logged_in", true)
+                             .putString("gradebook", gradebook)
+                             .putString("auth_token", token)
+                             .putString("selectedGroup", groupStr)
+                             .putString("login_group", groupStr)
+                             .apply()
+                        selectedGroup = groupStr
+                        isLoggedIn = true
+                    }
+                }
+            )
+            if (showIntroVideo) {
+                BsuirIntroVideoSplash(onFinished = { showIntroVideo = false })
             }
-        )
+        }
         return
     }
     var customPrimaryColor by remember { mutableStateOf(sharedPreferences.getInt("customPrimaryColor", -1).let { if (it == -1) null else Color(it) }) }
@@ -623,11 +935,24 @@ fun MinimalistApp() {
     androidx.compose.runtime.LaunchedEffect(transitionsEnabled) { sharedPreferences.edit().putBoolean("transitionsEnabled", transitionsEnabled).apply() }
     androidx.compose.runtime.LaunchedEffect(transitionType) { sharedPreferences.edit().putString("transitionType", transitionType.name).apply() }
     androidx.compose.runtime.LaunchedEffect(transitionSpeedMultiplier) { sharedPreferences.edit().putFloat("transitionSpeedMultiplier", transitionSpeedMultiplier).apply() }
-    androidx.compose.runtime.LaunchedEffect(customPrimaryColor) { sharedPreferences.edit().putInt("customPrimaryColor", customPrimaryColor?.toArgb() ?: -1).apply() }
-    androidx.compose.runtime.LaunchedEffect(customBackgroundColor) { sharedPreferences.edit().putInt("customBackgroundColor", customBackgroundColor?.toArgb() ?: -1).apply() }
+    androidx.compose.runtime.LaunchedEffect(customPrimaryColor) {
+        sharedPreferences.edit().putInt("customPrimaryColor", customPrimaryColor?.toArgb() ?: -1).apply()
+        ScheduleWidgetProvider.updateAllWidgets(context)
+    }
+    androidx.compose.runtime.LaunchedEffect(customBackgroundColor) {
+        sharedPreferences.edit().putInt("customBackgroundColor", customBackgroundColor?.toArgb() ?: -1).apply()
+        ScheduleWidgetProvider.updateAllWidgets(context)
+    }
     androidx.compose.runtime.LaunchedEffect(customParticleColor) { sharedPreferences.edit().putInt("customParticleColor", customParticleColor?.toArgb() ?: -1).apply() }
     androidx.compose.runtime.LaunchedEffect(textSizeMultiplier) { sharedPreferences.edit().putFloat("textSizeMultiplier", textSizeMultiplier).apply() }
-    androidx.compose.runtime.LaunchedEffect(selectedGroup) { sharedPreferences.edit().putString("selectedGroup", selectedGroup).apply() }
+    androidx.compose.runtime.LaunchedEffect(selectedGroup) {
+        sharedPreferences.edit().putString("selectedGroup", selectedGroup).apply()
+        ScheduleWidgetProvider.updateAllWidgets(context)
+    }
+    androidx.compose.runtime.LaunchedEffect(isDarkTheme) {
+        sharedPreferences.edit().putBoolean("isDarkTheme", isDarkTheme).apply()
+        ScheduleWidgetProvider.updateAllWidgets(context)
+    }
     
     var bgMode by remember { mutableStateOf(sharedPreferences.getString("bgMode", "Solid") ?: "Solid") }
     var bgImageUri by remember { mutableStateOf(sharedPreferences.getString("bgImageUri", null)) }
@@ -882,7 +1207,8 @@ fun MinimalistApp() {
         AppleTouchChargingAura(
             touchOffset = touchChargeOffset,
             progress = touchChargeAnim.value,
-            isDarkTheme = isDarkTheme
+            isDarkTheme = isDarkTheme,
+            accentColor = MinAccent
         )
 
         AppleRadialMenu(
@@ -947,10 +1273,15 @@ fun MinimalistApp() {
         androidx.compose.material3.LocalTextStyle provides androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = activeFontFamily)
     ) {
         androidx.compose.material3.MaterialTheme(typography = appTypography) {
-            if (styleType == StyleType.Techno) {
-                MatrixRainLayer { appContent() }
-            } else {
-                appContent()
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (styleType == StyleType.Techno) {
+                    MatrixRainLayer { appContent() }
+                } else {
+                    appContent()
+                }
+                if (showIntroVideo) {
+                    BsuirIntroVideoSplash(onFinished = { showIntroVideo = false })
+                }
             }
         }
     }
@@ -1004,16 +1335,16 @@ fun rememberDeviceTilt(onShake: (() -> Unit)? = null): Pair<Float, Float> {
     val animatedTiltX by androidx.compose.animation.core.animateFloatAsState(
         targetValue = rawTiltX,
         animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-            stiffness = 220f
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+            stiffness = 300f
         ),
         label = "tiltX"
     )
     val animatedTiltY by androidx.compose.animation.core.animateFloatAsState(
         targetValue = rawTiltY,
         animationSpec = androidx.compose.animation.core.spring(
-            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-            stiffness = 220f
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+            stiffness = 300f
         ),
         label = "tiltY"
     )
@@ -1021,7 +1352,7 @@ fun rememberDeviceTilt(onShake: (() -> Unit)? = null): Pair<Float, Float> {
     return Pair(animatedTiltX, animatedTiltY)
 }
 
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, isDarkTheme: Boolean, selectedGroup: String, onGroupSelected: (String) -> Unit, selectedSubgroup: Int, onSubgroupChange: (Int) -> Unit, displayTitle: String? = null) {
     var showScheduleSettings by remember { mutableStateOf(false) }
@@ -1052,18 +1383,28 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val context = androidx.compose.ui.platform.LocalContext.current
     val dataManager = remember { DataManager(context) }
     val prefs = remember { context.getSharedPreferences("group_prefs", android.content.Context.MODE_PRIVATE) }
-    var lessons by remember { mutableStateOf<List<Lesson>>(emptyList()) }
+    val schedulePrefs = remember { context.getSharedPreferences("schedule_prefs", android.content.Context.MODE_PRIVATE) }
+    var isDateRailVisible by remember { mutableStateOf(schedulePrefs.getBoolean("date_rail_visible", true)) }
+    var lessons by remember(effectiveGroup) {
+        val localTarget = dataManager.getLessonsForTarget(effectiveGroup)
+        val initial = if (localTarget.isNotEmpty()) localTarget else if (inlineTeacherData == null) dataManager.getLessons() else emptyList()
+        mutableStateOf(initial)
+    }
+    var isSessionMode by remember { mutableStateOf(false) }
+    var sessionExams by remember(effectiveGroup) { mutableStateOf(dataManager.getExams(effectiveGroup)) }
+    var sessionPeriod by remember(effectiveGroup) { mutableStateOf(dataManager.getSessionPeriod(effectiveGroup)) }
 
-    var allGroups by remember { mutableStateOf<List<BsuirStudentGroup>>(emptyList()) }
-    var allEmployees by remember { mutableStateOf<List<BsuirEmployee>>(emptyList()) }
+    var allGroups by remember { mutableStateOf(BsuirApi.getCachedAllGroups()) }
+    var allEmployees by remember { mutableStateOf(BsuirApi.getCachedAllEmployees()) }
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            BsuirApi.initCache(context)
             val grps = BsuirApi.getAllGroups()
             val emps = BsuirApi.getAllEmployees()
             withContext(kotlinx.coroutines.Dispatchers.Main) {
-                allGroups = grps
-                allEmployees = emps
+                if (grps.isNotEmpty()) allGroups = grps
+                if (emps.isNotEmpty()) allEmployees = emps
             }
         }
     }
@@ -1073,23 +1414,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val selectedDayOfWeek = dayInfo.first
     val currentWeek = dayInfo.second
 
-    LaunchedEffect(effectiveGroup) {
-        val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
-        val targetGrp = if (effectiveGroup == "114001" && realLoginGrp != null) realLoginGrp else effectiveGroup
-        if (targetGrp != effectiveGroup && inlineTeacherData == null) {
-            onGroupSelected(targetGrp)
-            return@LaunchedEffect
-        }
-        // Fetch schedule
-        
-        val response = if (effectiveGroup.any { it.isLetter() }) {
-            BsuirApi.getEmployeeSchedule(effectiveGroup)
-        } else {
-            BsuirApi.getGroupSchedule(effectiveGroup)
-        }
-        
+    fun parseScheduleResponse(resp: BsuirScheduleResponse?): Pair<List<Lesson>, List<Lesson>> {
         val newLessons = mutableListOf<Lesson>()
-        val schedMap = (if (!response?.schedules.isNullOrEmpty()) response?.schedules else response?.nextSchedules) ?: emptyMap()
+        val schedMap = (if (!resp?.schedules.isNullOrEmpty()) resp?.schedules else resp?.nextSchedules) ?: emptyMap()
         schedMap.forEach { (dayName, dayLessons) ->
             val dn = dayName.lowercase().trim()
             val dow = if ("пон" in dn || "mon" in dn) 1
@@ -1109,21 +1436,30 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     "$ln $fn$mn".trim()
                 } else ""
                 val aud = bl.auditories?.filter { it.isNotBlank() }?.joinToString(", ") ?: ""
-                val lType = bl.lessonTypeAbbrev ?: ""
+                val subjectTitle = bl.subject?.takeIf { it.isNotBlank() }
+                    ?: bl.note?.takeIf { it.isNotBlank() }
+                    ?: bl.subjectFullName?.takeIf { it.isNotBlank() }
+                    ?: if (bl.announcement == true) "Объявление" else "Занятие"
+                val lType = bl.lessonTypeAbbrev?.takeIf { it.isNotBlank() }
+                    ?: if (bl.announcement == true) "Инфо" else ""
                 val parts = mutableListOf<String>()
                 if (lType.isNotBlank()) parts.add(lType)
                 if (teacherShort.isNotBlank()) parts.add(teacherShort)
-                if (aud.isNotBlank()) parts.add("ауд. $aud")
+                if (aud.isNotBlank()) parts.add(aud)
+                if (!bl.note.isNullOrBlank() && subjectTitle != bl.note) {
+                    parts.add(bl.note)
+                }
                 val detailsStr = if (parts.isNotEmpty()) parts.joinToString(" • ") else ""
 
+                val groupsList = bl.studentGroups?.mapNotNull { it.name?.trim() }?.filter { it.isNotBlank() } ?: emptyList()
                 newLessons.add(Lesson(
                     startTime = bl.startLessonTime ?: "",
                     endTime = bl.endLessonTime ?: "",
-                    title = bl.subject ?: "Предмет",
+                    title = subjectTitle,
                     details = detailsStr,
                     isActive = false,
                     progress = null,
-                    subjectFullName = bl.subjectFullName ?: "",
+                    subjectFullName = bl.subjectFullName ?: subjectTitle,
                     lessonType = lType,
                     teacherName = teacherShort,
                     teacherFullName = teacher?.fullName ?: teacherShort,
@@ -1132,57 +1468,129 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     auditory = aud,
                     subgroup = bl.numSubgroup ?: 0,
                     weeks = bl.weekNumber ?: emptyList(),
-                    dayOfWeek = dow
+                    dayOfWeek = dow,
+                    dateLesson = bl.dateLesson,
+                    note = bl.note,
+                    studentGroups = groupsList
                 ))
             }
         }
-        response?.exams?.forEach { bl ->
-           val teacher = bl.employees?.firstOrNull()
-           val teacherShort = if (teacher != null) {
-               val ln = teacher.lastName ?: ""
-               val fn = teacher.firstName?.take(1)?.let { "$it." } ?: ""
-               val mn = teacher.middleName?.take(1)?.let { "$it." } ?: ""
-               "$ln $fn$mn".trim()
-           } else ""
-           val aud = bl.auditories?.filter { it.isNotBlank() }?.joinToString(", ") ?: ""
-           val parts = mutableListOf<String>()
-           parts.add("Экзамен")
-           if (teacherShort.isNotBlank()) parts.add(teacherShort)
-           if (aud.isNotBlank()) parts.add("ауд. $aud")
-           val detailsStr = parts.joinToString(" • ")
+        val parsedExams = mutableListOf<Lesson>()
+        resp?.exams?.forEach { bl ->
+            val teacher = bl.employees?.firstOrNull()
+            val teacherShort = if (teacher != null) {
+                val ln = teacher.lastName ?: ""
+                val fn = teacher.firstName?.take(1)?.let { "$it." } ?: ""
+                val mn = teacher.middleName?.take(1)?.let { "$it." } ?: ""
+                "$ln $fn$mn".trim()
+            } else ""
+            val aud = bl.auditories?.filter { it.isNotBlank() }?.joinToString(", ") ?: ""
+            val lType = bl.lessonTypeAbbrev?.takeIf { it.isNotBlank() } ?: "Экзамен"
+            val parts = mutableListOf<String>()
+            parts.add(lType)
+            if (teacherShort.isNotBlank()) parts.add(teacherShort)
+            if (aud.isNotBlank()) parts.add(aud)
+            val detailsStr = parts.joinToString(" • ")
+            val examGroups = bl.studentGroups?.mapNotNull { it.name?.trim() }?.filter { it.isNotBlank() } ?: emptyList()
 
-           newLessons.add(Lesson(
-               startTime = bl.startLessonTime ?: "",
-               endTime = bl.endLessonTime ?: "",
-               title = bl.subject ?: "Экзамен",
-               details = detailsStr,
-               isActive = false,
-               progress = null,
-               subjectFullName = bl.subjectFullName ?: "",
-               lessonType = "Экзамен",
-               teacherName = teacherShort,
-               teacherFullName = teacher?.fullName ?: teacherShort,
-               teacherPhoto = teacher?.photoLink ?: "",
-               teacherUrlId = teacher?.urlId ?: "",
-               auditory = aud,
-               subgroup = bl.numSubgroup ?: 0,
-               weeks = listOf(1, 2, 3, 4),
-               dayOfWeek = 0
-           ))
+            parsedExams.add(Lesson(
+                startTime = bl.startLessonTime ?: "",
+                endTime = bl.endLessonTime ?: "",
+                title = bl.subject?.takeIf { it.isNotBlank() } ?: bl.subjectFullName ?: "Экзамен",
+                details = detailsStr,
+                isActive = false,
+                progress = null,
+                subjectFullName = bl.subjectFullName ?: "",
+                lessonType = lType,
+                teacherName = teacherShort,
+                teacherFullName = teacher?.fullName ?: teacherShort,
+                teacherPhoto = teacher?.photoLink ?: "",
+                teacherUrlId = teacher?.urlId ?: "",
+                auditory = aud,
+                subgroup = bl.numSubgroup ?: 0,
+                weeks = bl.weekNumber ?: listOf(1, 2, 3, 4),
+                dayOfWeek = 0,
+                dateLesson = bl.dateLesson,
+                note = bl.note,
+                studentGroups = examGroups
+            ))
         }
-        
-        if (newLessons.isNotEmpty()) {
-            dataManager.saveLessons(newLessons)
-            lessons = newLessons
+        return newLessons to parsedExams
+    }
+
+    LaunchedEffect(effectiveGroup) {
+        BsuirApi.initCache(context)
+        val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
+        val targetGrp = if (effectiveGroup == "114001" && realLoginGrp != null) realLoginGrp else effectiveGroup
+        if (targetGrp != effectiveGroup && inlineTeacherData == null) {
+            onGroupSelected(targetGrp)
+            return@LaunchedEffect
+        }
+
+        // 1. Instant local load from device memory (DataManager & BsuirApi disk cache)
+        val cachedTargetLessons = dataManager.getLessonsForTarget(targetGrp)
+        if (cachedTargetLessons.isNotEmpty()) {
+            lessons = cachedTargetLessons
         } else {
-            // Load from cache instead of mock data
-            val cached = dataManager.getLessons()
-            // If cache is exactly the mock data, don't use it
-            if (cached.size == 3 && cached[0].title == "Матан") {
-                lessons = emptyList()
-            } else {
-                lessons = cached
+            val diskResp = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                if (effectiveGroup.any { it.isLetter() }) {
+                    BsuirApi.getCachedEmployeeSchedule(effectiveGroup)
+                } else {
+                    BsuirApi.getCachedGroupSchedule(effectiveGroup)
+                }
             }
+            if (diskResp != null) {
+                val (diskLessons, diskExams) = parseScheduleResponse(diskResp)
+                if (diskLessons.isNotEmpty()) {
+                    lessons = diskLessons
+                    dataManager.saveLessonsForTarget(targetGrp, diskLessons)
+                }
+                if (diskExams.isNotEmpty()) {
+                    sessionExams = diskExams
+                    dataManager.saveExams(targetGrp, diskExams)
+                }
+            }
+        }
+        sessionExams = dataManager.getExams(targetGrp)
+        sessionPeriod = dataManager.getSessionPeriod(targetGrp)
+
+        // 2. Background network sync (updates device memory seamlessly when online)
+        val response = if (effectiveGroup.any { it.isLetter() }) {
+            BsuirApi.getEmployeeSchedule(effectiveGroup)
+        } else {
+            BsuirApi.getGroupSchedule(effectiveGroup)
+        }
+
+        val (newLessons, parsedExams) = parseScheduleResponse(response)
+
+        if (response != null) {
+            val startEx = response.startExamsDate ?: ""
+            val endEx = response.endExamsDate ?: ""
+            dataManager.saveSessionPeriod(targetGrp, startEx, endEx)
+            sessionPeriod = startEx to endEx
+
+            dataManager.saveExams(targetGrp, parsedExams)
+            sessionExams = parsedExams
+        } else {
+            sessionExams = dataManager.getExams(targetGrp)
+            sessionPeriod = dataManager.getSessionPeriod(targetGrp)
+        }
+
+        if (newLessons.isNotEmpty()) {
+            dataManager.saveLessonsForTarget(targetGrp, newLessons)
+            lessons = newLessons
+            // Pre-warm teacher schedules in background and store in device memory for offline use
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    val teachers = newLessons.mapNotNull { it.teacherUrlId.takeIf { id -> id.isNotBlank() } }.distinct()
+                    teachers.forEach { uid ->
+                        BsuirApi.getOrFetchEmployeeSchedule(uid)
+                    }
+                } catch (e: Exception) { /* ignore */ }
+            }
+        } else if (lessons.isEmpty()) {
+            val cached = dataManager.getLessonsForTarget(targetGrp).ifEmpty { dataManager.getLessons() }
+            lessons = cached
         }
     }
 
@@ -1190,29 +1598,51 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     LaunchedEffect(Unit) {
         while (true) {
             currentTimeMillis = System.currentTimeMillis()
-            kotlinx.coroutines.delay(10000L)
+            kotlinx.coroutines.delay(1000L)
         }
+    }
+
+    val filteredSessionExams = remember(sessionExams, selectedSubgroup) {
+        val list = if (selectedSubgroup == 0) sessionExams else sessionExams.filter { it.subgroup == 0 || it.subgroup == selectedSubgroup }
+        list.sortedWith(
+            compareBy<Lesson> { lesson ->
+                lesson.dateLesson?.let { dStr ->
+                    try {
+                        val parts = dStr.split(".")
+                        if (parts.size == 3) {
+                            "${parts[2]}${parts[1]}${parts[0]}"
+                        } else dStr
+                    } catch (e: Exception) { dStr }
+                } ?: ""
+            }.thenBy { it.startTime }
+        )
+    }
+
+    val groupedExams = remember(filteredSessionExams) {
+        filteredSessionExams.groupBy { it.dateLesson?.trim() ?: "Без даты" }
     }
 
     val filteredLessons = remember(lessons, selectedSubgroup, selectedDayOfWeek, currentWeek, selectedDayIndex, currentTimeMillis) {
         val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
         val nowMinutes = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
+        val nowSeconds = nowCal.get(java.util.Calendar.SECOND)
+        val nowTotalSeconds = nowMinutes * 60 + nowSeconds
         val isTodaySelected = (selectedDayIndex == 7)
 
         lessons.filter { 
             (it.subgroup == 0 || it.subgroup == selectedSubgroup || selectedSubgroup == 0) &&
-            (it.dayOfWeek == selectedDayOfWeek || it.dayOfWeek == 0) &&
+            it.dayOfWeek == selectedDayOfWeek &&
             (it.weeks.isEmpty() || it.weeks.contains(currentWeek))
         }.map { lesson ->
             if (isTodaySelected) {
                 try {
                     val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
                     val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
-                    val sMin = sParts[0] * 60 + sParts[1]
-                    val eMin = eParts[0] * 60 + eParts[1]
-                    val dur = (eMin - sMin).coerceAtLeast(1)
-                    if (nowMinutes in sMin until eMin) {
-                        val prog = ((nowMinutes - sMin).toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                    val sSec = (sParts[0] * 60 + sParts[1]) * 60
+                    val eSec = (eParts[0] * 60 + eParts[1]) * 60
+                    val durSec = (eSec - sSec).coerceAtLeast(60)
+                    if (nowTotalSeconds in sSec until eSec) {
+                        val prog = ((nowTotalSeconds - sSec).toFloat() / durSec.toFloat()).coerceIn(0f, 1f)
                         lesson.copy(isActive = true, progress = prog)
                     } else {
                         lesson.copy(isActive = false, progress = null)
@@ -1233,11 +1663,24 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         AppHapticManager.playClick()
     })
     val notesPrefs = remember { context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE) }
-    val subjectsWithNotes = remember(notesPrefs.getString("notes_data", "")) {
+    var scheduleNotesVersion by remember { mutableIntStateOf(0) }
+    val allScheduleNotes = remember(notesPrefs.getString("notes_data", ""), scheduleNotesVersion, selectedDayIndex) {
         try {
             val type = object : com.google.gson.reflect.TypeToken<List<Note>>() {}.type
-            (com.google.gson.Gson().fromJson<List<Note>>(notesPrefs.getString("notes_data", "[]"), type) ?: emptyList<Note>()).map { it.subject }.toSet()
-        } catch (e: Exception) { emptySet<String>() }
+            com.google.gson.Gson().fromJson<List<Note>>(notesPrefs.getString("notes_data", "[]"), type) ?: emptyList()
+        } catch (e: Exception) { emptyList() }
+    }
+    val subjectsWithNotes = remember(allScheduleNotes) {
+        allScheduleNotes.map { it.subject }.toSet()
+    }
+    val selectedDateFormatted = remember(selectedDayIndex) {
+        val cal = java.util.Calendar.getInstance()
+        cal.add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
+        "%02d.%02d.%04d".format(
+            cal.get(java.util.Calendar.DAY_OF_MONTH),
+            cal.get(java.util.Calendar.MONTH) + 1,
+            cal.get(java.util.Calendar.YEAR)
+        )
     }
 
     val blurRadius by androidx.compose.animation.core.animateDpAsState(
@@ -1269,7 +1712,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     Box(modifier = Modifier.fillMaxSize().let { if (isDialogOpen) it.blur(16.dp) else it }) {
         LazyColumn(
             modifier = Modifier.fillMaxSize()
-            .padding(end = 46.dp)
+            .padding(end = if (isSessionMode || !isDateRailVisible) 16.dp else 46.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -1285,11 +1728,11 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         item {
             Column {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    val weekText = if (currentWeek == 0) "КАНИКУЛЫ" else "$currentWeek УЧЕБНАЯ НЕДЕЛЯ"
-                    val weekTextTechno = if (currentWeek == 0) "> КАНИКУЛЫ_" else "> $currentWeek УЧЕБНАЯ НЕДЕЛЯ_"
-                    Text(if (styleType == StyleType.Techno) weekTextTechno else weekText, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary, letterSpacing = if (styleType == StyleType.Techno) 1.sp else 2.sp, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
+                    val weekText = if (isSessionMode) "Сессия" else if (currentWeek == 0) "Каникулы" else "$currentWeek учебная неделя"
+                    val weekTextTechno = if (isSessionMode) "> СЕССИЯ_" else if (currentWeek == 0) "> КАНИКУЛЫ_" else "> $currentWeek УЧЕБНАЯ НЕДЕЛЯ_"
+                    Text(if (styleType == StyleType.Techno) weekTextTechno else weekText, fontSize = if (styleType == StyleType.Techno) 19.sp else 15.sp, fontWeight = FontWeight.Medium, color = MinTextSecondary, letterSpacing = if (styleType == StyleType.Techno) 1.sp else 0.sp, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 val context2 = androidx.compose.ui.platform.LocalContext.current
                 var expanded by remember { mutableStateOf(false) }
@@ -1322,7 +1765,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         Text(
                             text = inlineTeacherData!!.second,
                             fontSize = 24.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.SemiBold,
                             color = MinTextPrimary,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -1347,7 +1790,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             Text(
                                 text = if (styleType == StyleType.Techno) "> ${effectiveTitle ?: selectedGroup}_" else (effectiveTitle ?: selectedGroup),
                                 fontSize = 33.sp,
-                                fontWeight = FontWeight.ExtraBold,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MinTextPrimary,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 maxLines = 1,
@@ -1607,14 +2050,113 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             isSelected = selectedSubgroup == sg,
                             onClick = { onSubgroupChange(sg) },
                             isDarkTheme = isDarkTheme,
-                            accentColor = MinAccent
+                            accentColor = MinAccent,
+                            unselectedBg = MinCardBg,
+                            unselectedTextColor = MinTextPrimary,
+                            selectedTextColor = MinCardBg,
+                            borderColorOverride = MinBorder
                         )
                     }
                 }
             }
         }
 
-        if (filteredLessons.isEmpty()) {
+        if (isSessionMode) {
+            if (sessionPeriod.first.isNotBlank() || sessionPeriod.second.isNotBlank()) {
+                item {
+                    val pStart = sessionPeriod.first.ifBlank { "?" }
+                    val pEnd = sessionPeriod.second.ifBlank { "?" }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(AppleTokens.RadiusMd))
+                            .background(if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.CanvasWhite)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Outlined.DateRange,
+                                contentDescription = null,
+                                tint = MinAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Период сессии: $pStart – $pEnd",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MinTextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (filteredSessionExams.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 60.dp, start = 20.dp, end = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Экзамены не найдены",
+                            color = if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinTextPrimary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val statusText = if (sessionPeriod.first.isNotBlank() && sessionPeriod.second.isNotBlank()) {
+                            "Сессия: с ${sessionPeriod.first} по ${sessionPeriod.second}\nРасписание ещё не опубликовано деканатом"
+                        } else {
+                            "Для выбранной группы нет назначенных экзаменов"
+                        }
+                        Text(
+                            text = statusText,
+                            color = if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.7f) else MinTextSecondary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else {
+                groupedExams.forEach { (dateStr, examsForDay) ->
+                    item {
+                        val formattedHeader = remember(dateStr) { formatExamDateHeader(dateStr) }
+                        Text(
+                            text = formattedHeader,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MinTextPrimary,
+                            modifier = Modifier.padding(start = 14.dp, top = 16.dp, bottom = 4.dp)
+                        )
+                    }
+                    examsForDay.forEach { exam ->
+                        item {
+                            SessionExamCard(
+                                exam = exam,
+                                MinTextPrimary = MinTextPrimary,
+                                MinTextSecondary = MinTextSecondary,
+                                MinAccent = MinAccent,
+                                isDarkTheme = isDarkTheme,
+                                onClick = {
+                                    AppHapticManager.playClick()
+                                    selectedLessonForSheet = exam
+                                },
+                                onTeacherClick = { urlId, name -> inlineTeacherData = urlId to name }
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (filteredLessons.isEmpty()) {
             item {
                 val selectedCal = remember(selectedDayIndex) {
                     val cal = java.util.Calendar.getInstance()
@@ -1640,7 +2182,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         mainStatus,
                         color = if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinTextPrimary,
                         fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        fontWeight = FontWeight.SemiBold,
                         fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null,
                         textAlign = TextAlign.Center
                     )
@@ -1662,13 +2204,21 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Box(
                         modifier = Modifier
                             .graphicsLayer {
-                                rotationX = (-tiltY * 3.2f * parallaxDepth).coerceIn(-6f, 6f)
-                                rotationY = (tiltX * 4.2f * parallaxDepth).coerceIn(-7f, 7f)
-                                cameraDistance = 12f * density
-                                translationX = tiltX * 6.dp.toPx() * parallaxDepth
-                                translationY = tiltY * 4.5.dp.toPx() * parallaxDepth
+                                if (styleType == StyleType.Techno) {
+                                    rotationX = (-tiltY * 3.2f * parallaxDepth).coerceIn(-6f, 6f)
+                                    rotationY = (tiltX * 4.2f * parallaxDepth).coerceIn(-7f, 7f)
+                                    cameraDistance = 12f * density
+                                    translationX = tiltX * 6.dp.toPx() * parallaxDepth
+                                    translationY = tiltY * 4.5.dp.toPx() * parallaxDepth
+                                }
                             }
                     ) {
+                        val matchedNotePreview = remember(allScheduleNotes, lesson.title, selectedDateFormatted) {
+                            val forSubject = allScheduleNotes.filter { it.subject.equals(lesson.title, ignoreCase = true) }
+                            val exactDay = forSubject.firstOrNull { it.date == selectedDateFormatted }
+                            val pinned = forSubject.firstOrNull { it.isPinned }
+                            (exactDay ?: pinned ?: forSubject.lastOrNull())?.text
+                        }
                         MinLessonCard(
                             lesson = lesson,
                             MinTextPrimary = MinTextPrimary,
@@ -1677,7 +2227,9 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             MinAccent = MinAccent,
                             MinCardBg = MinCardBg,
                             hasNotes = subjectsWithNotes.contains(lesson.title),
+                            notePreview = matchedNotePreview,
                             isDarkTheme = isDarkTheme,
+                            currentTimeMillis = currentTimeMillis,
                             onClick = {
                                 AppHapticManager.playClick()
                                 selectedLessonForSheet = lesson
@@ -1736,59 +2288,228 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     if (noteLessonToAdd != null) {
-        var noteText by remember { mutableStateOf("") }
+        val targetLesson = noteLessonToAdd!!
+        var noteText by remember(targetLesson) { mutableStateOf("") }
+        var isPinnedQuick by remember(targetLesson) { mutableStateOf(false) }
         val dateTuple = remember(selectedDayIndex) {
             val cal = java.util.Calendar.getInstance()
             cal.add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
             Triple(cal.get(java.util.Calendar.DAY_OF_MONTH), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.YEAR))
         }
-        val dateString = String.format("%02d.%02d.%04d", dateTuple.first, dateTuple.second + 1, dateTuple.third)
+        val currentDayStr = String.format("%02d.%02d.%04d", dateTuple.first, dateTuple.second + 1, dateTuple.third)
+        val nextLessonTarget = remember(targetLesson, effectiveGroup, selectedSubgroup) {
+            findNextLessonForSubject(context, effectiveGroup, targetLesson.title, selectedSubgroup)
+        }
+        var targetDateStr by remember(targetLesson, currentDayStr, nextLessonTarget) {
+            mutableStateOf(nextLessonTarget?.dateFormatted ?: currentDayStr)
+        }
+        var targetTimeStr by remember(targetLesson, nextLessonTarget) {
+            mutableStateOf(nextLessonTarget?.timeFormatted ?: targetLesson.startTime.ifBlank { "09:00" })
+        }
 
-        AlertDialog(
-            onDismissRequest = { noteLessonToAdd = null },
-                title = { Text("Заметка: " + noteLessonToAdd!!.title, color = androidx.compose.ui.graphics.Color.White, fontSize = 30.sp) },
-            text = {
-                Column {
-                    Text(dateString, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), fontSize = 24.sp)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = noteText,
-                        onValueChange = { noteText = it },
-                        placeholder = { Text("Введите заметку...", fontSize = 24.sp) },
-                        textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 24.sp, color = androidx.compose.ui.graphics.Color.White),
-                        modifier = Modifier.fillMaxWidth()
+        Dialog(onDismissRequest = { noteLessonToAdd = null }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MinCardBg)
+                    .border(1.dp, MinBorder, RoundedCornerShape(24.dp))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Заметка • ${targetLesson.title}",
+                        color = MinTextPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (noteText.isNotBlank()) {
-                        val newNote = Note(subject = noteLessonToAdd!!.title, text = noteText, date = dateString)
-                        val notesPrefs = context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE)
-                        val currentNotesRaw = notesPrefs.getString("notes_data", "[]") ?: "[]"
-                        val type = object : com.google.gson.reflect.TypeToken<List<Note>>() {}.type
-                        val currentNotes: List<Note> = com.google.gson.Gson().fromJson(currentNotesRaw, type) ?: emptyList()
-                        val updatedNotes = currentNotes + newNote
-                        notesPrefs.edit().putString("notes_data", com.google.gson.Gson().toJson(updatedNotes)).apply()
-                        noteLessonToAdd = null
+                    IconButton(onClick = { noteLessonToAdd = null }, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = MinTextSecondary)
                     }
-                }) {
-                    Text("Сохранить", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { noteLessonToAdd = null }) { Text("Отмена", color = androidx.compose.ui.graphics.Color.White, fontSize = 20.sp) }
-            },
-            containerColor = MinCardBg
-        )
+
+                // Quick target date selector: Next Pair vs Selected Day
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (nextLessonTarget != null) {
+                        val isNextSel = targetDateStr == nextLessonTarget.dateFormatted
+                        Row(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isNextSel) MinAccent.copy(alpha = 0.16f) else MinTextPrimary.copy(alpha = 0.06f))
+                                .border(1.dp, if (isNextSel) MinAccent else MinBorder, CircleShape)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    targetDateStr = nextLessonTarget.dateFormatted
+                                    targetTimeStr = nextLessonTarget.timeFormatted
+                                }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Outlined.EventAvailable, contentDescription = null, tint = if (isNextSel) MinAccent else MinTextSecondary, modifier = Modifier.size(15.dp))
+                            Text(
+                                "К след. паре (${nextLessonTarget.dateFormatted.take(5)})",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isNextSel) MinAccent else MinTextPrimary
+                            )
+                        }
+                    }
+
+                    val isCurrentDaySel = targetDateStr == currentDayStr
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (isCurrentDaySel) MinAccent.copy(alpha = 0.16f) else MinTextPrimary.copy(alpha = 0.06f))
+                            .border(1.dp, if (isCurrentDaySel) MinAccent else MinBorder, CircleShape)
+                            .clickable {
+                                AppHapticManager.playClick()
+                                targetDateStr = currentDayStr
+                                targetTimeStr = targetLesson.startTime.ifBlank { "09:00" }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Outlined.CalendarToday, contentDescription = null, tint = if (isCurrentDaySel) MinAccent else MinTextSecondary, modifier = Modifier.size(14.dp))
+                        Text(
+                            "Этот день (${currentDayStr.take(5)})",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isCurrentDaySel) MinAccent else MinTextPrimary
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (isPinnedQuick) Color(0xFFFF9500).copy(alpha = 0.16f) else MinTextPrimary.copy(alpha = 0.06f))
+                            .border(1.dp, if (isPinnedQuick) Color(0xFFFF9500) else MinBorder, CircleShape)
+                            .clickable {
+                                AppHapticManager.playClick()
+                                isPinnedQuick = !isPinnedQuick
+                            }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Icon(Icons.Outlined.PushPin, contentDescription = null, tint = if (isPinnedQuick) Color(0xFFFF9500) else MinTextSecondary, modifier = Modifier.size(14.dp))
+                        Text(
+                            "Закрепить",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isPinnedQuick) Color(0xFFFF9500) else MinTextPrimary
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    placeholder = { Text("Что нужно сделать к паре...", color = MinTextSecondary, fontSize = 15.sp) },
+                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 16.sp, color = MinTextPrimary),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MinAccent,
+                        unfocusedBorderColor = MinBorder,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        cursorColor = MinAccent
+                    )
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MinTextPrimary.copy(alpha = 0.08f))
+                            .clickable { noteLessonToAdd = null },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Отмена", color = MinTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .height(46.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (noteText.isNotBlank()) MinAccent else MinTextPrimary.copy(alpha = 0.08f))
+                            .clickable(enabled = noteText.isNotBlank()) {
+                                AppHapticManager.playClick()
+                                val newNote = Note(
+                                    subject = targetLesson.title,
+                                    text = noteText.trim(),
+                                    date = targetDateStr,
+                                    time = targetTimeStr,
+                                    isPinned = isPinnedQuick
+                                )
+                                val currentNotesRaw = notesPrefs.getString("notes_data", "[]") ?: "[]"
+                                val type = object : com.google.gson.reflect.TypeToken<List<Note>>() {}.type
+                                val currentNotes: List<Note> = com.google.gson.Gson().fromJson(currentNotesRaw, type) ?: emptyList()
+                                val updatedNotes = currentNotes + newNote
+                                notesPrefs.edit().putString("notes_data", com.google.gson.Gson().toJson(updatedNotes)).apply()
+                                scheduleNotesVersion++
+                                noteLessonToAdd = null
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "Сохранить",
+                            color = if (noteText.isNotBlank()) MinCardBg else MinTextSecondary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (selectedLessonForSheet != null) {
         val lesson = selectedLessonForSheet!!
+        var displayedGroups by remember(lesson) {
+            mutableStateOf(lesson.studentGroups)
+        }
+        LaunchedEffect(lesson) {
+            if (lesson.teacherUrlId.isNotBlank()) {
+                val resolved = BsuirApi.resolveAllGroupsForLesson(
+                    teacherUrlId = lesson.teacherUrlId,
+                    dayOfWeekInt = lesson.dayOfWeek,
+                    startTime = lesson.startTime,
+                    subjectTitle = lesson.title,
+                    lessonType = lesson.lessonType,
+                    fallbackGroups = lesson.studentGroups,
+                    currentGroup = selectedGroup,
+                    dateLesson = lesson.dateLesson
+                )
+                if (resolved.isNotEmpty() && resolved != displayedGroups) {
+                    displayedGroups = resolved
+                }
+            }
+        }
+
         AlertDialog(
             onDismissRequest = { selectedLessonForSheet = null },
             title = {
-                Text(lesson.subjectFullName.ifEmpty { lesson.title }, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Text(lesson.subjectFullName.ifEmpty { lesson.title }, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -1825,38 +2546,103 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Text("${lesson.startTime} — ${lesson.endTime} • ${if (lesson.subgroup == 0) "Вся группа" else "${lesson.subgroup} подгруппа"}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Text("Учебные недели", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                    Text(lesson.weeks.joinToString(", "), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                    
-                    val upcomingDates = remember(lesson) {
-                        val dates = mutableListOf<Pair<Int, String>>()
-                        val cal = java.util.Calendar.getInstance()
-                        for (offset in 1..75) {
-                            val info = getBsuirWeekForCalendarDay(7 + offset)
-                            val dow = info.first
-                            val w = info.second
-                            if (dow == lesson.dayOfWeek && (lesson.weeks.isEmpty() || lesson.weeks.contains(w))) {
-                                val itemCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
-                                val dateStr = String.format("%02d.%02d", itemCal.get(java.util.Calendar.DAY_OF_MONTH), itemCal.get(java.util.Calendar.MONTH) + 1)
-                                dates.add((7 + offset) to dateStr)
-                                if (dates.size == 3) break
-                            }
-                        }
-                        dates
-                    }
-                    if (upcomingDates.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Ближайшие занятия", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            upcomingDates.forEach { (targetIndex, dateStr) ->
-                                Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).border(2.dp, MinTextPrimary, RoundedCornerShape(8.dp)).clickable {
-                                    selectedDayIndex = targetIndex
-                                    selectedLessonForSheet = null
-                                }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                                    Text(dateStr, fontSize = 20.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
+                    if (displayedGroups.isNotEmpty()) {
+                        Text("Группы на занятии", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            displayedGroups.forEach { grpName ->
+                                val isCurrent = grpName == selectedGroup
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(if (isCurrent) MinAccent else MinAccent.copy(alpha = 0.16f))
+                                        .clickable {
+                                            onGroupSelected(grpName)
+                                            selectedLessonForSheet = null
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = grpName,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Bold,
+                                        color = if (isCurrent) androidx.compose.ui.graphics.Color.White else MinAccent
+                                    )
                                 }
                             }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (lesson.dateLesson != null) {
+                        Text("Дата", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text(formatExamDateHeader(lesson.dateLesson), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        if (!lesson.note.isNullOrBlank()) {
+                            Text("Примечание", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                            Text(lesson.note, fontSize = 16.sp, color = MinAccent, textAlign = TextAlign.Center)
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+                    } else {
+                        Text("Учебные недели", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text(lesson.weeks.joinToString(", "), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        
+                        val upcomingDates = remember(lesson) {
+                            val dates = mutableListOf<Pair<Int, String>>()
+                            val cal = java.util.Calendar.getInstance()
+                            for (offset in 1..75) {
+                                val info = getBsuirWeekForCalendarDay(7 + offset)
+                                val dow = info.first
+                                val w = info.second
+                                if (dow == lesson.dayOfWeek && (lesson.weeks.isEmpty() || lesson.weeks.contains(w))) {
+                                    val itemCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
+                                    val dateStr = String.format("%02d.%02d", itemCal.get(java.util.Calendar.DAY_OF_MONTH), itemCal.get(java.util.Calendar.MONTH) + 1)
+                                    dates.add((7 + offset) to dateStr)
+                                    if (dates.size == 3) break
+                                }
+                            }
+                            dates
+                        }
+                        if (upcomingDates.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Ближайшие занятия", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                upcomingDates.forEach { (targetIndex, dateStr) ->
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).border(2.dp, MinTextPrimary, RoundedCornerShape(8.dp)).clickable {
+                                        selectedDayIndex = targetIndex
+                                        selectedLessonForSheet = null
+                                    }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                                        Text(dateStr, fontSize = 20.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MinAccent)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    val target = lesson
+                                    selectedLessonForSheet = null
+                                    noteLessonToAdd = target
+                                }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "+ Добавить заметку к паре",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MinCardBg
+                            )
                         }
                     }
                 }
@@ -1869,25 +2655,176 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     // -------------------------------------------------------------
     // Ergonomic Side Vertical Date Slider (Apple Floating Date Rail)
     // -------------------------------------------------------------
-    Box(
-        modifier = Modifier
-            .align(Alignment.CenterEnd)
-            .fillMaxHeight()
-            .padding(top = 16.dp, bottom = 40.dp, end = 2.dp),
-        contentAlignment = Alignment.CenterEnd
-    ) {
-        AppleVerticalDateRail(
-            days = days,
-            weekDays = weekDays,
-            selectedDayIndex = selectedDayIndex,
-            onDaySelected = { index ->
-                selectedDayIndex = index
-                AppHapticManager.playClick()
-            },
-            isDarkTheme = isDarkTheme,
-            selectedColor = MinAccent,
-            todayIndex = 7
+    if (!isSessionMode) {
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val railWidthPx = with(density) { 80.dp.toPx() }
+        val railOffsetPx by animateFloatAsState(
+            targetValue = if (isDateRailVisible) 0f else railWidthPx,
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 380f),
+            label = "dateRailOffset"
         )
+
+        // 1. Sliding Date Rail Container (swipes right to hide)
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .offset { androidx.compose.ui.unit.IntOffset(x = kotlin.math.round(railOffsetPx).toInt(), y = 0) }
+                .padding(top = 16.dp, bottom = 40.dp, end = 2.dp)
+                .pointerInput(isDateRailVisible) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false)
+                            var totalX = 0f
+                            var totalY = 0f
+                            while (true) {
+                                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) break
+                                val dx = change.position.x - change.previousPosition.x
+                                val dy = change.position.y - change.previousPosition.y
+                                totalX += dx
+                                totalY += dy
+                                if (totalX > 25f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY) && isDateRailVisible) {
+                                    change.consume()
+                                    AppHapticManager.playClick()
+                                    isDateRailVisible = false
+                                    schedulePrefs.edit().putBoolean("date_rail_visible", false).apply()
+                                    break
+                                }
+                            }
+                        }
+                    }
+                },
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            AppleVerticalDateRail(
+                days = days,
+                weekDays = weekDays,
+                selectedDayIndex = selectedDayIndex,
+                onDaySelected = { index ->
+                    selectedDayIndex = index
+                    AppHapticManager.playClick()
+                },
+                isDarkTheme = isDarkTheme,
+                selectedColor = MinAccent,
+                todayIndex = 7
+            )
+        }
+
+        // 2. Edge return trigger zone & subtle Apple handle when hidden (swipes left or taps to return)
+        AnimatedVisibility(
+            visible = !isDateRailVisible,
+            enter = androidx.compose.animation.fadeIn(tween(200)),
+            exit = androidx.compose.animation.fadeOut(tween(200)),
+            modifier = Modifier.align(Alignment.CenterEnd)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(48.dp)
+                    .pointerInput(isDateRailVisible) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(pass = PointerEventPass.Initial, requireUnconsumed = false)
+                                var totalX = 0f
+                                var totalY = 0f
+                                while (true) {
+                                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) break
+                                    val dx = change.position.x - change.previousPosition.x
+                                    val dy = change.position.y - change.previousPosition.y
+                                    totalX += dx
+                                    totalY += dy
+                                    if (totalX < -25f && kotlin.math.abs(totalX) > kotlin.math.abs(totalY) && !isDateRailVisible) {
+                                        change.consume()
+                                        AppHapticManager.playClick()
+                                        isDateRailVisible = true
+                                        schedulePrefs.edit().putBoolean("date_rail_visible", true).apply()
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            AppHapticManager.playClick()
+                            isDateRailVisible = true
+                            schedulePrefs.edit().putBoolean("date_rail_visible", true).apply()
+                        }
+                    ),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                // Subtle Apple edge pill handle
+                Box(
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(width = 4.dp, height = 48.dp)
+                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                        .background(
+                            if (isDarkTheme) Color.White.copy(alpha = 0.35f)
+                            else Color.Black.copy(alpha = 0.25f)
+                        )
+                )
+            }
+        }
+    }
+
+    val hasSession = isSessionMode || isSessionPeriodActive(sessionPeriod.first, sessionPeriod.second, sessionExams)
+    if (hasSession) {
+        val fabInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val fabPressed by fabInteraction.collectIsPressedAsState()
+        val fabScale by animateFloatAsState(
+            targetValue = if (fabPressed) 0.94f else 1f,
+            animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+            label = "sessionFabScale"
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 28.dp, end = 20.dp)
+                .scale(fabScale)
+                .shadow(
+                    elevation = if (isDarkTheme) 14.dp else 8.dp,
+                    shape = RoundedCornerShape(AppleTokens.RadiusPill),
+                    spotColor = MinAccent.copy(alpha = 0.45f),
+                    ambientColor = Color.Black.copy(alpha = 0.2f)
+                )
+                .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                .background(if (isSessionMode) (if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite) else MinAccent)
+                .clickable(
+                    interactionSource = fabInteraction,
+                    indication = null,
+                    onClick = {
+                        AppHapticManager.playClick()
+                        isSessionMode = !isSessionMode
+                    }
+                )
+                .padding(horizontal = 18.dp, vertical = 11.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = if (isSessionMode) Icons.Outlined.CalendarToday else Icons.Outlined.School,
+                    contentDescription = if (isSessionMode) "Расписание" else "Сессия",
+                    tint = if (isSessionMode) MinAccent else Color.White,
+                    modifier = Modifier.size(19.dp)
+                )
+                Text(
+                    text = if (isSessionMode) "Расписание" else "Сессия",
+                    style = AppleTypography.bodyStrong().copy(fontSize = 14.5.sp),
+                    color = if (isSessionMode) MinTextPrimary else Color.White
+                )
+            }
+        }
     }
     
     if (showScheduleSettings) {
@@ -1908,7 +2845,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 Text(
                     "Настройки расписания",
                     fontSize = 30.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    fontWeight = FontWeight.SemiBold,
                     color = androidx.compose.ui.graphics.Color.White,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
@@ -2019,7 +2956,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         title,
                                         fontSize = 22.sp,
                                         color = textColor,
-                                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Bold,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Bold,
                                         fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
                                     )
                                 }
@@ -2037,7 +2974,21 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
 
 @Composable
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
-fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color, MinBorder: Color, MinAccent: Color, MinCardBg: Color, hasNotes: Boolean = false, isDarkTheme: Boolean = true, onClick: () -> Unit = {}, onLongClick: () -> Unit = {}, onTeacherClick: (String, String) -> Unit = { _, _ -> }) {
+fun MinLessonCard(
+    lesson: Lesson,
+    MinTextPrimary: Color,
+    MinTextSecondary: Color,
+    MinBorder: Color,
+    MinAccent: Color,
+    MinCardBg: Color,
+    hasNotes: Boolean = false,
+    notePreview: String? = null,
+    isDarkTheme: Boolean = true,
+    currentTimeMillis: Long = System.currentTimeMillis(),
+    onClick: () -> Unit = {},
+    onLongClick: () -> Unit = {},
+    onTeacherClick: (String, String) -> Unit = { _, _ -> }
+) {
     val styleType = LocalStyleType.current
     val isTechno = styleType == StyleType.Techno
     val monoFont = if (isTechno) vt323FontFamily else null
@@ -2061,13 +3012,16 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
             .scale(scale)
             .clip(cardShape)
             .background(Color.Transparent)
-            .border(1.dp, cardBorder, cardShape)
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
                     AppHapticManager.playClick()
                     onClick()
+                },
+                onLongClick = {
+                    AppHapticManager.playClick()
+                    onLongClick()
                 }
             )
             .padding(horizontal = 14.dp, vertical = 12.dp)
@@ -2078,16 +3032,15 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
         ) {
             // 1. Time Column
             Column(
-                modifier = Modifier.width(52.dp),
+                modifier = Modifier.width(56.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
                     text = lesson.startTime,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
-                    letterSpacing = (-0.3).sp,
-                    color = if (isTechno) technoAccent else if (lesson.isActive) (if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue) else MinTextPrimary,
+                    color = if (isTechno) technoAccent else if (lesson.isActive) MinAccent else MinTextPrimary,
                     fontFamily = monoFont,
                     maxLines = 1,
                     softWrap = false
@@ -2104,7 +3057,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 )
             }
 
-            Spacer(modifier = Modifier.width(10.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             // 2. Subtle Pill / Indicator for Lesson Type
             val lessonTypeBadge = when {
@@ -2117,17 +3070,12 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
             if (lessonTypeBadge.isNotBlank()) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                        .clip(RoundedCornerShape(6.dp))
                         .background(
-                            if (lesson.isActive) (if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue)
-                            else if (isDarkTheme) AppleTokens.Tile2
-                            else AppleTokens.SurfacePearl
+                            if (lesson.isActive) MinAccent
+                            else MinCardBg
                         )
-                        .border(
-                            1.dp,
-                            if (lesson.isActive) Color.Transparent else if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight,
-                            RoundedCornerShape(AppleTokens.RadiusPill)
-                        )
+                        .border(1.dp, if (lesson.isActive) Color.Transparent else MinBorder, RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -2135,14 +3083,14 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                         text = lessonTypeBadge,
                         style = AppleTypography.finePrint().copy(
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Medium
                         ),
-                        color = if (lesson.isActive) Color.White else if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                        color = if (lesson.isActive) MinCardBg else MinTextSecondary,
                         maxLines = 1,
                         softWrap = false
                     )
                 }
-                Spacer(modifier = Modifier.width(10.dp))
+                Spacer(modifier = Modifier.width(12.dp))
             }
 
             // 3. Central Column: Title, Teacher & Progress
@@ -2157,8 +3105,7 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                     text = displayTitle,
                     style = AppleTypography.bodyStrong().copy(
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = (-0.2).sp
+                        fontWeight = FontWeight.Medium
                     ),
                     color = if (isTechno) technoAccent else MinTextPrimary,
                     maxLines = 1,
@@ -2196,39 +3143,125 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                     )
                 }
 
+                if (!notePreview.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (isTechno) technoAccent else MinAccent)
+                        )
+                        Text(
+                            text = notePreview,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isTechno) technoAccent else MinAccent,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
                 val progress = lesson.progress
-                if (progress != null) {
-                    val remainingMinutes = remember(lesson.endTime, progress) {
+                if (progress != null && lesson.isActive) {
+                    val timeBreakdown = remember(currentTimeMillis, lesson.startTime, lesson.endTime) {
                         try {
-                            val nowCal = java.util.Calendar.getInstance()
-                            val nowMin = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + nowCal.get(java.util.Calendar.MINUTE)
+                            val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+                            val nowSec = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 3600 +
+                                         nowCal.get(java.util.Calendar.MINUTE) * 60 +
+                                         nowCal.get(java.util.Calendar.SECOND)
+
+                            val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
                             val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
-                            val eMin = eParts[0] * 60 + eParts[1]
-                            (eMin - nowMin).coerceAtLeast(1)
+                            val startSec = sParts[0] * 3600 + sParts[1] * 60
+                            val endSec = eParts[0] * 3600 + eParts[1] * 60
+
+                            val totalSec = (endSec - startSec).coerceAtLeast(60)
+                            val elapsedSec = (nowSec - startSec).coerceIn(0, totalSec)
+                            val remainingSec = (endSec - nowSec).coerceAtLeast(0)
+
+                            val remMinutes = (remainingSec + 59) / 60
+
+                            // BSUIR standard lesson: 85 min total (40 min 1st half, 5 min break, 40 min 2nd half)
+                            val isStandardPair = totalSec >= 70 * 60
+                            val halfDurationSec = if (isStandardPair) 40 * 60 else (totalSec - 5 * 60) / 2
+                            val breakDurationSec = 5 * 60
+                            val breakStartSec = halfDurationSec
+                            val breakEndSec = breakStartSec + breakDurationSec
+
+                            val isBreak: Boolean
+                            val statusText: String
+
+                            if (isStandardPair) {
+                                if (elapsedSec < breakStartSec) {
+                                    val toBreakSec = breakStartSec - elapsedSec
+                                    val toBreakMin = (toBreakSec + 59) / 60
+                                    isBreak = false
+                                    statusText = if (toBreakSec < 60) {
+                                        "До конца пары: $remMinutes мин (перерыв через $toBreakSec сек)"
+                                    } else {
+                                        "До конца пары: $remMinutes мин (перерыв через $toBreakMin мин)"
+                                    }
+                                } else if (elapsedSec < breakEndSec) {
+                                    val breakRemSec = breakEndSec - elapsedSec
+                                    val bMin = breakRemSec / 60
+                                    val bSec = breakRemSec % 60
+                                    val bStr = if (bMin > 0) "$bMin мин $bSec сек" else "$bSec сек"
+                                    isBreak = true
+                                    statusText = "Перерыв $bStr · До конца пары: $remMinutes мин"
+                                } else {
+                                    isBreak = false
+                                    statusText = if (remMinutes <= 3) {
+                                        val rSec = remainingSec % 60
+                                        "2-я часть • До конца пары: $remMinutes мин ($rSec сек)"
+                                    } else {
+                                        "2-я часть • До конца пары: $remMinutes мин"
+                                    }
+                                }
+                            } else {
+                                isBreak = false
+                                statusText = "До конца пары: $remMinutes мин"
+                            }
+
+                            val calculatedProg = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+                            Triple(statusText, isBreak, calculatedProg)
                         } catch (e: Exception) {
-                            val pTime = progress * 95f
-                            (95f - pTime).toInt().coerceAtLeast(1)
+                            val rem = ((1f - progress) * 85).toInt().coerceAtLeast(1)
+                            Triple("До конца пары: $rem мин", false, progress)
                         }
                     }
-                    val statusText = "До конца пары: $remainingMinutes мин"
+
+                    val (statusText, isBreak, activeProgress) = timeBreakdown
 
                     Spacer(modifier = Modifier.height(6.dp))
                     Canvas(modifier = Modifier.fillMaxWidth().height(4.dp)) {
                         val cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
                         val barBg = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
-                        val barColor = if (isTechno) technoAccent else MinAccent
+                        val barColor = if (isBreak) Color(0xFFFF9500) else if (isTechno) technoAccent else MinAccent
                         drawRoundRect(color = barBg, size = size, cornerRadius = cornerRadius)
-                        val activeWidth = size.width * progress.coerceIn(0f, 1f)
+                        val activeWidth = size.width * activeProgress.coerceIn(0f, 1f)
                         if (activeWidth > 0f) {
                             drawRoundRect(color = barColor, size = androidx.compose.ui.geometry.Size(activeWidth, size.height), cornerRadius = cornerRadius)
                         }
+                        // Visual break notch around middle (40/85 = 47.05%)
+                        val notchX = size.width * (40f / 85f)
+                        drawRoundRect(
+                            color = if (isDarkTheme) Color(0xFF16171D) else Color.White,
+                            topLeft = androidx.compose.ui.geometry.Offset(notchX, 0f),
+                            size = androidx.compose.ui.geometry.Size(1.5.dp.toPx(), size.height)
+                        )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = statusText,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isTechno) technoAccent else MinAccent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isBreak) Color(0xFFFF9500) else if (isTechno) technoAccent else MinAccent,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -2247,19 +3280,19 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                 }
             }
             if (cleanAuditory.isNotBlank()) {
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(AppleTokens.RadiusSm))
-                        .background(if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.SurfacePearl)
-                        .border(1.dp, if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight, RoundedCornerShape(AppleTokens.RadiusSm))
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MinCardBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(8.dp))
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = cleanAuditory,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                         color = if (isTechno) technoAccent else MinTextPrimary,
                         fontFamily = monoFont,
                         maxLines = 1,
@@ -2267,15 +3300,266 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
                     )
                 }
             }
+        }
+    }
+}
 
-            if (hasNotes) {
-                Spacer(modifier = Modifier.width(6.dp))
-                Icon(
-                    imageVector = Icons.Outlined.Edit,
-                    contentDescription = "Заметка",
-                    tint = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
-                    modifier = Modifier.size(16.dp)
+fun isSessionPeriodActive(startExamsDate: String?, endExamsDate: String?, exams: List<Lesson>): Boolean {
+    val sdf = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault())
+    val now = java.util.Calendar.getInstance()
+    now.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    now.set(java.util.Calendar.MINUTE, 0)
+    now.set(java.util.Calendar.SECOND, 0)
+    now.set(java.util.Calendar.MILLISECOND, 0)
+    val todayMillis = now.timeInMillis
+
+    var startMillis: Long? = null
+    var endMillis: Long? = null
+
+    if (!startExamsDate.isNullOrBlank()) {
+        try {
+            startMillis = sdf.parse(startExamsDate.trim())?.time
+        } catch (_: Exception) {}
+    }
+
+    if (!endExamsDate.isNullOrBlank()) {
+        try {
+            endMillis = sdf.parse(endExamsDate.trim())?.time?.plus(24 * 60 * 60 * 1000L - 1)
+        } catch (_: Exception) {}
+    }
+
+    if (startMillis == null && exams.isNotEmpty()) {
+        val examDates = exams.mapNotNull { ex ->
+            ex.dateLesson?.let {
+                try { sdf.parse(it.trim())?.time } catch (_: Exception) { null }
+            }
+        }
+        startMillis = examDates.minOrNull()
+        endMillis = examDates.maxOrNull()?.plus(24 * 60 * 60 * 1000L - 1)
+    }
+
+    if (startMillis == null) return false
+
+    return if (endMillis != null) {
+        todayMillis in startMillis..endMillis
+    } else {
+        todayMillis >= startMillis
+    }
+}
+
+fun formatExamDateHeader(dateStr: String): String {
+    if (dateStr.isBlank() || dateStr == "Без даты") return "Без даты"
+    return try {
+        val inFormat = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale("ru"))
+        val date = inFormat.parse(dateStr.trim())
+        if (date != null) {
+            val outFormat = java.text.SimpleDateFormat("d MMMM, EEEE", java.util.Locale("ru"))
+            val res = outFormat.format(date)
+            res.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale("ru")) else it.toString() }
+        } else dateStr
+    } catch (e: Exception) {
+        dateStr
+    }
+}
+
+@Composable
+fun SessionExamCard(
+    exam: Lesson,
+    MinTextPrimary: Color,
+    MinTextSecondary: Color,
+    MinAccent: Color,
+    isDarkTheme: Boolean,
+    onClick: () -> Unit,
+    onTeacherClick: ((String, String) -> Unit)? = null
+) {
+    val cardShape = RoundedCornerShape(AppleTokens.RadiusLg)
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+        label = "examCardScale"
+    )
+
+    val isExamType = exam.lessonType.contains("Экзамен", ignoreCase = true)
+    val isConsultation = exam.lessonType.contains("Консульт", ignoreCase = true)
+    val isCredit = exam.lessonType.contains("Зачет", ignoreCase = true) || exam.lessonType.contains("Дифф", ignoreCase = true)
+
+    val badgeColor = when {
+        isExamType -> if (isDarkTheme) Color(0xFFFF453A).copy(alpha = 0.20f) else Color(0xFFFF3B30).copy(alpha = 0.12f)
+        isConsultation -> if (isDarkTheme) Color(0xFF0A84FF).copy(alpha = 0.20f) else Color(0xFF007AFF).copy(alpha = 0.12f)
+        isCredit -> if (isDarkTheme) Color(0xFFFF9F0A).copy(alpha = 0.20f) else Color(0xFFFF9500).copy(alpha = 0.12f)
+        else -> if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.SurfacePearl
+    }
+    val badgeTextColor = when {
+        isExamType -> if (isDarkTheme) Color(0xFFFF6961) else Color(0xFFD70015)
+        isConsultation -> if (isDarkTheme) Color(0xFF64D2FF) else Color(0xFF0066CC)
+        isCredit -> if (isDarkTheme) Color(0xFFFFB340) else Color(0xFFC97800)
+        else -> if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clip(cardShape)
+            .background(Color.Transparent)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {
+                    AppHapticManager.playClick()
+                    onClick()
+                }
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 1. Time Column
+            Column(
+                modifier = Modifier.width(56.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = exam.startTime.ifBlank { "—" },
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MinTextPrimary,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    maxLines = 1,
+                    softWrap = false
                 )
+                if (exam.endTime.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = exam.endTime,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = MinTextSecondary,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // 2. Type badge pill
+            val badgeLabel = when {
+                isExamType -> "Экзамен"
+                isConsultation -> "Консультация"
+                isCredit -> if (exam.lessonType.contains("Дифф", ignoreCase = true)) "Дифф. зачет" else "Зачет"
+                exam.lessonType.isNotBlank() -> exam.lessonType
+                else -> "Экзамен"
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                    .background(badgeColor)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = badgeLabel,
+                    style = AppleTypography.finePrint().copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    color = badgeTextColor,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // 3. Subject and Teacher
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                val displayTitle = if (exam.subgroup != 0) "${exam.title} (${exam.subgroup} п.)" else exam.title
+                Text(
+                    text = displayTitle,
+                    style = AppleTypography.bodyStrong().copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    color = MinTextPrimary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (exam.teacherName.isNotBlank() || exam.teacherFullName.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    val teacherDisplay = exam.teacherName.ifBlank { exam.teacherFullName }
+                    Text(
+                        text = teacherDisplay,
+                        style = AppleTypography.subheadline().copy(fontSize = 13.sp),
+                        color = MinTextSecondary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                            enabled = onTeacherClick != null && exam.teacherUrlId.isNotBlank(),
+                            onClick = {
+                                if (onTeacherClick != null && exam.teacherUrlId.isNotBlank()) {
+                                    AppHapticManager.playClick()
+                                    onTeacherClick(exam.teacherUrlId, exam.teacherFullName.ifBlank { exam.teacherName })
+                                }
+                            }
+                        )
+                    )
+                }
+
+                if (!exam.note.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = exam.note,
+                        fontSize = 11.5.sp,
+                        color = MinAccent,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // 4. Auditory chip
+            val cleanAuditory = remember(exam.auditory, exam.title, exam.lessonType) {
+                val raw = exam.auditory.trim()
+                when {
+                    raw.isNotBlank() -> raw.replace(Regex("^(ауд\\.?\\s*|aud\\.?\\s*)", RegexOption.IGNORE_CASE), "").trim()
+                    exam.title.contains("Физ", ignoreCase = true) || exam.lessonType.contains("Физ", ignoreCase = true) -> "спортзал"
+                    else -> "—"
+                }
+            }
+            if (cleanAuditory.isNotBlank()) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(AppleTokens.RadiusSm))
+                        .background(if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.SurfacePearl)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = cleanAuditory,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MinTextPrimary,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }
@@ -2441,20 +3725,22 @@ fun MinMarksScreen(
                             prefs.edit().remove("cached_academic_progress").putInt("academic_progress_version", 4).apply()
                         }
 
-                        // 1. Try to load cached academic progress
-                        val cachedJson = prefs.getString("cached_academic_progress", null)
-                        if (cachedJson != null && subjectsList.isEmpty()) {
-                            try {
-                                val type = object : com.google.gson.reflect.TypeToken<List<AcademicSubjectProgress>>() {}.type
-                                val cached: List<AcademicSubjectProgress>? = com.google.gson.Gson().fromJson(cachedJson, type)
-                                if (!cached.isNullOrEmpty()) {
-                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        subjectsList = cached
-                                        isLoading = false
+                        // 1. Try to load cached academic progress only if authorized
+                        if (token.isNotBlank()) {
+                            val cachedJson = prefs.getString("cached_academic_progress", null)
+                            if (cachedJson != null && subjectsList.isEmpty()) {
+                                try {
+                                    val type = object : com.google.gson.reflect.TypeToken<List<AcademicSubjectProgress>>() {}.type
+                                    val cached: List<AcademicSubjectProgress>? = com.google.gson.Gson().fromJson(cachedJson, type)
+                                    if (!cached.isNullOrEmpty()) {
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            subjectsList = cached
+                                            isLoading = false
+                                        }
                                     }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
                             }
                         }
 
@@ -2475,10 +3761,12 @@ fun MinMarksScreen(
                                 }
                             } catch (e: Exception) {}
                         }
-                        listOfNotNull(
-                            prefs.getString("cached_gradebook", null),
-                            prefs.getString("cached_profile", null)
-                        ).forEach { extractRatingFromJson(it) }
+                        if (token.isNotBlank()) {
+                            listOfNotNull(
+                                prefs.getString("cached_gradebook", null),
+                                prefs.getString("cached_profile", null)
+                            ).forEach { extractRatingFromJson(it) }
+                        }
 
                         var fetchedFromApi = false
 
@@ -2768,12 +4056,6 @@ fun MinMarksScreen(
                         modifier = androidx.compose.ui.Modifier
                             .size(40.dp)
                             .clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(MinCardBg)
-                            .border(
-                                1.dp,
-                                MinBorder,
-                                androidx.compose.foundation.shape.CircleShape
-                            )
                             .clickable {
                                 AppHapticManager.playClick()
                                 loadData(true)
@@ -2802,9 +4084,9 @@ fun MinMarksScreen(
                     AppleCard(
                         modifier = androidx.compose.ui.Modifier.weight(1f),
                         isDarkTheme = isDarkTheme,
-                        cardBg = MinCardBg,
-                        cardBorder = MinBorder,
-                        hasProductShadow = !isDarkTheme
+                        cardBg = Color.Transparent,
+                        cardBorder = Color.Transparent,
+                        hasProductShadow = false
                     ) {
                         androidx.compose.foundation.layout.Row(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -2813,15 +4095,14 @@ fun MinMarksScreen(
                             androidx.compose.material3.Icon(
                                 imageVector = androidx.compose.material.icons.Icons.Outlined.Analytics,
                                 contentDescription = null,
-                                tint = appleAccent,
-                                modifier = androidx.compose.ui.Modifier.size(15.dp)
+                                tint = appleTextSecondary,
+                                modifier = androidx.compose.ui.Modifier.size(16.dp)
                             )
                             androidx.compose.material3.Text(
-                                text = "СРЕДНИЙ БАЛЛ",
+                                text = "Средний балл",
                                 style = AppleTypography.finePrint().copy(
-                                    fontSize = 11.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                    letterSpacing = 0.5.sp
+                                    fontSize = 12.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                                 ),
                                 color = appleTextSecondary
                             )
@@ -2831,23 +4112,18 @@ fun MinMarksScreen(
                         androidx.compose.material3.Text(
                             text = if (overallGpa > 0.0) String.format(java.util.Locale.US, "%.2f", overallGpa) else "—",
                             style = AppleTypography.heroDisplayLarge().copy(
-                                fontSize = 34.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                fontSize = 32.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                             ),
                             color = appleTextPrimary
                         )
 
-                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
                         androidx.compose.foundation.layout.Box(
                             modifier = androidx.compose.ui.Modifier
                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
                                 .background(appleAccent.copy(alpha = if (isDarkTheme) 0.16f else 0.10f))
-                                .border(
-                                    0.5.dp,
-                                    appleAccent.copy(alpha = 0.35f),
-                                    androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
-                                )
-                                .padding(horizontal = 7.dp, vertical = 2.5.dp)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             val badgeLabel = when {
                                 overallGpa >= 8.0 -> "Отлично"
@@ -2856,7 +4132,7 @@ fun MinMarksScreen(
                                 else -> "Нет оценок"
                             }
                             androidx.compose.material3.Text(
-                                text = if (gradedSubjectsCount > 0) "$badgeLabel • $gradedSubjectsCount предм." else badgeLabel,
+                                text = if (gradedSubjectsCount > 0) "$badgeLabel · $gradedSubjectsCount предм." else badgeLabel,
                                 style = AppleTypography.finePrint().copy(
                                     fontSize = 11.sp,
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
@@ -2870,9 +4146,9 @@ fun MinMarksScreen(
                     AppleCard(
                         modifier = androidx.compose.ui.Modifier.weight(1f),
                         isDarkTheme = isDarkTheme,
-                        cardBg = MinCardBg,
-                        cardBorder = MinBorder,
-                        hasProductShadow = !isDarkTheme
+                        cardBg = Color.Transparent,
+                        cardBorder = Color.Transparent,
+                        hasProductShadow = false
                     ) {
                         androidx.compose.foundation.layout.Row(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
@@ -2881,15 +4157,14 @@ fun MinMarksScreen(
                             androidx.compose.material3.Icon(
                                 imageVector = androidx.compose.material.icons.Icons.Outlined.CheckCircle,
                                 contentDescription = null,
-                                tint = appleAccent,
-                                modifier = androidx.compose.ui.Modifier.size(15.dp)
+                                tint = appleTextSecondary,
+                                modifier = androidx.compose.ui.Modifier.size(16.dp)
                             )
                             androidx.compose.material3.Text(
-                                text = "ЛАБОРАТОРНЫЕ",
+                                text = "Лабораторные",
                                 style = AppleTypography.finePrint().copy(
-                                    fontSize = 11.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                    letterSpacing = 0.5.sp
+                                    fontSize = 12.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                                 ),
                                 color = appleTextSecondary
                             )
@@ -2902,8 +4177,8 @@ fun MinMarksScreen(
                             androidx.compose.material3.Text(
                                 text = "$totalSubmittedLabs",
                                 style = AppleTypography.heroDisplayLarge().copy(
-                                    fontSize = 34.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    fontSize = 32.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                                 ),
                                 color = appleTextPrimary
                             )
@@ -2960,9 +4235,9 @@ fun MinMarksScreen(
                     AppleCard(
                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                         isDarkTheme = isDarkTheme,
-                        cardBg = MinCardBg,
-                        cardBorder = MinBorder,
-                        hasProductShadow = !isDarkTheme
+                        cardBg = Color.Transparent,
+                        cardBorder = Color.Transparent,
+                        hasProductShadow = false
                     ) {
                         androidx.compose.foundation.layout.Row(
                             verticalAlignment = androidx.compose.ui.Alignment.Top,
@@ -2972,12 +4247,7 @@ fun MinMarksScreen(
                                 modifier = androidx.compose.ui.Modifier
                                     .size(36.dp)
                                     .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(appleAccent.copy(alpha = 0.15f))
-                                    .border(
-                                        0.5.dp,
-                                        appleAccent.copy(alpha = 0.35f),
-                                        androidx.compose.foundation.shape.CircleShape
-                                    ),
+                                    .background(appleAccent.copy(alpha = 0.15f)),
                                 contentAlignment = androidx.compose.ui.Alignment.Center
                             ) {
                                 androidx.compose.material3.Icon(
@@ -3015,12 +4285,13 @@ fun MinMarksScreen(
                     AppleSearchInput(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = "Поиск по предметам...",
+                        placeholder = "Поиск",
                         isDarkTheme = isDarkTheme,
                         inputBg = MinCardBg,
                         inputBorder = MinBorder,
                         inputTextColor = appleTextPrimary,
-                        inputIconColor = appleAccent
+                        inputIconColor = appleTextSecondary,
+                        cursorColor = appleAccent
                     )
                 }
             }
@@ -3072,9 +4343,9 @@ fun MinMarksScreen(
                     AppleCard(
                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                         isDarkTheme = isDarkTheme,
-                        cardBg = MinCardBg,
-                        cardBorder = MinBorder,
-                        hasProductShadow = !isDarkTheme
+                        cardBg = Color.Transparent,
+                        cardBorder = Color.Transparent,
+                        hasProductShadow = false
                     ) {
                         // Top row: Subject Title & Average Mark Pill
                         androidx.compose.foundation.layout.Row(
@@ -3106,19 +4377,13 @@ fun MinMarksScreen(
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
                                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                        .background(appleAccent.copy(alpha = if (isDarkTheme) 0.16f else 0.10f))
-                                        .border(
-                                            0.8.dp,
-                                            appleAccent.copy(alpha = 0.40f),
-                                            androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(horizontal = 9.dp, vertical = 3.5.dp),
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
                                     contentAlignment = androidx.compose.ui.Alignment.Center
                                 ) {
                                     androidx.compose.material3.Text(
                                         text = String.format(java.util.Locale.US, "%.1f", avgVal),
                                         style = AppleTypography.subheadline().copy(
-                                            fontSize = 13.5.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                         ),
                                         color = appleAccent
@@ -3218,29 +4483,20 @@ fun MinMarksScreen(
                                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                     ) {
-                                        // Category Pill Badge (transparent)
-                                        val badgeBorder = MinBorder
-
+                                        // Category Pill Badge (no background, no border)
                                         androidx.compose.foundation.layout.Box(
                                             modifier = androidx.compose.ui.Modifier
-                                                .width(42.dp)
-                                                .height(26.dp)
-                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
-                                                .background(Color.Transparent)
-                                                .border(
-                                                    0.8.dp,
-                                                    badgeBorder,
-                                                    androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
-                                                ),
-                                            contentAlignment = androidx.compose.ui.Alignment.Center
+                                                .width(36.dp)
+                                                .height(26.dp),
+                                            contentAlignment = androidx.compose.ui.Alignment.CenterStart
                                         ) {
                                             androidx.compose.material3.Text(
                                                 text = typeKey,
                                                 style = AppleTypography.finePrint().copy(
-                                                    fontSize = 11.5.sp,
+                                                    fontSize = 12.sp,
                                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                                 ),
-                                                color = appleTextPrimary,
+                                                color = appleAccent,
                                                 maxLines = 1
                                             )
                                         }
@@ -3257,24 +4513,16 @@ fun MinMarksScreen(
                                         ) {
                                             marksInGroup.forEach { markInfo ->
                                                 val mVal = markInfo.mark
-                                                val markCardBorder = MinBorder
 
                                                 androidx.compose.foundation.layout.Box(
                                                     modifier = androidx.compose.ui.Modifier
-                                                        .size(36.dp)
-                                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp))
-                                                        .background(Color.Transparent)
-                                                        .border(
-                                                            0.8.dp,
-                                                            markCardBorder,
-                                                            androidx.compose.foundation.shape.RoundedCornerShape(9.dp)
-                                                        ),
+                                                        .size(32.dp),
                                                     contentAlignment = androidx.compose.ui.Alignment.Center
                                                 ) {
                                                     androidx.compose.material3.Text(
                                                         text = mVal.toString(),
                                                         style = AppleTypography.subheadline().copy(
-                                                            fontSize = 15.sp,
+                                                            fontSize = 16.sp,
                                                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                                         ),
                                                         color = appleTextPrimary
@@ -3357,12 +4605,17 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     .build()
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string()
+                    val nowCal = java.util.Calendar.getInstance()
+                    val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1 // 1..12
+                    val curYearNum = nowCal.get(java.util.Calendar.YEAR)
+                    val monthNamesAll = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
+
                     withContext(kotlinx.coroutines.Dispatchers.Main) {
                         if (response.isSuccessful && body != null) {
                             try {
                                 val jsonArray = if (body.trim().startsWith("[")) org.json.JSONArray(body) else org.json.JSONArray()
                                 var tHours = 0
-                                var uHours = 0
+                                var uHoursCurrentMonth = 0
                                 val mData = mutableMapOf<String, Int>()
                                 val muData = mutableMapOf<String, Int>()
                                 val parsedLessons = mutableListOf<RealOmissionLesson>()
@@ -3384,29 +4637,31 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                     for (lesson in items) {
                                         val omissions = lesson.optInt("gradeBookOmissions", lesson.optInt("missedHours", lesson.optInt("omissions", 0)))
                                         val isRespectful = lesson.optBoolean("isRespectfulOmission", lesson.optBoolean("respectful", false))
-                                        val dateString = lesson.optString("dateString", lesson.optString("date", ""))
-                                        val subject = lesson.optString("nameLesson", lesson.optString("subject", lesson.optString("lessonName", "Учебное занятие")))
-                                        val lessonType = lesson.optString("lessonType", lesson.optString("type", "ПЗ"))
-                                        val note = lesson.optString("note", lesson.optString("reason", lesson.optString("comment", "")))
-                                        val teacher = lesson.optString("teacher", lesson.optString("employee", ""))
+                                        val dateString = lesson.optString("dateString", lesson.optString("date", "")).takeIf { it != "null" } ?: ""
+                                        val subject = lesson.optString("nameLesson", lesson.optString("subject", lesson.optString("lessonName", "Учебное занятие"))).takeIf { it != "null" } ?: "Учебное занятие"
+                                        val lessonType = lesson.optString("lessonType", lesson.optString("type", "ПЗ")).takeIf { it != "null" } ?: "ПЗ"
+                                        val note = lesson.optString("note", lesson.optString("reason", lesson.optString("comment", ""))).takeIf { it != "null" } ?: ""
+                                        val teacher = lesson.optString("teacher", lesson.optString("employee", "")).takeIf { it != "null" } ?: ""
 
-                                        tHours += omissions
-                                        if (!isRespectful) uHours += omissions
-                                        
                                         var mName = "Другое"
+                                        var lessonMonthIndex: Int? = null
                                         if (dateString.length >= 5) {
                                             val parts = dateString.split(".", "-")
-                                            val monthIndex = if (parts.size >= 2) {
+                                            lessonMonthIndex = if (parts.size >= 2) {
                                                 if (parts[0].length == 4) parts[1].toIntOrNull() else parts[1].toIntOrNull()
                                             } else null
-                                            if (monthIndex != null && monthIndex in 1..12) {
-                                                val monthNames = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
-                                                mName = monthNames[monthIndex - 1]
+                                            if (lessonMonthIndex != null && lessonMonthIndex in 1..12) {
+                                                mName = monthNamesAll[lessonMonthIndex - 1]
                                                 mData[mName] = (mData[mName] ?: 0) + omissions
                                                 if (!isRespectful) {
                                                     muData[mName] = (muData[mName] ?: 0) + omissions
                                                 }
                                             }
+                                        }
+
+                                        tHours += omissions
+                                        if (!isRespectful && lessonMonthIndex == curMonthNum) {
+                                            uHoursCurrentMonth += omissions
                                         }
 
                                         if (omissions > 0) {
@@ -3445,10 +4700,11 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                         dates = docDates,
                                         subjects = docSubjects
                                     )
-                                }
+                                }.toMutableList()
 
+                                prefs.edit().putInt("cached_unexcused_hours", uHoursCurrentMonth).apply()
                                 totalHours = tHours
-                                unexcusedHours = uHours
+                                unexcusedHours = uHoursCurrentMonth
                                 monthlyData = mData
                                 monthlyUnexcusedData = muData
                                 allLessons = parsedLessons
@@ -3470,6 +4726,89 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         }
                     }
                 }
+
+                // Additionally fetch /api/v1/omissions-by-student (real medical certificates & date ranges)
+                try {
+                    val certReq = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/omissions-by-student", token)
+                    com.example.schedule.NetworkClient.executeWithAuth(certReq, context).use { certResp ->
+                        val certBody = certResp.body?.string()
+                        if (certResp.isSuccessful && !certBody.isNullOrBlank()) {
+                            val certJson = org.json.JSONObject(certBody)
+                            val dtoList = certJson.optJSONArray("omissionDtoList")
+                            if (dtoList != null && dtoList.length() > 0) {
+                                val extraDocs = mutableListOf<RealExcuseDocument>()
+                                for (k in 0 until dtoList.length()) {
+                                    val item = dtoList.optJSONObject(k) ?: continue
+                                    val name = item.optString("name", "Справка").takeIf { it != "null" && it.isNotBlank() } ?: "Справка"
+                                    val note = item.optString("note", "").takeIf { it != "null" } ?: ""
+                                    val dFrom = (item.optString("dateFrom", "").takeIf { it != "null" } ?: "").take(10)
+                                    val dTo = (item.optString("dateTo", "").takeIf { it != "null" } ?: "").take(10)
+                                    val term = item.optString("term", "").takeIf { it != "null" } ?: ""
+                                    val rangeStr = if (dFrom.isNotBlank() && dTo.isNotBlank()) "С $dFrom по $dTo" else dFrom
+                                    extraDocs.add(
+                                        RealExcuseDocument(
+                                            title = name,
+                                            note = listOf(rangeStr, note, if (term.isNotBlank()) "$term семестр" else "").filter { it.isNotBlank() }.joinToString(" • "),
+                                            hoursClosed = 0,
+                                            dates = listOfNotNull(dFrom.takeIf { it.isNotBlank() }, dTo.takeIf { it.isNotBlank() }),
+                                            subjects = emptyList()
+                                        )
+                                    )
+                                }
+                                if (extraDocs.isNotEmpty()) {
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        excuseDocuments = (extraDocs + excuseDocuments).distinctBy { it.title + it.note }
+                                        isNotAuthorized = false
+                                        isLoading = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                // Additionally fetch /api/v1/disrespectful-omissions-by-student (count ONLY current month)
+                try {
+                    val nowCal = java.util.Calendar.getInstance()
+                    val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1
+                    val curYearNum = nowCal.get(java.util.Calendar.YEAR)
+                    val disReq = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/disrespectful-omissions-by-student", token)
+                    com.example.schedule.NetworkClient.executeWithAuth(disReq, context).use { disResp ->
+                        val disBody = disResp.body?.string()
+                        if (disResp.isSuccessful && !disBody.isNullOrBlank() && disBody.trim().startsWith("[")) {
+                            val arr = org.json.JSONArray(disBody.trim())
+                            if (allLessons.isEmpty()) {
+                                var curMonthDisSum = 0
+                                for (k in 0 until arr.length()) {
+                                    val obj = arr.optJSONObject(k) ?: continue
+                                    val hrs = obj.optInt("omissionCount", obj.optInt("hours", 0))
+                                    val mNum = obj.optInt("month", -1)
+                                    val dt = obj.optString("date", "").takeIf { it != "null" } ?: ""
+                                    val isThisMonth = when {
+                                        mNum in 1..12 -> mNum == curMonthNum
+                                        dt.length >= 7 -> {
+                                            val parts = dt.split(".", "-")
+                                            val parsedM = if (parts.size >= 2) parts[1].toIntOrNull() else null
+                                            val parsedY = if (parts.size >= 3) (if (parts[0].length == 4) parts[0].toIntOrNull() else parts[2].toIntOrNull()) else curYearNum
+                                            parsedM == curMonthNum && parsedY == curYearNum
+                                        }
+                                        else -> false
+                                    }
+                                    if (isThisMonth && hrs > 0) {
+                                        curMonthDisSum += hrs
+                                    }
+                                }
+                                prefs.edit().putInt("cached_unexcused_hours", curMonthDisSum).apply()
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    unexcusedHours = curMonthDisSum
+                                    if (totalHours == 0) totalHours = curMonthDisSum
+                                    isNotAuthorized = false
+                                    isLoading = false
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     statusText = "Ошибка сети: ${e.message}"
@@ -3510,7 +4849,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 androidx.compose.material3.Text(
                     "Пропуски и справки",
                     fontSize = 26.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                     color = MinTextPrimary
                 )
             }
@@ -3559,31 +4898,28 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 }
             }
         } else {
-            // Stats Overview Cards
+            // Stats Overview Cards (without background or border)
             item {
                 androidx.compose.foundation.layout.Row(
                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)
                 ) {
-                    // Unexcused Card
+                    // Unexcused Card (Current month only)
                     androidx.compose.foundation.layout.Column(
                         modifier = androidx.compose.ui.Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                            .padding(14.dp),
+                            .padding(vertical = 8.dp),
                         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
                     ) {
                         androidx.compose.material3.Text(
                             "$unexcusedHours ч",
                             fontSize = 24.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                             color = currentAccent
                         )
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
                         androidx.compose.material3.Text(
-                            "Без ув. причины",
+                            "За этот месяц",
                             fontSize = 11.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                             color = MinTextSecondary,
@@ -3595,17 +4931,14 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     androidx.compose.foundation.layout.Column(
                         modifier = androidx.compose.ui.Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                            .padding(14.dp),
+                            .padding(vertical = 8.dp),
                         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
                     ) {
                         androidx.compose.material3.Text(
                             "$excusedHours ч",
                             fontSize = 24.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                            color = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            color = (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A))
                         )
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
                         androidx.compose.material3.Text(
@@ -3621,21 +4954,18 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     androidx.compose.foundation.layout.Column(
                         modifier = androidx.compose.ui.Modifier
                             .weight(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                            .padding(14.dp),
+                            .padding(vertical = 8.dp),
                         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
                     ) {
                         androidx.compose.material3.Text(
                             "$totalHours ч",
                             fontSize = 24.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                             color = MinTextPrimary
                         )
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
                         androidx.compose.material3.Text(
-                            "Всего часов",
+                            "Всего за семестр",
                             fontSize = 11.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                             color = MinTextSecondary,
@@ -3645,15 +4975,12 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 }
             }
 
-            // Interactive Monthly Chart
+            // Interactive Monthly Chart (without background or border)
             item {
                 androidx.compose.foundation.layout.Column(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(MinCardBg)
-                        .border(1.dp, MinBorder, RoundedCornerShape(18.dp))
-                        .padding(18.dp)
+                        .padding(vertical = 8.dp)
                 ) {
                     androidx.compose.foundation.layout.Row(
                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
@@ -3725,7 +5052,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                         .width(if (isSel) 22.dp else 16.dp)
                                         .height((120 * heightRatio).dp)
                                         .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-                                        .background(if (t == 0) MinBorder.copy(alpha = 0.25f) else androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                                        .background(if (t == 0) MinBorder.copy(alpha = 0.25f) else (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)))
                                 ) {
                                     if (u > 0 && t > 0) {
                                         val unexcusedRatio = (u.toFloat() / t).coerceIn(0f, 1f)
@@ -3743,7 +5070,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 androidx.compose.material3.Text(
                                     m,
                                     fontSize = 11.sp,
-                                    fontWeight = if (isSel) androidx.compose.ui.text.font.FontWeight.Black else androidx.compose.ui.text.font.FontWeight.Medium,
+                                    fontWeight = if (isSel) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium,
                                     color = if (isSel) currentAccent else MinTextSecondary
                                 )
                             }
@@ -3762,7 +5089,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 modifier = androidx.compose.ui.Modifier
                                     .size(10.dp)
                                     .clip(RoundedCornerShape(3.dp))
-                                    .background(androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                                    .background((if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)))
                             )
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
                             androidx.compose.material3.Text("Уважительные (справки)", fontSize = 11.sp, color = MinTextSecondary)
@@ -3815,71 +5142,52 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         androidx.compose.foundation.layout.Box(
                             modifier = androidx.compose.ui.Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MinCardBg)
-                                .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                                .padding(16.dp),
-                            contentAlignment = androidx.compose.ui.Alignment.Center
+                                .padding(vertical = 12.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.CenterStart
                         ) {
                             androidx.compose.material3.Text(
                                 "Все пропуски на текущий момент без уважительной причины. Сдайте справку в деканат для списания часов.",
                                 fontSize = 13.sp,
-                                color = MinTextSecondary,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                color = MinTextSecondary
                             )
                         }
-                    } else if (totalHours == 0) {
+                    } else if (excuseDocuments.isEmpty() && totalHours == 0) {
                         androidx.compose.foundation.layout.Box(
                             modifier = androidx.compose.ui.Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MinCardBg)
-                                .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                                .padding(16.dp),
-                            contentAlignment = androidx.compose.ui.Alignment.Center
+                                .padding(vertical = 12.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.CenterStart
                         ) {
                             androidx.compose.material3.Text(
-                                "Отлично! У вас 0 пропусков в базе данных ИИС БГУИР.",
+                                "Отлично! У вас 0 пропусков за этот месяц.",
                                 fontSize = 14.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                color = androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                color = (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A))
                             )
                         }
                     } else {
-                        excuseDocuments.forEach { doc ->
+                        excuseDocuments.forEachIndexed { idx, doc ->
                             androidx.compose.foundation.layout.Column(
                                 modifier = androidx.compose.ui.Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(MinCardBg)
-                                    .border(1.dp, MinBorder, RoundedCornerShape(16.dp))
-                                    .padding(16.dp)
+                                    .padding(vertical = 8.dp)
                             ) {
                                 androidx.compose.foundation.layout.Row(
                                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                 ) {
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = androidx.compose.ui.Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f)),
-                                        contentAlignment = androidx.compose.ui.Alignment.Center
-                                    ) {
-                                        androidx.compose.material3.Icon(
-                                            Icons.Outlined.CheckCircle,
-                                            contentDescription = null,
-                                            tint = androidx.compose.ui.graphics.Color(0xFF4CAF50),
-                                            modifier = androidx.compose.ui.Modifier.size(22.dp)
-                                        )
-                                    }
+                                    androidx.compose.material3.Icon(
+                                        Icons.Outlined.CheckCircle,
+                                        contentDescription = null,
+                                        tint = (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)),
+                                        modifier = androidx.compose.ui.Modifier.size(22.dp)
+                                    )
                                     androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
                                     androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
                                         androidx.compose.material3.Text(
                                             doc.title,
                                             fontSize = 15.sp,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                                             color = MinTextPrimary
                                         )
                                         androidx.compose.material3.Text(
@@ -3888,28 +5196,27 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                             color = MinTextSecondary
                                         )
                                     }
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = androidx.compose.ui.Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(androidx.compose.ui.graphics.Color(0xFF4CAF50).copy(alpha = 0.15f))
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
+                                    if (doc.hoursClosed > 0) {
                                         androidx.compose.material3.Text(
                                             "${doc.hoursClosed} ч списано",
-                                            fontSize = 11.sp,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                            color = androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                                            fontSize = 12.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                            color = (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A))
                                         )
                                     }
                                 }
 
                                 if (doc.subjects.isNotEmpty()) {
-                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
                                     androidx.compose.material3.Text(
                                         "Предметы: " + doc.subjects.joinToString(", "),
                                         fontSize = 11.sp,
                                         color = MinTextSecondary.copy(alpha = 0.8f)
                                     )
+                                }
+                                if (idx < excuseDocuments.size - 1) {
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
+                                    androidx.compose.material3.HorizontalDivider(color = MinBorder.copy(alpha = 0.3f), thickness = 0.5.dp)
                                 }
                             }
                         }
@@ -3920,15 +5227,12 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         androidx.compose.foundation.layout.Column(
                             modifier = androidx.compose.ui.Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(MinCardBg)
-                                .border(1.dp, currentAccent.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                                .padding(16.dp)
+                                .padding(vertical = 8.dp)
                         ) {
                             androidx.compose.material3.Text(
                                 "Памятка подачи документов в деканат:",
                                 fontSize = 15.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                                 color = currentAccent
                             )
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
@@ -3961,10 +5265,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     androidx.compose.foundation.layout.Column(
                         modifier = androidx.compose.ui.Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, RoundedCornerShape(14.dp))
-                            .padding(14.dp)
+                            .padding(vertical = 8.dp)
                     ) {
                         androidx.compose.foundation.layout.Row(
                             modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
@@ -3975,19 +5276,12 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                                 modifier = androidx.compose.ui.Modifier.weight(1f)
                             ) {
-                                androidx.compose.foundation.layout.Box(
-                                    modifier = androidx.compose.ui.Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(MinBorder.copy(alpha = 0.5f))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                    androidx.compose.material3.Text(
-                                        lesson.lessonType,
-                                        fontSize = 11.sp,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                        color = MinTextPrimary
-                                    )
-                                }
+                                androidx.compose.material3.Text(
+                                    lesson.lessonType,
+                                    fontSize = 12.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = MinTextSecondary
+                                )
                                 androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
                                 androidx.compose.material3.Text(
                                     lesson.subject,
@@ -4002,12 +5296,12 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                             androidx.compose.material3.Text(
                                 "${lesson.hours} ч",
                                 fontSize = 14.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                                color = if (lesson.isRespectful) androidx.compose.ui.graphics.Color(0xFF4CAF50) else currentAccent
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = if (lesson.isRespectful) (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)) else currentAccent
                             )
                         }
 
-                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
                         androidx.compose.foundation.layout.Row(
                             modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
@@ -4022,7 +5316,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 if (lesson.isRespectful) "Уважительная" else "Без уважительной",
                                 fontSize = 11.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                color = if (lesson.isRespectful) androidx.compose.ui.graphics.Color(0xFF4CAF50) else currentAccent
+                                color = if (lesson.isRespectful) (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)) else currentAccent
                             )
                         }
 
@@ -4041,9 +5335,18 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     }
 }
 
+data class GroupCuratorInfo(
+    val fio: String,
+    val position: String = "Куратор",
+    val phone: String = "",
+    val email: String = "",
+    val urlId: String = ""
+)
+
 data class GroupStudentInfo(
     val fio: String,
     val position: Int,
+    val role: String? = null,
     val averageMark: Double? = null,
     val rating: Double? = null,
     val isCurrentUser: Boolean = false
@@ -4061,6 +5364,7 @@ fun MinGroupScreen(
     onBack: () -> Unit
 ) {
     var students by remember { mutableStateOf<List<GroupStudentInfo>>(emptyList()) }
+    var curator by remember { mutableStateOf<GroupCuratorInfo?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -4069,6 +5373,53 @@ fun MinGroupScreen(
     val isTechno = styleType == StyleType.Techno
     val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
     val userGroup = remember { prefs.getString("login_group", "")?.ifBlank { prefs.getString("selectedGroup", "") ?: "" } ?: "" }
+
+    fun parseUserGroupInfo(jsonStr: String, currentUserFio: String): Pair<GroupCuratorInfo?, List<GroupStudentInfo>> {
+        try {
+            val root = org.json.JSONObject(jsonStr.trim())
+            var cur: GroupCuratorInfo? = null
+            val curObj = root.optJSONObject("studentGroupCuratorDto")
+            if (curObj != null) {
+                val cFio = curObj.optString("fio", "").trim()
+                if (cFio.isNotBlank()) {
+                    cur = GroupCuratorInfo(
+                        fio = cFio,
+                        position = curObj.optString("position", "Куратор").ifBlank { "Куратор" },
+                        phone = curObj.optString("phone", "").trim(),
+                        email = curObj.optString("email", "").trim(),
+                        urlId = curObj.optString("urlId", "").trim()
+                    )
+                }
+            }
+            val studentsList = mutableListOf<GroupStudentInfo>()
+            val arr = root.optJSONArray("groupInfoStudentDto")
+            if (arr != null && arr.length() > 0) {
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    val fio = item.optString("fio", "").trim()
+                    if (fio.isBlank()) continue
+                    val role = item.optString("position", "").trim()
+                    val isCur = currentUserFio.isNotBlank() && (
+                        fio.equals(currentUserFio, ignoreCase = true) ||
+                        fio.contains(currentUserFio, ignoreCase = true) ||
+                        currentUserFio.contains(fio, ignoreCase = true)
+                    )
+                    studentsList.add(
+                        GroupStudentInfo(
+                            fio = fio,
+                            position = i + 1,
+                            role = role.takeIf { it.isNotBlank() },
+                            isCurrentUser = isCur
+                        )
+                    )
+                }
+            }
+            return Pair(cur, studentsList)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return Pair(null, emptyList())
+    }
 
     fun extractStudentsFromAnySource(jsonStr: String, currentUserFio: String): List<GroupStudentInfo> {
         val list = mutableListOf<GroupStudentInfo>()
@@ -4163,20 +5514,33 @@ fun MinGroupScreen(
             val gradebookNum = prefs.getString("gradebook_number", "") ?: ""
             val savedPass = prefs.getString("saved_password", "") ?: ""
 
-            // 1. Immediately check local cached sources if list is currently empty
+            // 1. Immediately check local cached sources
             if (students.isEmpty()) {
-                val cachedGroup = prefs.getString("cached_group_students", null)
-                val cachedMarks = prefs.getString("cached_marks", null)
-                val cachedProfile = prefs.getString("cached_profile", null)
-
-                for (cachedJson in listOfNotNull(cachedGroup, cachedMarks, cachedProfile)) {
-                    val parsedCache = extractStudentsFromAnySource(cachedJson, currentFio)
-                    if (parsedCache.isNotEmpty()) {
+                val cachedUserGroup = prefs.getString("cached_user_group_info", null)
+                if (!cachedUserGroup.isNullOrBlank()) {
+                    val (cachedCur, cachedSts) = parseUserGroupInfo(cachedUserGroup, currentFio)
+                    if (cachedSts.isNotEmpty() || cachedCur != null) {
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            students = parsedCache
+                            if (cachedCur != null) curator = cachedCur
+                            if (cachedSts.isNotEmpty()) students = cachedSts
                             isLoading = false
                         }
-                        break
+                    }
+                }
+                if (students.isEmpty()) {
+                    val cachedGroup = prefs.getString("cached_group_students", null)
+                    val cachedMarks = prefs.getString("cached_marks", null)
+                    val cachedProfile = prefs.getString("cached_profile", null)
+
+                    for (cachedJson in listOfNotNull(cachedGroup, cachedMarks, cachedProfile)) {
+                        val parsedCache = extractStudentsFromAnySource(cachedJson, currentFio)
+                        if (parsedCache.isNotEmpty()) {
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                students = parsedCache
+                                isLoading = false
+                            }
+                            break
+                        }
                     }
                 }
             }
@@ -4224,6 +5588,11 @@ fun MinGroupScreen(
 
             var fetchedSuccessfully = false
             val urlsToTry = mutableListOf<String>()
+            // Real official BSUIR endpoint returning curator + all 30 students:
+            urlsToTry.add("https://iis.bsuir.by/api/v1/student-groups/user-group-info")
+            if (userGroup.isNotBlank()) {
+                urlsToTry.add("https://iis.bsuir.by/api/v1/student-groups/user-group-info?studentGroup=$userGroup")
+            }
             urlsToTry.add("https://iis.bsuir.by/api/v1/grade-book/group-students")
             urlsToTry.add("https://iis.bsuir.by/api/v1/omissions")
             if (userGroup.isNotBlank()) {
@@ -4250,6 +5619,21 @@ fun MinGroupScreen(
                                     token = refreshedToken
                                 }
                             } else if (response.isSuccessful && !body.isNullOrBlank()) {
+                                if (body.contains("groupInfoStudentDto") || body.contains("studentGroupCuratorDto")) {
+                                    val (newCur, newSts) = parseUserGroupInfo(body, currentFio)
+                                    if (newSts.isNotEmpty() || newCur != null) {
+                                        prefs.edit().putString("cached_user_group_info", body).apply()
+                                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            if (newCur != null) curator = newCur
+                                            if (newSts.isNotEmpty()) students = newSts
+                                            errorMessage = null
+                                            isLoading = false
+                                            isRefreshing = false
+                                        }
+                                        fetchedSuccessfully = true
+                                        return@use
+                                    }
+                                }
                                 val parsed = extractStudentsFromAnySource(body, currentFio)
                                 if (parsed.size >= 1) {
                                     prefs.edit().putString("cached_group_students", body).apply()
@@ -4293,7 +5677,7 @@ fun MinGroupScreen(
         if (searchQuery.isBlank()) {
             students
         } else {
-            students.filter { it.fio.contains(searchQuery, ignoreCase = true) }
+            students.filter { it.fio.contains(searchQuery, ignoreCase = true) || (it.role != null && it.role.contains(searchQuery, ignoreCase = true)) }
         }
     }
 
@@ -4318,7 +5702,7 @@ fun MinGroupScreen(
                 androidx.compose.material3.Text(
                     if (isTechno) "> СПИСОК ГРУППЫ_" else "Список группы",
                     fontSize = 24.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                     color = MinTextPrimary,
                     fontFamily = if (isTechno) vt323FontFamily else null
                 )
@@ -4361,14 +5745,14 @@ fun MinGroupScreen(
                 androidx.compose.foundation.layout.Box(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                         .background(if (isTechno) Color(0xFF0A0A0A) else MinCardBg)
                         .border(
                             1.dp,
                             if (isTechno) Color(0xFF00FF41).copy(alpha = 0.4f) else MinBorder,
-                            androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                            androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
                         )
-                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
                     androidx.compose.foundation.layout.Row(
                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
@@ -4378,7 +5762,7 @@ fun MinGroupScreen(
                             androidx.compose.material.icons.Icons.Outlined.Search,
                             contentDescription = null,
                             tint = MinTextSecondary,
-                            modifier = androidx.compose.ui.Modifier.size(20.dp)
+                            modifier = androidx.compose.ui.Modifier.size(18.dp)
                         )
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
                         androidx.compose.foundation.text.BasicTextField(
@@ -4390,11 +5774,11 @@ fun MinGroupScreen(
                                 fontFamily = if (isTechno) vt323FontFamily else null
                             ),
                             singleLine = true,
-                            modifier = androidx.compose.ui.Modifier.weight(1f).padding(vertical = 10.dp),
+                            modifier = androidx.compose.ui.Modifier.weight(1f).padding(vertical = 8.dp),
                             decorationBox = { innerTextField ->
                                 if (searchQuery.isEmpty()) {
                                     androidx.compose.material3.Text(
-                                        "Поиск по фамилии или имени...",
+                                        "Поиск",
                                         color = MinTextSecondary.copy(alpha = 0.6f),
                                         fontSize = 15.sp,
                                         fontFamily = if (isTechno) vt323FontFamily else null
@@ -4413,9 +5797,172 @@ fun MinGroupScreen(
                         }
                     }
                 }
-                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(12.dp))
+            }
+        }
 
-                // Stats subtitle
+        // Curator Card Section
+        if (curator != null) {
+            item {
+                val cur = curator!!
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Top row with Curator avatar & info
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            // Avatar circle with initials
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(44.dp),
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                val initials = cur.fio.split(" ").filter { it.isNotBlank() }.take(2).mapNotNull { it.firstOrNull()?.uppercase() }.joinToString("")
+                                androidx.compose.material3.Text(
+                                    initials.ifBlank { "К" },
+                                    fontSize = 16.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = currentAccent
+                                )
+                            }
+
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+
+                            androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                androidx.compose.material3.Text(
+                                    "Куратор группы",
+                                    fontSize = 11.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                    color = currentAccent
+                                )
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(2.dp))
+                                androidx.compose.material3.Text(
+                                    cur.fio,
+                                    fontSize = 16.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MinTextPrimary
+                                )
+                                if (cur.position.isNotBlank() && cur.position != "Куратор") {
+                                    androidx.compose.material3.Text(
+                                        cur.position,
+                                        fontSize = 12.sp,
+                                        color = MinTextSecondary
+                                    )
+                                }
+                            }
+                        }
+
+                        // Action buttons row for phone & email - clean without background/border
+                        androidx.compose.foundation.layout.Column(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (cur.phone.isNotBlank()) {
+                                val formattedPhone = if (cur.phone.length == 13 && cur.phone.startsWith("+375")) {
+                                    "${cur.phone.substring(0, 4)} (${cur.phone.substring(4, 6)}) ${cur.phone.substring(6, 9)}-${cur.phone.substring(9, 11)}-${cur.phone.substring(11, 13)}"
+                                } else cur.phone
+
+                                androidx.compose.foundation.layout.Row(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            try {
+                                                val intent = android.content.Intent(android.content.Intent.ACTION_DIAL, android.net.Uri.parse("tel:${cur.phone}"))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {}
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.material3.Icon(
+                                        Icons.Outlined.Phone,
+                                        contentDescription = null,
+                                        tint = Color(0xFF34C759),
+                                        modifier = androidx.compose.ui.Modifier.size(20.dp)
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                                    androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                        androidx.compose.material3.Text(
+                                            "Телефон куратора",
+                                            fontSize = 11.sp,
+                                            color = MinTextSecondary,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                        )
+                                        androidx.compose.material3.Text(
+                                            formattedPhone,
+                                            fontSize = 15.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = MinTextPrimary
+                                        )
+                                    }
+                                    androidx.compose.material3.Icon(
+                                        Icons.Outlined.Call,
+                                        contentDescription = "Позвонить",
+                                        tint = currentAccent,
+                                        modifier = androidx.compose.ui.Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            if (cur.email.isNotBlank()) {
+                                androidx.compose.foundation.layout.Row(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            try {
+                                                val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:${cur.email}"))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {}
+                                        }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.material3.Icon(
+                                        Icons.Outlined.Email,
+                                        contentDescription = null,
+                                        tint = Color(0xFF007AFF),
+                                        modifier = androidx.compose.ui.Modifier.size(20.dp)
+                                    )
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
+                                    androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                                        androidx.compose.material3.Text(
+                                            "Электронная почта",
+                                            fontSize = 11.sp,
+                                            color = MinTextSecondary,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                        )
+                                        androidx.compose.material3.Text(
+                                            cur.email,
+                                            fontSize = 15.sp,
+                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                            color = MinTextPrimary
+                                        )
+                                    }
+                                    androidx.compose.material3.Icon(
+                                        Icons.Outlined.Send,
+                                        contentDescription = "Написать",
+                                        tint = currentAccent,
+                                        modifier = androidx.compose.ui.Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                        androidx.compose.material3.HorizontalDivider(color = MinBorder.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    }
+                }
+            }
+        }
+
+        // Student counter subheader
+        if (students.isNotEmpty()) {
+            item {
                 androidx.compose.material3.Text(
                     "Студентов в группе: ${filteredStudents.size}${if (searchQuery.isNotEmpty()) " (из ${students.size})" else ""}",
                     fontSize = 13.sp,
@@ -4468,110 +6015,120 @@ fun MinGroupScreen(
         } else {
             items(filteredStudents.size) { index ->
                 val student = filteredStudents[index]
-                val cardBorderColor = when {
-                    isTechno -> if (student.isCurrentUser) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.35f)
-                    student.isCurrentUser -> currentAccent.copy(alpha = 0.60f)
-                    else -> MinBorder
+
+                val roleBadgeInfo = when {
+                    student.role == null -> null
+                    student.role.contains("Староста", ignoreCase = true) && !student.role.contains("Зам", ignoreCase = true) ->
+                        Pair("Староста", Color(0xFFFFB800))
+                    student.role.contains("Зам", ignoreCase = true) || student.role.contains("Заместитель", ignoreCase = true) ->
+                        Pair("Зам. старосты", Color(0xFFFF9500))
+                    student.role.contains("Спорт", ignoreCase = true) ->
+                        Pair("Спорторг", Color(0xFF34C759))
+                    student.role.contains("Культ", ignoreCase = true) ->
+                        Pair("Культорг", Color(0xFFAF52DE))
+                    student.role.contains("Проф", ignoreCase = true) ->
+                        Pair("Профорг", Color(0xFF007AFF))
+                    student.role.contains("БРСМ", ignoreCase = true) ->
+                        Pair("БРСМ", Color(0xFFFF3B30))
+                    else ->
+                        Pair(student.role, currentAccent)
                 }
 
-                val cardBgColor = when {
-                    isTechno -> if (student.isCurrentUser) Color(0xFF00FF41).copy(alpha = 0.12f) else Color(0xFF0A0A0A)
-                    student.isCurrentUser -> currentAccent.copy(alpha = if (isDarkTheme) 0.12f else 0.08f)
-                    else -> MinCardBg
-                }
-
-                androidx.compose.foundation.layout.Box(
+                // Clean list item without box background under name
+                androidx.compose.foundation.layout.Row(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                        .background(cardBgColor)
-                        .border(1.dp, cardBorderColor, androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .padding(horizontal = 4.dp, vertical = 10.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    // Position number
+                    androidx.compose.material3.Text(
+                        "${student.position}",
+                        fontSize = 14.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = if (student.isCurrentUser) currentAccent else MinTextSecondary.copy(alpha = 0.5f),
+                        modifier = androidx.compose.ui.Modifier.width(28.dp),
+                        fontFamily = if (isTechno) vt323FontFamily else null
+                    )
+
+                    // Student Name & Role Badge
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier.weight(1f)
                     ) {
-                        // Position badge / avatar
-                        val numColor = if (isTechno) Color(0xFF00FF41) else if (student.isCurrentUser) currentAccent else MinTextPrimary
-                        androidx.compose.foundation.layout.Box(
-                            modifier = androidx.compose.ui.Modifier
-                                .size(32.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(numColor.copy(alpha = if (isDarkTheme) 0.16f else 0.10f))
-                                .border(1.dp, numColor.copy(alpha = 0.3f), androidx.compose.foundation.shape.CircleShape),
-                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                         ) {
                             androidx.compose.material3.Text(
-                                "${student.position}",
-                                fontSize = 13.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                color = numColor,
+                                student.fio,
+                                fontSize = 15.sp,
+                                fontWeight = if (student.isCurrentUser) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = if (isTechno) Color(0xFF00FF41) else if (student.isCurrentUser) currentAccent else MinTextPrimary,
                                 fontFamily = if (isTechno) vt323FontFamily else null
                             )
-                        }
-
-                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
-
-                        // Student Name
-                        androidx.compose.foundation.layout.Column(
-                            modifier = androidx.compose.ui.Modifier.weight(1f)
-                        ) {
-                            androidx.compose.foundation.layout.Row(
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                androidx.compose.material3.Text(
-                                    student.fio,
-                                    fontSize = 15.sp,
-                                    fontWeight = if (student.isCurrentUser) androidx.compose.ui.text.font.FontWeight.ExtraBold else androidx.compose.ui.text.font.FontWeight.Bold,
-                                    color = if (isTechno) Color(0xFF00FF41) else MinTextPrimary,
-                                    fontFamily = if (isTechno) vt323FontFamily else null
-                                )
-                                if (student.isCurrentUser) {
-                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = androidx.compose.ui.Modifier
-                                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                                            .background(currentAccent)
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        androidx.compose.material3.Text(
-                                            "ВЫ",
-                                            fontSize = 10.sp,
-                                            fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
-                                            color = Color.White
-                                        )
-                                    }
+                            if (student.isCurrentUser) {
+                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                                        .background(currentAccent)
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    androidx.compose.material3.Text(
+                                        "ВЫ",
+                                        fontSize = 10.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
                                 }
                             }
                         }
 
-                        // Average mark / Rating badge if present
-                        if (student.averageMark != null && student.averageMark > 0.0) {
-                            val markColor = when {
-                                isTechno -> Color(0xFF00FF41)
-                                student.averageMark >= 8.0 -> if (isDarkTheme) Color(0xFF4CAF50) else Color(0xFF2E7D32)
-                                student.averageMark >= 6.0 -> if (isDarkTheme) Color(0xFFFF9800) else Color(0xFFE65100)
-                                else -> if (isDarkTheme) Color(0xFFF44336) else Color(0xFFC62828)
-                            }
-
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                    .background(markColor.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                androidx.compose.material3.Text(
-                                    String.format("%.1f", student.averageMark),
-                                    fontSize = 13.sp,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-                                    color = markColor,
-                                    fontFamily = if (isTechno) vt323FontFamily else null
-                                )
-                            }
+                        if (roleBadgeInfo != null) {
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(2.dp))
+                            androidx.compose.material3.Text(
+                                roleBadgeInfo.first,
+                                fontSize = 12.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = roleBadgeInfo.second,
+                                fontFamily = if (isTechno) vt323FontFamily else null
+                            )
                         }
                     }
+
+                    // Average mark / Rating badge if present
+                    if (student.averageMark != null && student.averageMark > 0.0) {
+                        val markColor = when {
+                            isTechno -> Color(0xFF00FF41)
+                            student.averageMark >= 8.0 -> if (isDarkTheme) Color(0xFF4CAF50) else Color(0xFF2E7D32)
+                            student.averageMark >= 6.0 -> if (isDarkTheme) Color(0xFFFF9800) else Color(0xFFE65100)
+                            else -> if (isDarkTheme) Color(0xFFF44336) else Color(0xFFC62828)
+                        }
+
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                                .background(markColor.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            contentAlignment = androidx.compose.ui.Alignment.Center
+                        ) {
+                            androidx.compose.material3.Text(
+                                String.format("%.1f", student.averageMark),
+                                fontSize = 13.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = markColor,
+                                fontFamily = if (isTechno) vt323FontFamily else null
+                            )
+                        }
+                    }
+                }
+
+                // Subtle divider between student rows
+                if (index < filteredStudents.size - 1) {
+                    androidx.compose.material3.HorizontalDivider(
+                        color = if (isDarkTheme) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.06f),
+                        thickness = 0.5.dp,
+                        modifier = androidx.compose.ui.Modifier.padding(start = 28.dp)
+                    )
                 }
             }
         }
@@ -4580,33 +6137,16 @@ fun MinGroupScreen(
 
 @Composable
 fun MinStudyScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, currentAccent: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean = true, onBack: () -> Unit) {
-    var showMarksheets by remember { mutableStateOf(false) }
-
-    if (showMarksheets) {
-        androidx.activity.compose.BackHandler(onBack = { showMarksheets = false })
-        androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize().background(MinBg)) {
-            MinGenericApiScreen("Заказ ведомостей", "https://iis.bsuir.by/api/v1/mark-sheet-requests", MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent) { showMarksheets = false }
-        }
-    } else {
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = androidx.compose.ui.Modifier.fillMaxSize().background(MinBg),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 24.dp, vertical = 40.dp)
-        ) {
-            item {
-                androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    androidx.compose.material3.Icon(Icons.Outlined.KeyboardArrowLeft, contentDescription = "Назад", tint = MinTextPrimary, modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() })
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
-                    androidx.compose.material3.Text("Учеба", fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
-                }
-                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(32.dp))
-            }
-            item {
-                MinListAction("Заказ ведомостей", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.List) {
-                    showMarksheets = true
-                }
-            }
-        }
-    }
+    MinStudyCertificatesAndSheetsScreen(
+        MinBg = MinBg,
+        MinCardBg = MinCardBg,
+        MinBorder = MinBorder,
+        MinTextPrimary = MinTextPrimary,
+        MinTextSecondary = MinTextSecondary,
+        currentAccent = currentAccent,
+        isDarkTheme = isDarkTheme,
+        onBack = onBack
+    )
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -4724,7 +6264,7 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Icon(Icons.Outlined.KeyboardArrowLeft, contentDescription = "Назад", tint = MinTextPrimary, modifier = Modifier.size(32.dp).clickable { onBack() })
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Зачетка", fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
+                Text("Зачетка", fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MinTextPrimary)
             }
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -4751,15 +6291,12 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
             semesters.forEach { (semesterName, subjects) ->
                 item {
                     Text(semesterName, fontSize = 24.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                            .background(MinCardBg)
-                            .border(1.dp, MinBorder, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                            .padding(16.dp)
+                            .padding(vertical = 4.dp)
                     ) {
                         subjects.forEachIndexed { index, (subject, mark) ->
                             Row(
@@ -4777,7 +6314,7 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
                                 Spacer(modifier = Modifier.width(16.dp))
                                 val markColor = when {
                                     mark.startsWith("—") -> MinTextSecondary
-                                    mark in listOf("9", "10", "Зачет", "зач", "зач.") -> if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CAF50) else androidx.compose.ui.graphics.Color(0xFF2E7D32)
+                                    mark in listOf("9", "10", "Зачет", "зач", "зач.") -> if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF2E7D32)
                                     mark in listOf("7", "8") -> if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF2196F3) else androidx.compose.ui.graphics.Color(0xFF1565C0)
                                     mark in listOf("4", "5", "6") -> if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFFFF9800) else androidx.compose.ui.graphics.Color(0xFFE65100)
                                     else -> if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFFF44336) else androidx.compose.ui.graphics.Color(0xFFB71C1C)
@@ -4797,16 +6334,16 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
                         val validMarks = subjects.mapNotNull { it.second.toIntOrNull() }
                         if (validMarks.isNotEmpty()) {
                             val average = validMarks.average()
-                            val avgColor = if (isDarkTheme) { if (average >= 8) androidx.compose.ui.graphics.Color(0xFF4CAF50) else if (average >= 6) androidx.compose.ui.graphics.Color(0xFFFF9800) else androidx.compose.ui.graphics.Color(0xFFF44336) } else { if (average >= 8) androidx.compose.ui.graphics.Color(0xFF2E7D32) else if (average >= 6) androidx.compose.ui.graphics.Color(0xFFE65100) else androidx.compose.ui.graphics.Color(0xFFB71C1C) }
+                            val avgColor = if (isDarkTheme) { if (average >= 8) androidx.compose.ui.graphics.Color(0xFF4CC38A) else if (average >= 6) androidx.compose.ui.graphics.Color(0xFFFF9800) else androidx.compose.ui.graphics.Color(0xFFF44336) } else { if (average >= 8) androidx.compose.ui.graphics.Color(0xFF2E7D32) else if (average >= 6) androidx.compose.ui.graphics.Color(0xFFE65100) else androidx.compose.ui.graphics.Color(0xFFB71C1C) }
 
                             androidx.compose.material3.HorizontalDivider(color = MinBorder.copy(alpha=0.5f), thickness = 1.dp, modifier = Modifier.padding(vertical = 12.dp))
                             Row(
-                                modifier = Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(avgColor.copy(alpha = 0.1f)).padding(12.dp), 
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), 
                                 horizontalArrangement = Arrangement.SpaceBetween, 
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text("Средний балл", fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextPrimary)
-                                Text(String.format("%.2f", average), fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = avgColor)
+                                Text(String.format("%.2f", average), fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = avgColor)
                             }
                         }
                     }
@@ -5176,64 +6713,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
 
-                // 2. Fetch from student markbook (все экзамены, зачеты и курсовые текущего семестра)
-                val parseMarkbookCurrentSemester: (String) -> Unit = { bodyStr ->
-                    try {
-                        val jsonObj = org.json.JSONObject(bodyStr)
-                        val markPages = jsonObj.optJSONObject("markPages")
-                        if (markPages != null) {
-                            val semesterNumbers = mutableListOf<Int>()
-                            val keys = markPages.keys()
-                            while (keys.hasNext()) {
-                                keys.next().toIntOrNull()?.let { semesterNumbers.add(it) }
-                            }
-                            
-                            val sortedSems = semesterNumbers.sortedDescending()
-                            for (semNum in sortedSems) {
-                                val semObj = markPages.optJSONObject(semNum.toString())
-                                val marksArray = semObj?.optJSONArray("marks") ?: org.json.JSONArray()
-                                if (marksArray.length() > 0) {
-                                    for (i in 0 until marksArray.length()) {
-                                        val markObj = marksArray.optJSONObject(i) ?: continue
-                                        val subject = markObj.optString("subject", "").trim()
-                                        if (subject.isNotBlank()) {
-                                            sessionSubjects.add(subject)
-                                        }
-                                    }
-                                    break
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
-                val cachedMarkbook = appPrefs.getString("cached_gradebook", null)
-                if (cachedMarkbook != null) {
-                    parseMarkbookCurrentSemester(cachedMarkbook)
-                }
-
-                if (token.isNotBlank()) {
-                    try {
-                        val client = com.example.schedule.NetworkClient.client
-                        val request = okhttp3.Request.Builder()
-                            .url("https://iis.bsuir.by/api/v1/markbook")
-                            .addHeader("Cookie", token)
-                            .get()
-                            .build()
-                        client.newCall(request).execute().use { response ->
-                            if (response.isSuccessful) {
-                                val body = response.body?.string() ?: ""
-                                appPrefs.edit().putString("cached_gradebook", body).apply()
-                                parseMarkbookCurrentSemester(body)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-
+                // Current semester schedule subjects only
                 if (sessionSubjects.isNotEmpty()) {
                     withContext(kotlinx.coroutines.Dispatchers.Main) {
                         predefinedSubjects = sessionSubjects.toList().sorted()
@@ -5247,7 +6727,9 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     var selectedSubject by remember { mutableStateOf("Все") }
     var noteText by remember { mutableStateOf("") }
-    var isEventNote by remember { mutableStateOf(false) }; var showNewNoteTimePicker by remember { mutableStateOf(false) }
+    var isEventNote by remember { mutableStateOf(false) }
+    var showNewNoteTimePicker by remember { mutableStateOf(false) }
+    var showNewNoteDatePicker by remember { mutableStateOf(false) }
 
     val todayCal = remember { java.util.Calendar.getInstance() }
     var selectedDay by remember { mutableStateOf(todayCal.get(java.util.Calendar.DAY_OF_MONTH)) }
@@ -5278,6 +6760,8 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     var scaleLevel by remember { mutableFloatStateOf(1.0f) }
     var isGridMode by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showNewNoteDialog by remember { mutableStateOf(false) }
 
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
@@ -5303,14 +6787,19 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     var isCalendarExpanded by remember { mutableStateOf(false) }
     var radialExpanded by remember { mutableStateOf(false) }
+    var subjectDropdownExpanded by remember { mutableStateOf(false) }
 
-    androidx.activity.compose.BackHandler(enabled = noteToDelete != null || noteToEdit != null || radialExpanded || isCalendarExpanded) {
+    androidx.activity.compose.BackHandler(enabled = noteToDelete != null || noteToEdit != null || showNewNoteDialog || radialExpanded || isCalendarExpanded || subjectDropdownExpanded) {
         if (noteToDelete != null) {
             noteToDelete = null
         } else if (noteToEdit != null) {
             noteToEdit = null
+        } else if (showNewNoteDialog) {
+            showNewNoteDialog = false
         } else if (radialExpanded) {
             radialExpanded = false
+        } else if (subjectDropdownExpanded) {
+            subjectDropdownExpanded = false
         } else if (isCalendarExpanded) {
             isCalendarExpanded = false
         }
@@ -5343,26 +6832,52 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     fun saveNotes(list: List<Note>) { notes = list; prefs.edit().putString("notes_data", gson.toJson(list)).apply() }
 
-    val allSubjects = remember(notes, predefinedSubjects) { (predefinedSubjects + notes.map { it.subject }.distinct()).distinct() }
-    val subjects = listOf("Все") + allSubjects
+    val allSubjects = remember(predefinedSubjects) { predefinedSubjects.ifEmpty { listOf("Общее") } }
+    val subjects = remember(notes, allSubjects) {
+        val list = mutableListOf("Все")
+        if (notes.any { it.isPinned }) list.add("Закрепленные")
+        if (notes.any { it.isEvent }) list.add("События")
+        list.addAll(allSubjects)
+        list.distinct()
+    }
     val highlightedDates = remember(notes, selectedSubject) {
-        (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).map { it.date }.toSet()
+        val list = when (selectedSubject) {
+            "Все" -> notes
+            "Закрепленные" -> notes.filter { it.isPinned }
+            "События" -> notes.filter { it.isEvent }
+            else -> notes.filter { it.subject == selectedSubject }
+        }
+        list.map { it.date }.toSet()
     }
     
-    // Sort all notes and pinned notes chronologically by date (ascending — oldest first)
-    val subjectNotes = remember(notes, selectedSubject) {
-        (if (selectedSubject == "Все") notes else notes.filter { it.subject == selectedSubject }).sortedBy { parseNoteDateMillis(it.date) }
+    // Filter and sort notes
+    val filteredNotes = remember(notes, selectedSubject, searchQuery) {
+        var list = when (selectedSubject) {
+            "Все" -> notes
+            "Закрепленные" -> notes.filter { it.isPinned }
+            "События" -> notes.filter { it.isEvent }
+            else -> notes.filter { it.subject == selectedSubject }
+        }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            list = list.filter { note ->
+                note.text.lowercase().contains(q) ||
+                note.subject.lowercase().contains(q) ||
+                note.date.contains(q)
+            }
+        }
+        list.sortedBy { parseNoteDateMillis(it.date) }
     }
 
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val pinnedNotes = remember(subjectNotes) { subjectNotes.filter { it.isPinned }.sortedBy { parseNoteDateMillis(it.date) } }
-    val regularNotes = remember(subjectNotes) { subjectNotes.filter { !it.isPinned }.sortedBy { parseNoteDateMillis(it.date) } }
+    val pinnedNotes = remember(filteredNotes) { filteredNotes.filter { it.isPinned } }
+    val regularNotes = remember(filteredNotes) { filteredNotes.filter { !it.isPinned } }
 
     if (noteToDelete != null) {
-        val deleteDialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
-        val deleteBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
-        val deleteTitleColor = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
-        val deleteSubColor = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
+        val deleteDialogBg = MinCardBg
+        val deleteBorder = MinBorder
+        val deleteTitleColor = MinTextPrimary
+        val deleteSubColor = MinTextSecondary
 
         Dialog(onDismissRequest = { noteToDelete = null }) {
             Box(
@@ -5382,7 +6897,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         Text(
                             "Удалить заметку?",
                             fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            fontWeight = FontWeight.SemiBold,
                             color = deleteTitleColor
                         )
                         Text(
@@ -5405,7 +6920,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             modifier = Modifier.weight(1f).height(46.dp),
                             shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7),
+                                containerColor = MinTextPrimary.copy(alpha = 0.08f),
                                 contentColor = deleteTitleColor
                             )
                         ) {
@@ -5442,8 +6957,14 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         var editIsPinned by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isPinned) }
         var editAttachments by remember(noteToEdit) { mutableStateOf(noteToEdit!!.attachments ?: emptyList()) }
         var editSubjectExpanded by remember { mutableStateOf(false) }
+        val initDateParts = remember(noteToEdit) { noteToEdit!!.date.split(".") }
+        var editDay by remember(noteToEdit) { mutableStateOf(initDateParts.getOrNull(0)?.toIntOrNull() ?: selectedDay) }
+        var editMonth by remember(noteToEdit) { mutableStateOf((initDateParts.getOrNull(1)?.toIntOrNull()?.minus(1)) ?: selectedMonth) }
+        var editYear by remember(noteToEdit) { mutableStateOf(initDateParts.getOrNull(2)?.toIntOrNull() ?: selectedYear) }
+        var showEditDatePicker by remember { mutableStateOf(false) }
         var editHour by remember(noteToEdit) { mutableStateOf(noteToEdit!!.time?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 12) }
-        var editMinute by remember(noteToEdit) { mutableStateOf(noteToEdit!!.time?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0) }; var showEditTimePicker by remember { mutableStateOf(false) }
+        var editMinute by remember(noteToEdit) { mutableStateOf(noteToEdit!!.time?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0) }
+        var showEditTimePicker by remember { mutableStateOf(false) }
 
         val editFilePickerLauncher = rememberLauncherForActivityResult(
             contract = androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()
@@ -5460,12 +6981,12 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             }
         }
 
-        val editDialogBg = androidx.compose.ui.graphics.Color.Transparent
-        val editSubBg = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.1f)
-        val editBorder = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.2f)
-        val editFieldBg = androidx.compose.ui.graphics.Color.Transparent
-        val editTextColor = androidx.compose.ui.graphics.Color.White
-        val editSecTextColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f)
+        val editDialogBg = MinCardBg
+        val editSubBg = MinTextPrimary.copy(alpha = 0.08f)
+        val editBorder = Color.Transparent
+        val editFieldBg = editSubBg
+        val editTextColor = MinTextPrimary
+        val editSecTextColor = MinTextSecondary
 
         androidx.compose.ui.window.Dialog(onDismissRequest = { noteToEdit = null }) {
             Box(
@@ -5473,8 +6994,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     .fillMaxWidth()
                     .shadow(elevation = 24.dp, shape = RoundedCornerShape(24.dp))
                     .clip(RoundedCornerShape(24.dp))
-                    .liquidGlassEffect(cornerRadius = 24.dp, accentColor = MinAccent, isDarkTheme = true)
-                    .border(1.dp, editBorder, RoundedCornerShape(24.dp))
+                    .background(editDialogBg)
                     .padding(20.dp)
             ) {
                 Column(
@@ -5486,17 +7006,20 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Редактировать", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = editTextColor)
+                        Text("Редактировать", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = editTextColor)
                         IconButton(onClick = { noteToEdit = null }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = editSecTextColor)
                         }
                     }
 
+                    val nextEditTarget = remember(editSubject, selectedGroup) {
+                        findNextLessonForSubject(context, selectedGroup, editSubject)
+                    }
                     // Oval badges summary in editor
-                    Row(
+                    androidx.compose.foundation.layout.FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         // Subject Selector Pill
                         Box(
@@ -5522,9 +7045,13 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 .clip(CircleShape)
                                 .background(editSubBg)
                                 .border(1.dp, editBorder, CircleShape)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    showEditDatePicker = true
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text(noteToEdit!!.date, color = editSecTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(formatDate(editDay, editMonth, editYear), color = editSecTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
 
                         // Time Pill
@@ -5544,6 +7071,32 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.sp
                             )
+                        }
+
+                        if (nextEditTarget != null) {
+                            val isNextApplied = editDay == nextEditTarget.day && editMonth == nextEditTarget.month0Based && editYear == nextEditTarget.year
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(if (isNextApplied) MinAccent.copy(alpha = 0.16f) else editSubBg)
+                                    .border(1.dp, if (isNextApplied) MinAccent.copy(alpha = 0.4f) else editBorder, CircleShape)
+                                    .clickable {
+                                        AppHapticManager.playClick()
+                                        editDay = nextEditTarget.day
+                                        editMonth = nextEditTarget.month0Based
+                                        editYear = nextEditTarget.year
+                                        editHour = nextEditTarget.hour
+                                        editMinute = nextEditTarget.minute
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    "К след. паре (${nextEditTarget.dateFormatted.take(5)})",
+                                    color = if (isNextApplied) MinAccent else editSecTextColor,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
 
@@ -5747,15 +7300,15 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                         AppHapticManager.playClick()
                                         
                                         var newCalEventId = noteToEdit!!.calendarEventId
-                                        val dateParts = noteToEdit!!.date.split(".")
-                                        val day = dateParts.getOrNull(0)?.toIntOrNull() ?: selectedDay
-                                        val month = (dateParts.getOrNull(1)?.toIntOrNull()?.minus(1)) ?: selectedMonth
-                                        val year = dateParts.getOrNull(2)?.toIntOrNull() ?: selectedYear
+                                        val day = editDay
+                                        val month = editMonth
+                                        val year = editYear
+                                        val newDateStr = formatDate(day, month, year)
 
                                         if (editIsEvent) {
                                             val syncedId = GoogleCalendarSync.syncEvent(
                                                 context,
-                                                noteToEdit!!.copy(text = editText, subject = editSubject, isEvent = true),
+                                                noteToEdit!!.copy(text = editText, subject = editSubject, date = newDateStr, isEvent = true),
                                                 day, month, year
                                             )
                                             if (syncedId != null) newCalEventId = syncedId
@@ -5767,6 +7320,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                         val updated = noteToEdit!!.copy(
                                             text = editText,
                                             subject = editSubject,
+                                            date = newDateStr,
                                             isEvent = editIsEvent,
                                             isPinned = editIsPinned,
                                             time = "%02d:%02d".format(editHour, editMinute),
@@ -5789,6 +7343,26 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             }
         }
 
+        if (showEditDatePicker) {
+            IosDatePickerDialog(
+                initialDay = editDay,
+                initialMonth = editMonth,
+                initialYear = editYear,
+                highlightedDates = highlightedDates,
+                onDismiss = { showEditDatePicker = false },
+                onDateSelected = { d, m, y ->
+                    editDay = d
+                    editMonth = m
+                    editYear = y
+                },
+                MinTextPrimary = MinTextPrimary,
+                MinTextSecondary = MinTextSecondary,
+                MinCardBg = MinCardBg,
+                MinAccent = MinAccent,
+                MinBg = MinBg
+            )
+        }
+
         if (showEditTimePicker) {
             IosTimePickerDialog(
                 initialHour = editHour,
@@ -5807,70 +7381,128 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     }
 
     val styleType = LocalStyleType.current
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 36.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Header with Title & Scaling Controls
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    AutoResizedText("Заметки", fontSize = 32.sp, minFontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
-                    Text(
-                        "${subjectNotes.size} ${if (subjectNotes.size == 1) "заметка" else if (subjectNotes.size in 2..4) "заметки" else "заметок"}",
-                        fontSize = 14.sp,
-                        color = MinTextSecondary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+    var newNoteText by remember { mutableStateOf("") }
+    var newNoteSubject by remember { mutableStateOf("Общее") }
+    var newNoteIsEvent by remember { mutableStateOf(false) }
+    var newNoteIsPinned by remember { mutableStateOf(false) }
+    var newSubjectExpanded by remember { mutableStateOf(false) }
+    var newCalendarExpanded by remember { mutableStateOf(false) }
 
-                // Apple-style scaling and view mode controls
+    // Helper lambda for rendering a single modern Apple Note Card
+    val renderNoteCard = @Composable { note: Note, isCompact: Boolean ->
+        val lines = note.text.lines()
+        val noteTitle = lines.firstOrNull()?.trim().orEmpty().ifBlank { "Без названия" }
+        val noteBody = lines.drop(1).joinToString("\n").trim()
+        val noteAttachments = note.attachments ?: emptyList()
+        val labelColor = MinTextPrimary
+        val dotColor = when {
+            note.isEvent -> Color(0xFFFFB800)
+            note.isPinned -> Color(0xFFFF9500)
+            else -> MinAccent
+        }
+        val gridBg = if (isGridMode) MinCardBg else Color.Transparent
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(gridBg)
+                .combinedClickable(
+                    onClick = { AppHapticManager.playClick(); noteToEdit = note },
+                    onLongClick = { AppHapticManager.playClick(); noteToDelete = note }
+                )
+                .padding(horizontal = if (isGridMode) 14.dp else 4.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(dotColor))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = note.subject,
+                    color = MinTextSecondary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Text(
+                    text = "  ·  " + (if (note.time != null) "${note.date} ${note.time}" else note.date),
+                    color = MinTextSecondary.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                if (note.isPinned) Icon(Icons.Outlined.PushPin, null, tint = Color(0xFFFF9500), modifier = Modifier.size(14.dp))
+                if (note.isEvent) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(Icons.Outlined.NotificationsActive, null, tint = Color(0xFFFFB800), modifier = Modifier.size(14.dp))
+                }
+                if (noteAttachments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(Icons.Outlined.AttachFile, null, tint = MinTextSecondary, modifier = Modifier.size(14.dp))
+                    Text("${noteAttachments.size}", color = MinTextSecondary, fontSize = 12.sp)
+                }
+            }
+            Text(
+                text = noteTitle,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = labelColor,
+                maxLines = if (isCompact) 2 else 3,
+                lineHeight = 22.sp
+            )
+            if (noteBody.isNotBlank()) {
+                Text(
+                    text = noteBody,
+                    fontSize = 14.sp,
+                    color = MinTextSecondary,
+                    maxLines = if (isCompact) 3 else 2,
+                    lineHeight = 20.sp
+                )
+            }
+            if (!isGridMode) {
+                androidx.compose.material3.HorizontalDivider(
+                    color = MinBorder.copy(alpha = 0.3f),
+                    thickness = 0.5.dp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 36.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header with Title & View Mode Toggle
+            item {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Zoom Out Button
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.08f))
-                            .clickable {
-                                AppHapticManager.playClick()
-                                scaleLevel = (scaleLevel - 0.15f).coerceIn(0.75f, 1.40f)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("A-", color = MinTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                        AutoResizedText("Заметки", fontSize = 32.sp, minFontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = MinTextPrimary)
+                        val notesCountStr = "${filteredNotes.size} ${if (filteredNotes.size % 10 == 1 && filteredNotes.size % 100 != 11) "заметка" else if (filteredNotes.size % 10 in 2..4 && filteredNotes.size % 100 !in 12..14) "заметки" else "заметок"}"
+                        val eventsCount = notes.count { it.isEvent }
+                        Text(
+                            if (eventsCount > 0) "$notesCountStr • $eventsCount ${if (eventsCount == 1) "событие" else if (eventsCount in 2..4) "события" else "событий"}" else notesCountStr,
+                            fontSize = 14.sp,
+                            color = MinTextSecondary,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
 
-                    // Zoom In Button
+                    // Grid / List View Toggle Button
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(42.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.08f))
-                            .clickable {
-                                AppHapticManager.playClick()
-                                scaleLevel = (scaleLevel + 0.15f).coerceIn(0.75f, 1.40f)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("A+", color = MinTextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    // Grid / List View Toggle
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(if (isGridMode) MinAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.08f))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, CircleShape)
                             .clickable { 
                                 AppHapticManager.playClick()
                                 isGridMode = !isGridMode 
@@ -5881,652 +7513,530 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                             if (isGridMode) Icons.Outlined.GridView else Icons.Outlined.ViewAgenda,
                             contentDescription = "Вид",
                             tint = if (isGridMode) MinAccent else MinTextPrimary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+
+            // Apple Search Bar
+            item {
+                AppleSearchInput(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = "Поиск",
+                    isDarkTheme = isDarkTheme,
+                    inputBg = MinCardBg,
+                    inputBorder = MinBorder,
+                    inputTextColor = MinTextPrimary,
+                    inputIconColor = MinTextSecondary,
+                    cursorColor = MinAccent
+                )
+            }
+
+            // Subject Dropdown Selector (replaces horizontal carousel)
+            item {
+                val selectedLabel = when (selectedSubject) {
+                    "Все" -> "Все предметы (${notes.size})"
+                    "Закрепленные" -> "Закрепленные (${notes.count { it.isPinned }})"
+                    "События" -> "События (${notes.count { it.isEvent }})"
+                    else -> selectedSubject
+                }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, if (subjectDropdownExpanded) MinAccent.copy(alpha = 0.5f) else MinBorder, RoundedCornerShape(14.dp))
+                            .clickable {
+                                AppHapticManager.playClick()
+                                subjectDropdownExpanded = !subjectDropdownExpanded
+                            }
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                "Предмет:",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MinTextSecondary
+                            )
+                            Text(
+                                selectedLabel,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (selectedSubject == "Все") MinTextPrimary else MinAccent,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Icon(
+                            imageVector = if (subjectDropdownExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = "Выбрать предмет",
+                            tint = if (subjectDropdownExpanded) MinAccent else MinTextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    AnimatedVisibility(visible = subjectDropdownExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(MinCardBg)
+                                .border(1.dp, MinBorder, RoundedCornerShape(14.dp))
+                                .padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            subjects.forEach { subject ->
+                                val itemLabel = when (subject) {
+                                    "Все" -> "Все предметы (${notes.size})"
+                                    "Закрепленные" -> "Закрепленные (${notes.count { it.isPinned }})"
+                                    "События" -> "События (${notes.count { it.isEvent }})"
+                                    else -> subject
+                                }
+                                val isSelected = selectedSubject == subject
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (isSelected) MinAccent.copy(alpha = 0.14f) else Color.Transparent)
+                                        .clickable {
+                                            AppHapticManager.playClick()
+                                            selectedSubject = subject
+                                            subjectDropdownExpanded = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        itemLabel,
+                                        fontSize = 15.sp,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (isSelected) MinAccent else MinTextPrimary
+                                    )
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Check,
+                                            contentDescription = null,
+                                            tint = MinAccent,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Notes Content / Empty State
+            if (filteredNotes.isEmpty()) {
+                item {
+                    AppleNotesEmptyState(
+                        isSearch = searchQuery.isNotBlank(),
+                        isDarkTheme = isDarkTheme,
+                        MinTextPrimary = MinTextPrimary,
+                        MinTextSecondary = MinTextSecondary
+                    )
+                }
+            } else {
+                // 1. PINNED NOTES SECTION
+                if (pinnedNotes.isNotEmpty()) {
+                    item {
+                        Text(
+                            "Закреплённые",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MinTextSecondary
+                        )
+                    }
+
+                    if (isGridMode) {
+                        val chunks = pinnedNotes.chunked(2)
+                        items(chunks.size) { chunkIdx ->
+                            val pair = chunks[chunkIdx]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    renderNoteCard(pair[0], true)
+                                }
+                                if (pair.size > 1) {
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        renderNoteCard(pair[1], true)
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    } else {
+                        items(pinnedNotes, key = { it.id }) { note ->
+                            renderNoteCard(note, false)
+                        }
+                    }
+                }
+
+                // 2. REGULAR NOTES SECTION
+                if (regularNotes.isNotEmpty()) {
+                    if (pinnedNotes.isNotEmpty()) {
+                        item {
+                            Text(
+                                "Заметки",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MinTextSecondary
+                            )
+                        }
+                    }
+
+                    if (isGridMode) {
+                        val chunks = regularNotes.chunked(2)
+                        items(chunks.size) { chunkIdx ->
+                            val pair = chunks[chunkIdx]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(modifier = Modifier.weight(1f)) {
+                                    renderNoteCard(pair[0], true)
+                                }
+                                if (pair.size > 1) {
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        renderNoteCard(pair[1], true)
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    } else {
+                        items(regularNotes, key = { it.id }) { note ->
+                            renderNoteCard(note, false)
+                        }
                     }
                 }
             }
         }
 
-        // Control Panel: Subject Filter & Calendar Trigger
-        item {
+        // Floating Action Button in Bottom-Right Corner
+        FloatingActionButton(
+            onClick = {
+                AppHapticManager.playClick()
+                newNoteText = ""
+                pendingAttachments = emptyList()
+                newNoteIsEvent = false
+                newNoteIsPinned = false
+                newNoteSubject = if (selectedSubject != "Все") selectedSubject else allSubjects.firstOrNull() ?: "Общее"
+                showNewNoteDialog = true
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 28.dp, end = 20.dp)
+                .size(56.dp),
+            shape = CircleShape,
+            containerColor = MinAccent,
+            contentColor = MinCardBg,
+            elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Add,
+                contentDescription = "Создать заметку",
+                modifier = Modifier.size(28.dp)
+            )
+        }
+    }
+
+    // Bottom sheet for creating a new note
+    if (showNewNoteDialog) {
+        val sheetBg = MinCardBg
+        val chipBg = MinTextPrimary.copy(alpha = 0.08f)
+        val textC = MinTextPrimary
+        val secC = MinTextSecondary
+        val pinColor = Color(0xFFFF9500)
+        val eventColor = Color(0xFFFFB800)
+
+        val saveNewNote: () -> Unit = {
+            if (newNoteText.isNotBlank() || pendingAttachments.isNotEmpty()) {
+                AppHapticManager.playClick()
+                var calId: Long? = null
+                if (newNoteIsEvent) {
+                    calId = GoogleCalendarSync.syncEvent(
+                        context,
+                        Note(
+                            subject = newNoteSubject,
+                            text = newNoteText,
+                            date = formatDate(selectedDay, selectedMonth, selectedYear),
+                            time = "%02d:%02d".format(selectedHour, selectedMinute),
+                            isEvent = true,
+                            isPinned = newNoteIsPinned
+                        ),
+                        selectedDay, selectedMonth, selectedYear
+                    )
+                }
+                val note = Note(
+                    subject = newNoteSubject,
+                    text = newNoteText,
+                    date = formatDate(selectedDay, selectedMonth, selectedYear),
+                    time = "%02d:%02d".format(selectedHour, selectedMinute),
+                    isEvent = newNoteIsEvent,
+                    isPinned = newNoteIsPinned,
+                    attachments = pendingAttachments,
+                    calendarEventId = calId
+                )
+                saveNotes(notes + note)
+                if (newNoteIsEvent) {
+                    scheduleAlarm(context, note, selectedDay, selectedMonth, selectedYear, selectedHour, selectedMinute)
+                }
+                newNoteText = ""
+                pendingAttachments = emptyList()
+                showNewNoteDialog = false
+            }
+        }
+
+        val sheetChip = @Composable { label: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, active: Boolean, tint: Color, onClick: () -> Unit ->
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(if (active) tint.copy(alpha = 0.16f) else chipBg)
+                    .clickable { AppHapticManager.playClick(); onClick() }
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Subject Filter Dropdown Button
-                Box(
+                if (icon != null) Icon(icon, null, tint = if (active) tint else secC, modifier = Modifier.size(16.dp))
+                Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (active) tint else textC, maxLines = 1)
+            }
+        }
+
+        Dialog(
+            onDismissRequest = { showNewNoteDialog = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null
+                    ) { showNewNoteDialog = false },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                        .clickable { 
-                            AppHapticManager.playClick()
-                            radialExpanded = !radialExpanded 
-                        }
-                        .padding(horizontal = 14.dp),
-                    contentAlignment = Alignment.CenterStart
+                        .fillMaxWidth()
+                        .heightIn(max = 640.dp)
+                        .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                        .background(sheetBg)
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) { }
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp)
+                        .padding(top = 10.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .width(36.dp)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(secC.copy(alpha = 0.35f))
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AutoResizedText(
-                            text = selectedSubject,
-                            fontSize = 14.sp,
-                            minFontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MinTextPrimary,
-                            maxLines = 1,
-                            modifier = Modifier.weight(1f).padding(end = 6.dp)
-                        )
-                        Icon(
-                            if (radialExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = MinTextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                // Calendar Picker Trigger
-                Box(
-                    modifier = Modifier
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isCalendarExpanded) MinAccent.copy(alpha = 0.22f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                        .border(1.dp, if (isCalendarExpanded) MinAccent else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                        .clickable { 
-                            AppHapticManager.playClick()
-                            isCalendarExpanded = !isCalendarExpanded 
-                        }
-                        .padding(horizontal = 14.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Icon(
-                            Icons.Outlined.CalendarMonth,
-                            contentDescription = "Календарь",
-                            tint = if (isCalendarExpanded) MinAccent else MinTextPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
                         Text(
-                            "%02d.%02d".format(selectedDay, selectedMonth + 1),
-                            color = if (isCalendarExpanded) MinAccent else MinTextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            "Отмена",
+                            fontSize = 16.sp,
+                            color = secC,
+                            modifier = Modifier.clickable { showNewNoteDialog = false }.padding(vertical = 6.dp)
                         )
-                    }
-                }
-
-                // Time Picker Trigger
-                Box(
-                    modifier = Modifier
-                        .height(46.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (showNewNoteTimePicker) MinAccent.copy(alpha = 0.22f) else if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                        .border(1.dp, if (showNewNoteTimePicker) MinAccent else if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
-                        .clickable { 
-                            AppHapticManager.playClick()
-                            showNewNoteTimePicker = true 
-                        }
-                        .padding(horizontal = 14.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Новая заметка", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = textC)
                         Text(
-                            "%02d:%02d".format(selectedHour, selectedMinute),
-                            color = if (showNewNoteTimePicker) MinAccent else MinTextPrimary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            "Готово",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (newNoteText.isNotBlank() || pendingAttachments.isNotEmpty()) MinAccent else secC.copy(alpha = 0.5f),
+                            modifier = Modifier.clickable { saveNewNote() }.padding(vertical = 6.dp)
                         )
                     }
-                }
-            }
 
-            AnimatedVisibility(visible = radialExpanded, enter = expandVertically(), exit = shrinkVertically()) {
-                Column(
-                    modifier = Modifier
-                        .padding(top = 10.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Transparent)
-                        .border(1.dp, if (isDarkTheme) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.08f), RoundedCornerShape(16.dp))
-                        .padding(6.dp)
-                ) {
-                    subjects.forEach { subject ->
-                        val isSel = subject == selectedSubject
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSel) MinAccent.copy(alpha = 0.15f) else Color.Transparent)
-                                .clickable {
-                                    AppHapticManager.playClick()
-                                    selectedSubject = subject
-                                    radialExpanded = false
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = newNoteText,
+                        onValueChange = { newNoteText = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = textC, fontSize = 18.sp, lineHeight = 26.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(MinAccent),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 130.dp, max = 240.dp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (newNoteText.isEmpty()) {
+                                    Text("Заметка", fontSize = 18.sp, color = secC.copy(alpha = 0.7f))
                                 }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = subject,
-                                color = if (isSel) MinAccent else MinTextPrimary,
-                                fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                fontSize = 16.sp
-                            )
+                                inner()
+                            }
                         }
-                    }
-                }
-            }
-
-            AnimatedVisibility(visible = isCalendarExpanded, enter = expandVertically(), exit = shrinkVertically()) {
-                Column {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    MinNotesCalendar(
-                        viewMonth = viewMonth, viewYear = viewYear,
-                        selectedDay = selectedDay, selectedMonth = selectedMonth, selectedYear = selectedYear,
-                        highlightedDates = highlightedDates,
-                        MinTextPrimary = MinTextPrimary, MinTextSecondary = MinTextSecondary,
-                        MinBorder = MinBorder, MinAccent = MinAccent, MinBg = MinBg,
-                        onDaySelected = { d, m, y -> 
-                            AppHapticManager.playClick()
-                            selectedDay = d; selectedMonth = m; selectedYear = y; isCalendarExpanded = false 
-                        },
-                        onPrevMonth = { if (viewMonth == 0) { viewMonth = 11; viewYear-- } else viewMonth-- },
-                        onNextMonth = { if (viewMonth == 11) { viewMonth = 0; viewYear++ } else viewMonth++ }
                     )
-                }
-            }
-        }
 
-        // Note Input Card
-        item {
-            val inputCardBg = Color.Transparent
-            val inputBorder = if (isDarkTheme) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.10f)
-            val inputSubBg = Color.Transparent
-            val inputTextColor = if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
-            val inputSecTextColor = if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(inputCardBg)
-                    .border(1.dp, inputBorder, RoundedCornerShape(22.dp))
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Header row with subject & date tags
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Subject tag
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(MinAccent.copy(alpha = if (isDarkTheme) 0.16f else 0.12f))
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject,
-                                color = MinAccent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Date tag
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(inputSubBg)
-                                .border(1.dp, inputBorder, CircleShape)
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                "%02d.%02d.%04d".format(selectedDay, selectedMonth + 1, selectedYear),
-                                color = inputSecTextColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-
-                        // Time tag
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(inputSubBg)
-                                .border(1.dp, inputBorder, CircleShape)
-                                .clickable {
-                                    showNewNoteTimePicker = true
-                                }
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                "%02d:%02d".format(selectedHour, selectedMinute),
-                                color = inputSecTextColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                    val nextNewTarget = remember(newNoteSubject, selectedGroup) {
+                        findNextLessonForSubject(context, selectedGroup, newNoteSubject)
                     }
-
-                }
-
-                // Text area
-                OutlinedTextField(
-                    value = noteText,
-                    onValueChange = { noteText = it },
-                    placeholder = { Text("Введите заметку...", color = inputSecTextColor) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 130.dp, max = 300.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = inputTextColor,
-                        unfocusedTextColor = inputTextColor,
-                        cursorColor = MinAccent,
-                        focusedBorderColor = MinAccent.copy(alpha = 0.5f),
-                        unfocusedBorderColor = if (isDarkTheme) Color.Transparent else inputBorder,
-                        focusedContainerColor = inputSubBg,
-                        unfocusedContainerColor = inputSubBg
-                    ),
-                    shape = RoundedCornerShape(16.dp)
-                )
-
-                // Attached files preview chips
-                if (pendingAttachments.isNotEmpty()) {
                     androidx.compose.foundation.layout.FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        pendingAttachments.forEach { att ->
-                            NotionAttachmentChip(
-                                attachment = att,
-                                isDarkTheme = isDarkTheme,
-                                onDelete = {
-                                    AppHapticManager.playClick()
-                                    pendingAttachments = pendingAttachments.filter { it.id != att.id }
-                                },
-                                onClick = { openAttachmentFile(context, att) }
-                            )
-                        }
-                    }
-                }
-
-                // Bottom Action Bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Attach File Button
-                    val defaultBtnBg = if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF0F0F5)
-                    Box(
-                        modifier = Modifier
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(defaultBtnBg)
-                            .border(1.dp, inputBorder, RoundedCornerShape(12.dp))
-                            .clickable {
-                                AppHapticManager.playClick()
-                                newFilePickerLauncher.launch(arrayOf("*/*"))
-                            }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        sheetChip(
+                            newNoteSubject,
+                            if (newSubjectExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            true,
+                            MinAccent
                         ) {
-                            Icon(
-                                Icons.Outlined.AttachFile,
-                                contentDescription = "Прикрепить файл",
-                                tint = MinAccent,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                "Файл",
-                                color = inputTextColor,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                            newSubjectExpanded = !newSubjectExpanded
                         }
-                    }
-
-                    // "Событие" toggle button
-                    Box(
-                        modifier = Modifier
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.20f) else defaultBtnBg)
-                            .border(1.dp, if (isEventNote) Color(0xFFFFB800).copy(alpha = 0.40f) else inputBorder, RoundedCornerShape(12.dp))
-                            .clickable { 
-                                AppHapticManager.playClick()
-                                isEventNote = !isEventNote 
-                            }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                if (isEventNote) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
-                                contentDescription = null,
-                                tint = if (isEventNote) Color(0xFFFFB800) else inputSecTextColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                "Событие",
-                                color = if (isEventNote) Color(0xFFFFB800) else inputTextColor,
-                                fontWeight = if (isEventNote) FontWeight.ExtraBold else FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
+                        sheetChip("%02d.%02d.%04d".format(selectedDay, selectedMonth + 1, selectedYear), Icons.Outlined.CalendarToday, false, MinAccent) {
+                            showNewNoteDatePicker = true
                         }
-                    }
-
-                    // "Сохранить" button
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MinAccent.copy(alpha = if (isDarkTheme) 0.20f else 0.15f))
-                            .border(1.dp, MinAccent.copy(alpha = if (isDarkTheme) 0.50f else 0.40f), RoundedCornerShape(12.dp))
-                            .clickable {
-                                if (noteText.isNotBlank() || pendingAttachments.isNotEmpty()) {
-                                    AppHapticManager.playClick()
-                                    val subjectForNote = if (selectedSubject == "Все") (allSubjects.firstOrNull() ?: "Общее") else selectedSubject
-                                    
-                                    var calId: Long? = null
-                                    if (isEventNote) {
-                                        calId = GoogleCalendarSync.syncEvent(
-                                            context,
-                                            Note(subject = subjectForNote, text = noteText, date = formatDate(selectedDay, selectedMonth, selectedYear), time = "%02d:%02d".format(selectedHour, selectedMinute), isEvent = true),
-                                            selectedDay, selectedMonth, selectedYear
-                                        )
-                                    }
-
-                                    val newNote = Note(
-                                        subject = subjectForNote,
-                                        text = noteText,
-                                        date = formatDate(selectedDay, selectedMonth, selectedYear),
-                                        time = "%02d:%02d".format(selectedHour, selectedMinute),
-                                        isEvent = isEventNote,
-                                        attachments = pendingAttachments,
-                                        calendarEventId = calId
-                                    )
-                                    saveNotes(notes + newNote)
-                                    if (isEventNote) {
-                                        scheduleAlarm(context, newNote, selectedDay, selectedMonth, selectedYear, selectedHour, selectedMinute)
-                                    }
-                                    noteText = ""
-                                    pendingAttachments = emptyList()
-                                    isEventNote = false
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Outlined.Check,
-                                contentDescription = "Сохранить",
-                                tint = MinAccent,
-                                modifier = Modifier.size(19.dp)
-                            )
+                        sheetChip("%02d:%02d".format(selectedHour, selectedMinute), Icons.Outlined.AccessTime, false, MinAccent) {
+                            showNewNoteTimePicker = true
                         }
-                    }
-                }
-            }
-        }
-
-        // Helper lambda for rendering a single iOS Note Card
-        val renderNoteCard = @Composable { note: Note, isCompact: Boolean ->
-            val lines = note.text.lines()
-            val noteTitle = lines.firstOrNull() ?: ""
-            val noteBody = lines.drop(1).joinToString("\n")
-
-            val isYellowEvent = isGridMode && note.isEvent
-            val cardBg = if (isYellowEvent) {
-                Color(0xFFFFB800).copy(alpha = 0.20f)
-            } else {
-                if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFF2F2F7)
-            }
-            val cardBorder = if (isYellowEvent) {
-                Color(0xFFFFB800).copy(alpha = 0.40f)
-            } else {
-                if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color(0xFFE5E5EA)
-            }
-
-            val noteAttachments = note.attachments ?: emptyList()
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape((20 * scaleLevel).dp))
-                    .background(cardBg)
-                    .border(1.dp, cardBorder, RoundedCornerShape((20 * scaleLevel).dp))
-                    .combinedClickable(
-                        onClick = { 
-                            AppHapticManager.playClick()
-                            noteToEdit = note 
-                        },
-                        onLongClick = { 
-                            AppHapticManager.playClick()
-                            noteToDelete = note 
-                        }
-                    )
-                    .padding((16 * scaleLevel).dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy((10 * scaleLevel).dp)) {
-                    // Header with Oval Badges
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Oval Badges flow
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy((6 * scaleLevel).dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f, fill = false)
-                        ) {
-                            // Subject Oval Badge
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(MinAccent.copy(alpha = 0.16f))
-                                    .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
+                        if (nextNewTarget != null) {
+                            val isNextApplied = selectedDay == nextNewTarget.day && selectedMonth == nextNewTarget.month0Based && selectedYear == nextNewTarget.year
+                            sheetChip(
+                                "К след. паре (${nextNewTarget.dateFormatted.take(5)})",
+                                Icons.Outlined.EventAvailable,
+                                isNextApplied,
+                                MinAccent
                             ) {
-                                AutoResizedText(
-                                    note.subject,
-                                    color = MinAccent,
-                                    fontSize = (12 * scaleLevel).sp,
-                                    minFontSize = (9 * scaleLevel).sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    maxLines = 1
-                                )
+                                selectedDay = nextNewTarget.day
+                                selectedMonth = nextNewTarget.month0Based
+                                selectedYear = nextNewTarget.year
+                                selectedHour = nextNewTarget.hour
+                                selectedMinute = nextNewTarget.minute
+                                viewMonth = nextNewTarget.month0Based
+                                viewYear = nextNewTarget.year
                             }
+                        }
+                    }
 
-                            // Date Oval Badge
-                            Box(
-                                modifier = Modifier
-                                    .clip(CircleShape)
-                                    .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
-                                    .padding(horizontal = (10 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
-                            ) {
+                    AnimatedVisibility(visible = newSubjectExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(chipBg)
+                                .padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            allSubjects.forEach { s ->
+                                val isSel = s == newNoteSubject
                                 Text(
-                                    if (note.time != null) "${note.date} ${note.time}" else note.date,
-                                    color = MinTextSecondary,
-                                    fontSize = (11 * scaleLevel).sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    s,
+                                    color = if (isSel) MinAccent else textC,
+                                    fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isSel) MinAccent.copy(alpha = 0.16f) else Color.Transparent)
+                                        .clickable {
+                                            AppHapticManager.playClick()
+                                            newNoteSubject = s
+                                            newSubjectExpanded = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp)
                                 )
                             }
-
-                            // Event Oval Badge (if event)
-                            if (note.isEvent) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFFFB800).copy(alpha = 0.20f))
-                                        .padding(horizontal = (7 * scaleLevel).dp, vertical = (4 * scaleLevel).dp)
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.NotificationsActive,
-                                        contentDescription = "Событие",
-                                        tint = Color(0xFFFFB800),
-                                        modifier = Modifier.size((14 * scaleLevel).dp)
-                                    )
-                                }
-                            }
                         }
                     }
 
-                    // Title & Content (Apple Notes typography hierarchy)
-                    Column(verticalArrangement = Arrangement.spacedBy((4 * scaleLevel).dp)) {
-                        Text(
-                            text = noteTitle,
-                            fontSize = (19 * scaleLevel).sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MinTextPrimary,
-                            maxLines = if (isCompact) 2 else 4
-                        )
-                        if (noteBody.isNotBlank()) {
-                            Text(
-                                text = noteBody,
-                                fontSize = (14 * scaleLevel).sp,
-                                color = MinTextSecondary,
-                                maxLines = if (isCompact) 3 else 6,
-                                lineHeight = (18 * scaleLevel).sp
-                            )
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        sheetChip("Закрепить", Icons.Outlined.PushPin, newNoteIsPinned, pinColor) { newNoteIsPinned = !newNoteIsPinned }
+                        sheetChip("Напомнить", if (newNoteIsEvent) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications, newNoteIsEvent, eventColor) { newNoteIsEvent = !newNoteIsEvent }
+                        sheetChip(if (pendingAttachments.isEmpty()) "Файл" else "Файлы (${pendingAttachments.size})", Icons.Outlined.AttachFile, pendingAttachments.isNotEmpty(), MinAccent) {
+                            newFilePickerLauncher.launch(arrayOf("*/*"))
                         }
                     }
 
-                    // Attachments preview chips
-                    if (noteAttachments.isNotEmpty()) {
+                    if (pendingAttachments.isNotEmpty()) {
                         androidx.compose.foundation.layout.FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy((6 * scaleLevel).dp),
-                            verticalArrangement = Arrangement.spacedBy((6 * scaleLevel).dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            noteAttachments.forEach { att ->
+                            pendingAttachments.forEach { att ->
                                 NotionAttachmentChip(
                                     attachment = att,
                                     isDarkTheme = isDarkTheme,
+                                    onDelete = {
+                                        AppHapticManager.playClick()
+                                        pendingAttachments = pendingAttachments.filter { it.id != att.id }
+                                    },
                                     onClick = { openAttachmentFile(context, att) }
                                 )
                             }
                         }
                     }
-                }
-            }
-        }
 
-        // 1. PINNED NOTES SECTION
-        if (pinnedNotes.isNotEmpty()) {
-            item {
-                Text(
-                    "ЗАКРЕПЛЁННЫЕ",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFFFF9500),
-                    letterSpacing = 1.5.sp
-                )
-            }
-
-            if (isGridMode) {
-                val chunks = pinnedNotes.chunked(2)
-                items(chunks.size) { chunkIdx ->
-                    val pair = chunks[chunkIdx]
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    val canSave = newNoteText.isNotBlank() || pendingAttachments.isNotEmpty()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (canSave) MinAccent else chipBg)
+                            .clickable(enabled = canSave) { saveNewNote() },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            renderNoteCard(pair[0], true)
-                        }
-                        if (pair.size > 1) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                renderNoteCard(pair[1], true)
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
+                        Text("Сохранить", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = if (canSave) MinCardBg else secC)
                     }
-                }
-            } else {
-                items(pinnedNotes, key = { it.id }) { note ->
-                    renderNoteCard(note, false)
-                }
-            }
-        }
-
-        // 2. REGULAR NOTES SECTION
-        if (regularNotes.isNotEmpty()) {
-            if (pinnedNotes.isNotEmpty()) {
-                item {
-                    Text(
-                        "ДРУГИЕ ЗАМЕТКИ",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MinTextSecondary,
-                        letterSpacing = 1.5.sp
-                    )
-                }
-            } else {
-                item {
-                    Text(
-                        "ВСЕ ЗАМЕТКИ",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MinTextSecondary,
-                        letterSpacing = 1.5.sp
-                    )
-                }
-            }
-
-            if (isGridMode) {
-                val chunks = regularNotes.chunked(2)
-                items(chunks.size) { chunkIdx ->
-                    val pair = chunks[chunkIdx]
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            renderNoteCard(pair[0], true)
-                        }
-                        if (pair.size > 1) {
-                            Box(modifier = Modifier.weight(1f)) {
-                                renderNoteCard(pair[1], true)
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.weight(1f))
-                        }
-                    }
-                }
-            } else {
-                items(regularNotes, key = { it.id }) { note ->
-                    renderNoteCard(note, false)
                 }
             }
         }
     }
 
+    if (showNewNoteDatePicker) {
+        IosDatePickerDialog(
+            initialDay = selectedDay,
+            initialMonth = selectedMonth,
+            initialYear = selectedYear,
+            highlightedDates = highlightedDates,
+            onDismiss = { showNewNoteDatePicker = false },
+            onDateSelected = { d, m, y ->
+                selectedDay = d
+                selectedMonth = m
+                selectedYear = y
+                viewMonth = m
+                viewYear = y
+            },
+            MinTextPrimary = MinTextPrimary,
+            MinTextSecondary = MinTextSecondary,
+            MinCardBg = MinCardBg,
+            MinAccent = MinAccent,
+            MinBg = MinBg
+        )
+    }
 
     if (showNewNoteTimePicker) {
         IosTimePickerDialog(
@@ -6541,6 +8051,51 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
             MinTextSecondary = MinTextSecondary,
             MinCardBg = MinCardBg,
             MinAccent = MinAccent
+        )
+    }
+}
+
+@Composable
+fun AppleNotesEmptyState(
+    isSearch: Boolean,
+    isDarkTheme: Boolean,
+    MinTextPrimary: Color,
+    MinTextSecondary: Color
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp, horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(CircleShape)
+                .background(MinTextPrimary.copy(alpha = 0.06f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isSearch) Icons.Outlined.SearchOff else Icons.Outlined.EditNote,
+                contentDescription = null,
+                tint = MinTextSecondary.copy(alpha = 0.6f),
+                modifier = Modifier.size(36.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = if (isSearch) "Ничего не найдено" else "Нет заметок",
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold,
+            color = MinTextPrimary
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = if (isSearch) "Попробуйте изменить поисковый запрос" else "Нажмите «+», чтобы создать первую заметку",
+            fontSize = 14.sp,
+            color = MinTextSecondary,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -6622,8 +8177,8 @@ fun MinNotesCalendar(
                                 Text(
                                     dayNum.toString(),
                                     fontSize = 16.sp,
-                                    fontWeight = if (isSelected || isHighlighted || isToday) FontWeight.ExtraBold else FontWeight.Normal,
-                                    color = if (isSelected) Color.White else MinTextPrimary
+                                    fontWeight = if (isSelected || isHighlighted || isToday) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isSelected) MinBg else MinTextPrimary
                                 )
                                 if (isToday) {
                                     Spacer(modifier = Modifier.height(2.dp))
@@ -6631,7 +8186,7 @@ fun MinNotesCalendar(
                                         modifier = Modifier
                                             .size(4.dp)
                                             .clip(CircleShape)
-                                            .background(if (isSelected) Color.White else MinAccent)
+                                            .background(if (isSelected) MinBg else MinAccent)
                                     )
                                 } else if (isHighlighted && !isSelected) {
                                     Spacer(modifier = Modifier.height(2.dp))
@@ -6653,11 +8208,14 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     var showMarks by remember { mutableStateOf(false) }
     var showGroupScreen by remember { mutableStateOf(false) }
     var showStudyScreen by remember { mutableStateOf(false) }
+    var showNotifications by remember { mutableStateOf(false) }
     var showAnnouncements by remember { mutableStateOf(false) }
     var showDormitory by remember { mutableStateOf(false) }
     var showBenefits by remember { mutableStateOf(false) }
     var showPenalties by remember { mutableStateOf(false) }
     var showAbsences by remember { mutableStateOf(false) }
+    var showHeadmanScreen by remember { mutableStateOf(false) }
+    var showIisResumeScreen by remember { mutableStateOf(false) }
     var showReminderSettings by remember { mutableStateOf(false) }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
@@ -6670,6 +8228,18 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     var showGroupDescToggle by remember { mutableStateOf(false) }
 
     val profilePrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+    var unreadNotifCount by remember { mutableIntStateOf(profilePrefs.getInt("cached_unread_notif_count", 0)) }
+    var unexcusedHoursBadge by remember {
+        val raw = profilePrefs.getInt("cached_unexcused_hours", 0)
+        // Reset stale 6-hour default from previous build
+        if (raw == 6 && !profilePrefs.getBoolean("absences_month_fixed_v2", false)) {
+            profilePrefs.edit().putInt("cached_unexcused_hours", 0).putBoolean("absences_month_fixed_v2", true).apply()
+            mutableIntStateOf(0)
+        } else {
+            mutableIntStateOf(raw)
+        }
+    }
+    var isUserHeadman by remember { mutableStateOf(profilePrefs.getBoolean("cached_is_headman", false)) }
     var memoryAvatarBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     val scope = rememberCoroutineScope()
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -6751,11 +8321,18 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
         val cachedPhoto = prefs.getString("login_photo", null)
         val cachedDesc = prefs.getString("login_desc", null)
 
-        if (!forceRefresh && cachedFio != null) {
-            userFio = cachedFio
-            userDesc = cachedDesc ?: cachedGroup ?: "БГУИР"
-            userPhoto = cachedPhoto ?: ""
-            userGroup = cachedGroup ?: "Неизвестно"
+        if (token.isNotEmpty()) {
+            if (!forceRefresh && cachedFio != null) {
+                userFio = cachedFio
+                userDesc = cachedDesc ?: cachedGroup ?: "БГУИР"
+                userPhoto = cachedPhoto ?: ""
+                userGroup = cachedGroup ?: "Неизвестно"
+            }
+        } else {
+            userFio = "Гость"
+            userDesc = "Вход не выполнен"
+            userPhoto = ""
+            userGroup = prefs.getString("selectedGroup", "БГУИР") ?: "БГУИР"
         }
 
         if (token.isNotEmpty()) {
@@ -6884,6 +8461,62 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
     LaunchedEffect(Unit) {
         fetchProfileData(forceRefresh = false)
+        unreadNotifCount = fetchUnreadNotificationsCount(context)
+        unexcusedHoursBadge = profilePrefs.getInt("cached_unexcused_hours", 0)
+        ScheduleWidgetProvider.updateAllWidgets(context)
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val token = profilePrefs.getString("auth_token", "") ?: ""
+                val myFio = profilePrefs.getString("login_fio", "") ?: ""
+                var detectedHeadman = false
+
+                fun checkHeadmanInGroupJson(jsonStr: String): Boolean {
+                    try {
+                        val root = org.json.JSONObject(jsonStr.trim())
+                        val arr = root.optJSONArray("groupInfoStudentDto") ?: return false
+                        for (i in 0 until arr.length()) {
+                            val item = arr.optJSONObject(i) ?: continue
+                            val fio = item.optString("fio", "").trim()
+                            val pos = item.optString("position", "").trim()
+                            val isMe = myFio.isNotBlank() && (
+                                fio.equals(myFio, ignoreCase = true) ||
+                                fio.contains(myFio, ignoreCase = true) ||
+                                myFio.contains(fio, ignoreCase = true)
+                            )
+                            if (isMe) {
+                                return pos.contains("Староста", ignoreCase = true) && !pos.contains("Зам", ignoreCase = true)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                    return false
+                }
+
+                val cachedGrp = profilePrefs.getString("cached_user_group_info", null)
+                if (!cachedGrp.isNullOrBlank()) {
+                    detectedHeadman = checkHeadmanInGroupJson(cachedGrp)
+                }
+
+                if (token.isNotBlank()) {
+                    try {
+                        NetworkClient.executeWithAuth(
+                            NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/student-groups/user-group-info", token),
+                            context
+                        ).use { resp ->
+                            val b = resp.body?.string()
+                            if (resp.isSuccessful && !b.isNullOrBlank()) {
+                                profilePrefs.edit().putString("cached_user_group_info", b).apply()
+                                detectedHeadman = checkHeadmanInGroupJson(b)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                profilePrefs.edit().putBoolean("cached_is_headman", detectedHeadman).apply()
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isUserHeadman = detectedHeadman
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     if (showCustomization) {
@@ -6906,9 +8539,13 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
             }
         }
     } else if (showAbsences) {
-        androidx.activity.compose.BackHandler(onBack = { showAbsences = false })
+        androidx.activity.compose.BackHandler(onBack = {
+            unexcusedHoursBadge = profilePrefs.getInt("cached_unexcused_hours", 0)
+            showAbsences = false
+        })
         Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
             MinAbsencesScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) {
+                unexcusedHoursBadge = profilePrefs.getInt("cached_unexcused_hours", 0)
                 showAbsences = false
             }
         }
@@ -6926,6 +8563,31 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 showStudyScreen = false
             }
         }
+    } else if (showHeadmanScreen) {
+        androidx.activity.compose.BackHandler(onBack = { showHeadmanScreen = false })
+        Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
+            MinHeadmanJournalScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) {
+                showHeadmanScreen = false
+            }
+        }
+    } else if (showIisResumeScreen) {
+        androidx.activity.compose.BackHandler(onBack = { showIisResumeScreen = false })
+        Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
+            MinIisResumeScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) {
+                showIisResumeScreen = false
+            }
+        }
+    } else if (showNotifications) {
+        androidx.activity.compose.BackHandler(onBack = {
+            unreadNotifCount = 0
+            showNotifications = false
+        })
+        Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
+            MinNotificationsScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) {
+                unreadNotifCount = 0
+                showNotifications = false
+            }
+        }
     } else if (showAnnouncements) {
         androidx.activity.compose.BackHandler(onBack = { showAnnouncements = false })
         Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
@@ -6934,17 +8596,17 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     } else if (showPenalties) {
         androidx.activity.compose.BackHandler(onBack = { showPenalties = false })
         Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
-            MinGenericApiScreen("Взыскания", "https://iis.bsuir.by/api/v1/student-discipline-penalties", MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent) { showPenalties = false }
+            MinPenaltiesAndIncentivesScreen(MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) { showPenalties = false }
         }
     } else if (showDormitory) {
         androidx.activity.compose.BackHandler(onBack = { showDormitory = false })
         Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
-            MinGenericApiScreen("Общежитие", "https://iis.bsuir.by/api/v1/dormitory-queue-application", MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent) { showDormitory = false }
+            MinDormitoryAndPrivilegesScreen(0, MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) { showDormitory = false }
         }
     } else if (showBenefits) {
         androidx.activity.compose.BackHandler(onBack = { showBenefits = false })
         Box(modifier = Modifier.fillMaxSize().background(MinBg).zIndex(100f)) {
-            MinGenericApiScreen("Льготы", "https://iis.bsuir.by/api/v1/dormitory-queue-application/privileges", MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent) { showBenefits = false }
+            MinDormitoryAndPrivilegesScreen(1, MinBg, MinCardBg, MinBorder, MinTextPrimary, MinTextSecondary, currentAccent, isDarkTheme) { showBenefits = false }
         }
     } else {
         val isDialogOpen = false
@@ -7010,7 +8672,9 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                     Box(contentAlignment = Alignment.BottomEnd) {
                         Box(
                             modifier = Modifier
-                                .size(200.dp)
+                                .size(108.dp)
+                                .border(2.dp, MinTextPrimary.copy(alpha = 0.35f), CircleShape)
+                                .padding(5.dp)
                                 .clip(CircleShape)
                                 .pointerInput(Unit) {
                                     detectTapGestures(
@@ -7072,7 +8736,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFFEEEEEE))
                                 .clickable {
@@ -7089,9 +8753,9 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                             )
                         }
                     }
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(userFio.replace(" ", "\n"), fontSize = 33.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 36.sp)
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(userFio, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 27.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
                         androidx.compose.animation.Crossfade(
                             targetState = showGroupDescToggle,
                             modifier = Modifier.fillMaxWidth(),
@@ -7099,72 +8763,94 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                         ) { showGroup ->
                             Text(
                                 text = if (showGroup) "Группа $userGroup" else userDesc,
-                                fontSize = 21.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Normal,
                                 color = MinTextSecondary,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(48.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                 }
 
         item {
-            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MinCardBg).padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                MinStat("Пропуски (ч)", "0 ч", MinTextPrimary, MinTextSecondary) { showAbsences = true }
+            val acc = MinTextPrimary
+            val lc = MinTextPrimary
+            ProfileSection("", MinCardBg, MinTextSecondary) {
+                ProfileRow(
+                    "Уведомления",
+                    Icons.Outlined.Notifications,
+                    acc,
+                    MinBorder,
+                    lc,
+                    MinTextSecondary,
+                    value = if (unreadNotifCount > 0) "$unreadNotifCount новых" else null
+                ) { showNotifications = true }
+                ProfileRow(
+                    "Учёба и справки",
+                    Icons.Outlined.Description,
+                    acc,
+                    MinBorder,
+                    lc,
+                    MinTextSecondary
+                ) { showStudyScreen = true }
+                ProfileRow("Зачётка", Icons.Outlined.List, acc, MinBorder, lc, MinTextSecondary) { showGradebook = true }
+                ProfileRow("Группа", Icons.Outlined.Person, acc, MinBorder, lc, MinTextSecondary, value = userGroup) { showGroupScreen = true }
+                if (isUserHeadman) {
+                    ProfileRow("Журнал старосты", Icons.Outlined.FactCheck, acc, MinBorder, lc, MinTextSecondary) { showHeadmanScreen = true }
+                }
+                ProfileRow("Пропуски", Icons.Outlined.DateRange, acc, MinBorder, lc, MinTextSecondary, value = if (unexcusedHoursBadge > 0) "$unexcusedHoursBadge ч" else null, isLast = true) { showAbsences = true }
             }
-            Spacer(modifier = Modifier.height(48.dp))
-        }
-
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                MinListAction("Объявления", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Info) { showAnnouncements = true }
-                MinListAction("Общежитие", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Home) { showDormitory = true }
-                MinListAction("Льготы", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Star) { showBenefits = true }
-                MinListAction("Зачетка", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.List) { showGradebook = true }
-
-                MinListAction("Группа", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Person) { showGroupScreen = true }
-                MinListAction("Взыскания", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Warning) { showPenalties = true }
-                MinListAction("Кастомизация", MinBorder, MinTextPrimary, MinTextSecondary, icon = Icons.Outlined.Settings, isLast = true) { showCustomization = true }
+            Spacer(modifier = Modifier.height(14.dp))
+            ProfileSection("", MinCardBg, MinTextSecondary) {
+                ProfileRow("Резюме и виджет ИИС", Icons.Outlined.Badge, acc, MinBorder, lc, MinTextSecondary) { showIisResumeScreen = true }
+                ProfileRow("Общежитие", Icons.Outlined.Home, acc, MinBorder, lc, MinTextSecondary) { showDormitory = true }
+                ProfileRow("Льготы", Icons.Outlined.StarOutline, acc, MinBorder, lc, MinTextSecondary) { showBenefits = true }
+                ProfileRow("Взыскания и поощрения", Icons.Outlined.WarningAmber, acc, MinBorder, lc, MinTextSecondary) { showPenalties = true }
+                ProfileRow("Объявления", Icons.Outlined.Info, acc, MinBorder, lc, MinTextSecondary, isLast = true) { showAnnouncements = true }
             }
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+            ProfileSection("", MinCardBg, MinTextSecondary) {
+                ProfileRow("Кастомизация", Icons.Outlined.Settings, acc, MinBorder, lc, MinTextSecondary, isLast = true) { showCustomization = true }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
         }
 
         item {
             val localContext = androidx.compose.ui.platform.LocalContext.current
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Выйти", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F), modifier = Modifier.clickable {
-                    AppHapticManager.playClick()
-                    val prefs = localContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                    prefs.edit().clear().apply()
-                    val activity = localContext as? android.app.Activity
-                    activity?.finish()
-                    val intent = android.content.Intent(localContext, MainActivity::class.java)
-                    localContext.startActivity(intent)
-                }.padding(vertical = 8.dp))
-
-                Row(modifier = Modifier.clickable {
-                    AppHapticManager.playClick()
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Elate11/IIS_BSUIR_Shedule_app"))
-                    localContext.startActivity(intent)
-                }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Info, contentDescription = "GitHub", tint = MinTextSecondary, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("GitHub", fontSize = 16.sp, color = MinTextSecondary, fontWeight = FontWeight.Medium)
-                }
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Выйти",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFFFF3B30),
+                    modifier = Modifier
+                        .clickable {
+                            AppHapticManager.playClick()
+                            val prefs = localContext.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                            prefs.edit().clear().apply()
+                            val activity = localContext as? android.app.Activity
+                            activity?.finish()
+                            localContext.startActivity(android.content.Intent(localContext, MainActivity::class.java))
+                        }
+                        .padding(horizontal = 24.dp, vertical = 14.dp)
+                )
+                Text(
+                    "GitHub",
+                    fontSize = 13.sp,
+                    color = MinTextSecondary,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.clickable {
+                        AppHapticManager.playClick()
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Elate11/IIS_BSUIR_Shedule_app"))
+                        localContext.startActivity(intent)
+                    }.padding(8.dp)
+                )
             }
         }
         }
             }
-
-
-            if (showAnnouncements) InfoDialog("Объявления", "В данный момент объявлений нет.", MinBg, MinTextPrimary, MinTextSecondary) { showAnnouncements = false }
-            if (showDormitory) InfoDialog("Общежитие", "Функция находится в разработке.", MinBg, MinTextPrimary, MinTextSecondary) { showDormitory = false }
-            if (showBenefits) InfoDialog("Льготы", "Функция находится в разработке.", MinBg, MinTextPrimary, MinTextSecondary) { showBenefits = false }
-            if (showPenalties) InfoDialog("Взыскания", "У вас нет активных взысканий.", MinBg, MinTextPrimary, MinTextSecondary) { showPenalties = false }
 
             if (showReminderSettings) {
                 var selectedTiming by remember {
@@ -7180,9 +8866,8 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                     "15_min_before" to "За 15 минут до события"
                 )
 
-                val dialogBg = if (isDarkTheme) Color(0xFF1C1D24) else Color(0xFFFFFFFF)
-                val dialogBorder = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color(0xFFE5E5EA)
-                val optionBg = if (isDarkTheme) Color.White.copy(alpha = 0.05f) else Color(0xFFF2F2F7)
+                val dialogBg = MinCardBg
+                val dialogBorder = MinBorder
 
                 Dialog(onDismissRequest = { showReminderSettings = false }) {
                     Box(
@@ -7224,7 +8909,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                                     Text(
                                         "Напоминания",
                                         fontSize = 20.sp,
-                                        fontWeight = FontWeight.ExtraBold,
+                                        fontWeight = FontWeight.SemiBold,
                                         color = MinTextPrimary
                                     )
                                 }
@@ -7308,6 +8993,346 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
     }
 }
 
+
+data class DeanNotificationItem(
+    val id: Long,
+    val message: String,
+    val date: String,
+    val type: String, // INFO, SUCCESS, FAILURE, etc.
+    val isViewed: Boolean = true
+)
+
+@Composable
+fun MinNotificationsScreen(
+    MinBg: androidx.compose.ui.graphics.Color,
+    MinCardBg: androidx.compose.ui.graphics.Color,
+    MinBorder: androidx.compose.ui.graphics.Color,
+    MinTextPrimary: androidx.compose.ui.graphics.Color,
+    MinTextSecondary: androidx.compose.ui.graphics.Color,
+    currentAccent: androidx.compose.ui.graphics.Color,
+    isDarkTheme: Boolean = true,
+    onBack: () -> Unit
+) {
+    var notifications by remember { mutableStateOf<List<DeanNotificationItem>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedFilter by remember { mutableStateOf("Все") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
+
+    fun parseNotifications(jsonStr: String): List<DeanNotificationItem> {
+        val list = mutableListOf<DeanNotificationItem>()
+        try {
+            val root = org.json.JSONObject(jsonStr.trim())
+            val arr = root.optJSONArray("notifications") ?: root.optJSONArray("items") ?: root.optJSONArray("content")
+            if (arr != null) {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val id = obj.optLong("id", i.toLong())
+                    val msg = obj.optString("message", "").trim()
+                    val date = obj.optString("date", "").trim()
+                    val type = obj.optString("type", "INFO").trim()
+                    val isViewed = obj.optBoolean("isViewed", true)
+                    if (msg.isNotBlank()) {
+                        list.add(DeanNotificationItem(id, msg, date, type, isViewed))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
+    suspend fun fetchNotifications() {
+        val token = prefs.getString("auth_token", "") ?: ""
+        val url = "https://iis.bsuir.by/api/v1/notifications?pageNumber=0&pageSize=50"
+
+        // 1. Cached
+        val cached = prefs.getString("cached_dean_notifications", null)
+        if (!cached.isNullOrBlank() && notifications.isEmpty()) {
+            val parsed = parseNotifications(cached)
+            if (parsed.isNotEmpty()) {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    notifications = parsed
+                    isLoading = false
+                }
+            }
+        }
+
+        // 2. Network
+        if (token.isNotBlank()) {
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val client = com.example.schedule.NetworkClient.client
+                    val request = okhttp3.Request.Builder()
+                        .url(url)
+                        .addHeader("Cookie", token)
+                        .addHeader("User-Agent", "Mozilla/5.0")
+                        .get()
+                        .build()
+                    client.newCall(request).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val body = resp.body?.string() ?: ""
+                            if (body.isNotBlank()) {
+                                prefs.edit().putString("cached_dean_notifications", body).apply()
+                                val parsed = parseNotifications(body)
+                                val unreadIds = parsed.filter { !it.isViewed }.map { it.id }
+                                if (unreadIds.isNotEmpty()) {
+                                    markDeanNotificationsAsRead(context, unreadIds)
+                                } else {
+                                    prefs.edit().putInt("cached_unread_notif_count", 0).apply()
+                                }
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    notifications = parsed
+                                    isLoading = false
+                                    isRefreshing = false
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        isLoading = false
+                        isRefreshing = false
+                    }
+                }
+            }
+        } else {
+            isLoading = false
+            isRefreshing = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        fetchNotifications()
+    }
+
+    val filters = listOf("Все", "Инфо", "Успешно", "Важное")
+
+    val filteredList = remember(notifications, selectedFilter, searchQuery) {
+        var list = when (selectedFilter) {
+            "Инфо" -> notifications.filter { it.type.equals("INFO", ignoreCase = true) }
+            "Успешно" -> notifications.filter { it.type.equals("SUCCESS", ignoreCase = true) }
+            "Важное" -> notifications.filter { it.type.equals("FAILURE", ignoreCase = true) || it.type.equals("WARNING", ignoreCase = true) }
+            else -> notifications
+        }
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.trim().lowercase()
+            list = list.filter { it.message.lowercase().contains(q) || it.date.contains(q) }
+        }
+        list
+    }
+
+    androidx.compose.foundation.lazy.LazyColumn(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize().background(MinBg),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 20.dp, vertical = 36.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            // Header
+            androidx.compose.foundation.layout.Row(
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Icon(
+                    Icons.Outlined.KeyboardArrowLeft,
+                    contentDescription = "Назад",
+                    tint = MinTextPrimary,
+                    modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() }
+                )
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
+                androidx.compose.foundation.layout.Column(modifier = androidx.compose.ui.Modifier.weight(1f)) {
+                    androidx.compose.material3.Text(
+                        "Уведомления",
+                        fontSize = 24.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        color = MinTextPrimary
+                    )
+                    androidx.compose.material3.Text(
+                        "Деканат и ректорат • ${notifications.size}",
+                        fontSize = 13.sp,
+                        color = MinTextSecondary,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                    )
+                }
+                androidx.compose.material3.Icon(
+                    androidx.compose.material.icons.Icons.Outlined.Refresh,
+                    contentDescription = "Обновить",
+                    tint = if (isRefreshing) currentAccent else MinTextSecondary,
+                    modifier = androidx.compose.ui.Modifier.size(24.dp).clickable {
+                        if (!isRefreshing) {
+                            isRefreshing = true
+                            isLoading = true
+                            scope.launch { fetchNotifications() }
+                        }
+                    }
+                )
+            }
+            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(14.dp))
+
+            // Search Bar
+            if (notifications.isNotEmpty()) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .background(MinCardBg)
+                        .border(1.dp, MinBorder, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Icon(
+                            androidx.compose.material.icons.Icons.Outlined.Search,
+                            contentDescription = null,
+                            tint = MinTextSecondary,
+                            modifier = androidx.compose.ui.Modifier.size(18.dp)
+                        )
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(10.dp))
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = MinTextPrimary,
+                                fontSize = 15.sp
+                            ),
+                            singleLine = true,
+                            modifier = androidx.compose.ui.Modifier.weight(1f).padding(vertical = 8.dp),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    androidx.compose.material3.Text(
+                                        "Поиск",
+                                        color = MinTextSecondary.copy(alpha = 0.6f),
+                                        fontSize = 15.sp
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                        if (searchQuery.isNotEmpty()) {
+                            androidx.compose.material3.Icon(
+                                androidx.compose.material.icons.Icons.Outlined.Close,
+                                contentDescription = "Очистить",
+                                tint = MinTextSecondary,
+                                modifier = androidx.compose.ui.Modifier.size(18.dp).clickable { searchQuery = "" }
+                            )
+                        }
+                    }
+                }
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
+
+                // Filter chips
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filters.size) { idx ->
+                        val f = filters[idx]
+                        AppleOptionChip(
+                            label = f,
+                            isSelected = selectedFilter == f,
+                            onClick = {
+                                AppHapticManager.playClick()
+                                selectedFilter = f
+                            },
+                            isDarkTheme = isDarkTheme,
+                            accentColor = currentAccent,
+                            unselectedBg = MinCardBg,
+                            unselectedTextColor = MinTextPrimary,
+                            selectedTextColor = MinCardBg,
+                            borderColorOverride = MinBorder
+                        )
+                    }
+                }
+            }
+        }
+
+        if (isLoading && notifications.isEmpty()) {
+            item {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(color = currentAccent)
+                }
+            }
+        } else if (filteredList.isEmpty()) {
+            item {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth().height(200.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        if (searchQuery.isNotEmpty()) "Ничего не найдено" else "Уведомлений нет",
+                        color = MinTextSecondary,
+                        fontSize = 16.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                    )
+                }
+            }
+        } else {
+            items(filteredList.size) { index ->
+                val notif = filteredList[index]
+                val (typeLabel, typeColor) = when {
+                    notif.type.equals("SUCCESS", ignoreCase = true) -> Pair("Успешно", if (isDarkTheme) Color(0xFF4CC38A) else Color(0xFF16A34A))
+                    notif.type.equals("FAILURE", ignoreCase = true) -> Pair("Важное", if (isDarkTheme) Color(0xFFE5484D) else Color(0xFFDC2626))
+                    notif.type.equals("WARNING", ignoreCase = true) -> Pair("Внимание", Color(0xFFFF9500))
+                    else -> Pair("Инфо", currentAccent)
+                }
+
+                androidx.compose.foundation.layout.Column(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                ) {
+                    // Top Row: Type Pill & Date
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.Text(
+                            typeLabel,
+                            fontSize = 12.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            color = typeColor
+                        )
+
+                        if (notif.date.isNotBlank()) {
+                            androidx.compose.material3.Text(
+                                notif.date,
+                                fontSize = 12.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = MinTextSecondary
+                            )
+                        }
+                    }
+
+                    // Notification Message Body
+                    androidx.compose.material3.Text(
+                        notif.message,
+                        fontSize = 14.5.sp,
+                        color = MinTextPrimary,
+                        lineHeight = 21.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Normal
+                    )
+
+                    if (index < filteredList.size - 1) {
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                        androidx.compose.material3.HorizontalDivider(color = MinBorder.copy(alpha = 0.4f), thickness = 0.5.dp)
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun MinGenericApiScreen(
@@ -7421,7 +9446,7 @@ fun MinGenericApiScreen(
             androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.KeyboardArrowLeft, contentDescription = "Назад", tint = MinTextPrimary, modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() })
                 androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
-                androidx.compose.material3.Text(title, fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
+                androidx.compose.material3.Text(title, fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MinTextPrimary)
             }
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
         }
@@ -7515,7 +9540,7 @@ fun MinGenericApiScreen(
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
                         ) {
                             if (date.isNotBlank()) {
-                                androidx.compose.material3.Text(date, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
+                                androidx.compose.material3.Text(date, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MinTextPrimary)
                             } else {
                                 androidx.compose.material3.Text("Дата не указана", fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = MinTextSecondary)
                             }
@@ -7664,7 +9689,7 @@ fun MinCustomizationView(
             androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Outlined.KeyboardArrowLeft, contentDescription = "Назад", tint = MinTextPrimary, modifier = androidx.compose.ui.Modifier.size(32.dp).clickable { onBack() })
                 androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
-                androidx.compose.material3.Text("Кастомизация", fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold, color = MinTextPrimary)
+                androidx.compose.material3.Text("Кастомизация", fontSize = 33.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MinTextPrimary)
             }
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
         }
@@ -7819,7 +9844,7 @@ fun MinCustomizationView(
                             contentColor = if (bgMode == mode) MinTextPrimary else MinTextSecondary
                         )
                     ) {
-                        Text(name, fontWeight = if (bgMode == mode) FontWeight.ExtraBold else FontWeight.Bold)
+                        Text(name, fontWeight = if (bgMode == mode) FontWeight.SemiBold else FontWeight.Bold)
                     }
                 }
             }
@@ -8107,6 +10132,55 @@ fun MinCustomizationView(
         }
         
         item {
+            val introPrefs = remember { context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE) }
+            var introVideoEnabled by remember { mutableStateOf(introPrefs.getBoolean("intro_video_enabled", true)) }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Заставка", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "Интро при входе",
+                    fontSize = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MinTextPrimary,
+                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
+                )
+                Switch(
+                    checked = introVideoEnabled,
+                    onCheckedChange = { enabled ->
+                        AppHapticManager.playClick()
+                        introVideoEnabled = enabled
+                        introPrefs.edit().putBoolean("intro_video_enabled", enabled).apply()
+                    },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MinBg,
+                        checkedTrackColor = MinTextPrimary,
+                        uncheckedThumbColor = MinTextPrimary,
+                        uncheckedTrackColor = MinTextSecondary.copy(alpha = 0.3f),
+                        uncheckedBorderColor = Color.Transparent
+                    )
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    AppHapticManager.playClick()
+                    IntroVideoPreviewTrigger.requestReplay = true
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MinBorder)
+            ) {
+                Text("Посмотреть интро", color = MinTextPrimary, fontWeight = FontWeight.Bold)
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = MinBorder, thickness = 1.dp)
             Spacer(modifier = Modifier.height(12.dp))
@@ -8234,6 +10308,51 @@ fun MoonIcon(tint: Color) {
 }
 
 @Composable
+fun ProfileSection(title: String, cardBg: Color, textSecondary: Color, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp)),
+        content = content
+    )
+}
+
+@Composable
+fun ProfileRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, divider: Color, textPrimary: Color, textSecondary: Color, isLast: Boolean = false, value: String? = null, onClick: () -> Unit) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
+                .clickable { AppHapticManager.playClick(); onClick() }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(36.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = textSecondary, modifier = Modifier.size(20.dp))
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(label, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = textPrimary, modifier = Modifier.weight(1f))
+            if (value != null) {
+                Text(value, fontSize = 15.sp, color = textSecondary)
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Icon(Icons.Outlined.KeyboardArrowRight, contentDescription = null, tint = textSecondary.copy(alpha = 0.5f), modifier = Modifier.size(20.dp))
+        }
+        if (!isLast) {
+            androidx.compose.material3.HorizontalDivider(
+                color = divider.copy(alpha = 0.3f),
+                thickness = 0.5.dp,
+                modifier = Modifier.padding(start = 64.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun MinStat(label: String, value: String, MinTextPrimary: Color, MinTextSecondary: Color, onClick: (() -> Unit)? = null) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = if (onClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable {
@@ -8242,7 +10361,7 @@ fun MinStat(label: String, value: String, MinTextPrimary: Color, MinTextSecondar
          }.padding(horizontal=16.dp, vertical=8.dp) else Modifier.padding(horizontal=16.dp, vertical=8.dp)) {
         AutoResizedText(label, fontSize = 17.sp, minFontSize = 11.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
         Spacer(modifier = Modifier.height(8.dp))
-        AutoResizedText(value, fontSize = 29.sp, minFontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
+        AutoResizedText(value, fontSize = 29.sp, minFontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MinTextPrimary)
     }
 }
 
@@ -8452,7 +10571,7 @@ fun SplashScreen(MinBg: Color, MinTextPrimary: Color, onSplashFinished: () -> Un
             Text(
                 text = "SCHEDULE",
                 fontSize = 29.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.SemiBold,
                 color = MinTextPrimary,
                 letterSpacing = 8.sp,
                 modifier = Modifier.graphicsLayer(
@@ -9120,6 +11239,7 @@ fun IosTimePickerDialog(
     MinAccent: androidx.compose.ui.graphics.Color
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val pickerText = MinTextPrimary
 
     var selectedHour by remember { mutableStateOf(initialHour) }
     var selectedMinute by remember { mutableStateOf(initialMinute) }
@@ -9149,7 +11269,7 @@ fun IosTimePickerDialog(
             ) {
                 Text(
                     "Выберите время",
-                    color = androidx.compose.ui.graphics.Color.White,
+                    color = pickerText,
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp
                 )
@@ -9164,16 +11284,16 @@ fun IosTimePickerDialog(
                         items = (0..23).map { "%02d".format(it) },
                         initialIndex = initialHour,
                         onItemSelected = { selectedHour = it },
-                        MinTextPrimary = androidx.compose.ui.graphics.Color.White,
-                        MinTextSecondary = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)
+                        MinTextPrimary = MinTextPrimary,
+                        MinTextSecondary = MinTextSecondary
                     )
-                    Text(" : ", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.padding(horizontal = 8.dp))
+                    Text(" : ", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = pickerText, modifier = Modifier.padding(horizontal = 8.dp))
                     IosWheelPicker(
                         items = (0..59).map { "%02d".format(it) },
                         initialIndex = initialMinute,
                         onItemSelected = { selectedMinute = it },
-                        MinTextPrimary = androidx.compose.ui.graphics.Color.White,
-                        MinTextSecondary = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.5f)
+                        MinTextPrimary = MinTextPrimary,
+                        MinTextSecondary = MinTextSecondary
                     )
                 }
                 
@@ -9191,8 +11311,8 @@ fun IosTimePickerDialog(
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.1f),
-                            contentColor = androidx.compose.ui.graphics.Color.White
+                            containerColor = pickerText.copy(alpha = 0.08f),
+                            contentColor = pickerText
                         )
                     ) {
                         AutoResizedText("Отмена", fontWeight = FontWeight.Bold, minFontSize = 10.sp)
@@ -9206,8 +11326,124 @@ fun IosTimePickerDialog(
                         modifier = Modifier.weight(1f).height(48.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.1f),
-                            contentColor = androidx.compose.ui.graphics.Color.White
+                            containerColor = MinAccent,
+                            contentColor = MinCardBg
+                        )
+                    ) {
+                        AutoResizedText("Готово", fontWeight = FontWeight.Bold, minFontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IosDatePickerDialog(
+    initialDay: Int,
+    initialMonth: Int,
+    initialYear: Int,
+    highlightedDates: Set<String> = emptySet(),
+    onDismiss: () -> Unit,
+    onDateSelected: (Int, Int, Int) -> Unit,
+    MinTextPrimary: androidx.compose.ui.graphics.Color,
+    MinTextSecondary: androidx.compose.ui.graphics.Color,
+    MinCardBg: androidx.compose.ui.graphics.Color,
+    MinAccent: androidx.compose.ui.graphics.Color,
+    MinBg: androidx.compose.ui.graphics.Color
+) {
+    val pickerText = MinTextPrimary
+    var tempDay by remember { mutableStateOf(initialDay) }
+    var tempMonth by remember { mutableStateOf(initialMonth) }
+    var tempYear by remember { mutableStateOf(initialYear) }
+    var viewMonth by remember { mutableStateOf(initialMonth) }
+    var viewYear by remember { mutableStateOf(initialYear) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        val dialogWindowProvider = androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider
+        LaunchedEffect(dialogWindowProvider) {
+            dialogWindowProvider?.window?.let { window ->
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                    window.attributes = window.attributes.apply {
+                        blurBehindRadius = 64
+                    }
+                }
+            }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(MinCardBg)
+                .padding(20.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    "Выберите дату",
+                    color = pickerText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                MinNotesCalendar(
+                    viewMonth = viewMonth,
+                    viewYear = viewYear,
+                    selectedDay = tempDay,
+                    selectedMonth = tempMonth,
+                    selectedYear = tempYear,
+                    highlightedDates = highlightedDates,
+                    MinTextPrimary = MinTextPrimary,
+                    MinTextSecondary = MinTextSecondary,
+                    MinBorder = Color.Transparent,
+                    MinAccent = MinAccent,
+                    MinBg = MinBg,
+                    onDaySelected = { d, m, y ->
+                        AppHapticManager.playClick()
+                        tempDay = d
+                        tempMonth = m
+                        tempYear = y
+                    },
+                    onPrevMonth = { if (viewMonth == 0) { viewMonth = 11; viewYear-- } else viewMonth-- },
+                    onNextMonth = { if (viewMonth == 11) { viewMonth = 0; viewYear++ } else viewMonth++ }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            AppHapticManager.playClick()
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = pickerText.copy(alpha = 0.08f),
+                            contentColor = pickerText
+                        )
+                    ) {
+                        AutoResizedText("Отмена", fontWeight = FontWeight.Bold, minFontSize = 10.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            AppHapticManager.playClick()
+                            onDateSelected(tempDay, tempMonth, tempYear)
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MinAccent,
+                            contentColor = MinCardBg
                         )
                     ) {
                         AutoResizedText("Готово", fontWeight = FontWeight.Bold, minFontSize = 10.sp)

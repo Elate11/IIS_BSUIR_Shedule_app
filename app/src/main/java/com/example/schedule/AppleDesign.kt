@@ -467,12 +467,14 @@ fun AppleSearchInput(
     inputBorder: Color? = null,
     inputTextColor: Color? = null,
     inputIconColor: Color? = null,
+    cursorColor: Color? = null,
     onDone: (() -> Unit)? = null
 ) {
     val bgColor = inputBg ?: if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite
     val borderColor = inputBorder ?: if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
     val textColor = inputTextColor ?: if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
     val iconColor = inputIconColor ?: if (isDarkTheme) AppleTokens.BodyMutedDark else AppleTokens.InkSecondary
+    val activeCursorColor = cursorColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
 
     Box(
         modifier = modifier
@@ -508,7 +510,7 @@ fun AppleSearchInput(
                     onValueChange = onValueChange,
                     singleLine = true,
                     textStyle = AppleTypography.body().copy(fontSize = 15.sp, color = textColor),
-                    cursorBrush = SolidColor(if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue),
+                    cursorBrush = SolidColor(activeCursorColor),
                     keyboardOptions = KeyboardOptions.Default.copy(
                         imeAction = if (onDone != null) androidx.compose.ui.text.input.ImeAction.Done else androidx.compose.ui.text.input.ImeAction.Default
                     ),
@@ -531,7 +533,11 @@ fun AppleOptionChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isDarkTheme: Boolean = false,
-    accentColor: Color? = null
+    accentColor: Color? = null,
+    unselectedBg: Color? = null,
+    unselectedTextColor: Color? = null,
+    selectedTextColor: Color? = null,
+    borderColorOverride: Color? = null
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -547,18 +553,23 @@ fun AppleOptionChip(
     val (bgColor, textColor, borderColor) = when {
         isSelected -> Triple(
             activeColor,
-            Color.White,
+            selectedTextColor ?: Color.White,
             Color.Transparent
+        )
+        unselectedBg != null || unselectedTextColor != null -> Triple(
+            unselectedBg ?: if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite,
+            unselectedTextColor ?: if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+            borderColorOverride ?: Color.Transparent
         )
         isDarkTheme -> Triple(
             AppleTokens.Tile2,
             AppleTokens.BodyOnDark,
-            AppleTokens.HairlineDark
+            Color.Transparent
         )
         else -> Triple(
             AppleTokens.CanvasWhite,
             AppleTokens.Ink,
-            AppleTokens.HairlineLight
+            Color.Transparent
         )
     }
 
@@ -804,7 +815,8 @@ data class RadialNavMenuItem(
 fun AppleTouchChargingAura(
     touchOffset: androidx.compose.ui.geometry.Offset?,
     progress: Float,
-    isDarkTheme: Boolean = true
+    isDarkTheme: Boolean = true,
+    accentColor: Color? = null
 ) {
     if (touchOffset == null || progress <= 0.02f) return
 
@@ -813,7 +825,7 @@ fun AppleTouchChargingAura(
     val yDp = with(density) { touchOffset.y.toDp() }
 
     val auraSize = 28.dp + (46.dp * progress)
-    val activeColor = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
+    val activeColor = accentColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
     val auraAlpha = (progress * 0.95f).coerceIn(0f, 0.95f)
 
     Box(
