@@ -2794,7 +2794,7 @@ fun MinMarksScreen(
                         androidx.compose.material3.Icon(
                             imageVector = androidx.compose.material.icons.Icons.Outlined.Refresh,
                             contentDescription = "Обновить",
-                            tint = appleAccent,
+                            tint = appleTextPrimary,
                             modifier = androidx.compose.ui.Modifier
                                 .size(20.dp)
                                 .graphicsLayer { rotationZ = if (isRefreshing) refreshRotation else 0f }
@@ -2822,7 +2822,7 @@ fun MinMarksScreen(
                             androidx.compose.material3.Icon(
                                 imageVector = androidx.compose.material.icons.Icons.Outlined.Analytics,
                                 contentDescription = null,
-                                tint = appleAccent,
+                                tint = appleTextSecondary,
                                 modifier = androidx.compose.ui.Modifier.size(15.dp)
                             )
                             androidx.compose.material3.Text(
@@ -2837,32 +2837,24 @@ fun MinMarksScreen(
                         }
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
 
-                        val gpaColor = when {
-                            overallGpa >= 8.0 -> Color(0xFF34C759)
-                            overallGpa >= 6.5 -> appleAccent
-                            overallGpa >= 5.0 -> Color(0xFFFF9500)
-                            overallGpa > 0.0 -> Color(0xFFFF3B30)
-                            else -> appleTextSecondary
-                        }
-
                         androidx.compose.material3.Text(
                             text = if (overallGpa > 0.0) String.format(java.util.Locale.US, "%.2f", overallGpa) else "—",
                             style = AppleTypography.heroDisplayLarge().copy(
                                 fontSize = 34.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                             ),
-                            color = gpaColor
+                            color = appleTextPrimary
                         )
 
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
                         androidx.compose.foundation.layout.Box(
                             modifier = androidx.compose.ui.Modifier
                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
-                                .background(
-                                    if (overallGpa >= 8.0) Color(0xFF34C759).copy(alpha = 0.12f)
-                                    else if (overallGpa >= 6.5) appleAccent.copy(alpha = 0.12f)
-                                    else if (overallGpa >= 5.0) Color(0xFFFF9500).copy(alpha = 0.12f)
-                                    else Color.Gray.copy(alpha = 0.10f)
+                                .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                                .border(
+                                    0.5.dp,
+                                    if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                                    androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
                                 )
                                 .padding(horizontal = 7.dp, vertical = 2.5.dp)
                         ) {
@@ -2878,10 +2870,7 @@ fun MinMarksScreen(
                                     fontSize = 11.sp,
                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                                 ),
-                                color = if (overallGpa >= 8.0) Color(0xFF34C759)
-                                else if (overallGpa >= 6.5) appleAccent
-                                else if (overallGpa >= 5.0) Color(0xFFFF9500)
-                                else appleTextSecondary
+                                color = appleTextSecondary
                             )
                         }
                     }
@@ -2899,7 +2888,7 @@ fun MinMarksScreen(
                             androidx.compose.material3.Icon(
                                 imageVector = androidx.compose.material.icons.Icons.Outlined.CheckCircle,
                                 contentDescription = null,
-                                tint = Color(0xFF34C759),
+                                tint = appleTextSecondary,
                                 modifier = androidx.compose.ui.Modifier.size(15.dp)
                             )
                             androidx.compose.material3.Text(
@@ -2938,7 +2927,7 @@ fun MinMarksScreen(
 
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
 
-                        // Apple capsule progress bar
+                        // Apple capsule progress bar (monochrome)
                         val labProgressFraction = if (totalAssignedLabs > 0) {
                             (totalSubmittedLabs.toFloat() / totalAssignedLabs.toFloat()).coerceIn(0f, 1f)
                         } else 0f
@@ -2955,9 +2944,7 @@ fun MinMarksScreen(
                                     .fillMaxWidth(fraction = labProgressFraction)
                                     .fillMaxHeight()
                                     .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
-                                    .background(
-                                        if (labProgressFraction >= 1f) Color(0xFF34C759) else appleAccent
-                                    )
+                                    .background(appleTextPrimary)
                             )
                         }
 
@@ -2968,7 +2955,7 @@ fun MinMarksScreen(
                                 fontSize = 11.5.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                             ),
-                            color = if (labProgressFraction >= 1f) Color(0xFF34C759) else appleAccent
+                            color = appleTextSecondary
                         )
                     }
                 }
@@ -2990,13 +2977,18 @@ fun MinMarksScreen(
                                 modifier = androidx.compose.ui.Modifier
                                     .size(36.dp)
                                     .clip(androidx.compose.foundation.shape.CircleShape)
-                                    .background(appleAccent.copy(alpha = 0.15f)),
+                                    .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                                    .border(
+                                        0.5.dp,
+                                        if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                                        androidx.compose.foundation.shape.CircleShape
+                                    ),
                                 contentAlignment = androidx.compose.ui.Alignment.Center
                             ) {
                                 androidx.compose.material3.Icon(
                                     imageVector = androidx.compose.material.icons.Icons.Outlined.Lock,
                                     contentDescription = "Авторизация",
-                                    tint = appleAccent,
+                                    tint = appleTextPrimary,
                                     modifier = androidx.compose.ui.Modifier.size(18.dp)
                                 )
                             }
@@ -3056,7 +3048,7 @@ fun MinMarksScreen(
                         contentAlignment = androidx.compose.ui.Alignment.Center
                     ) {
                         androidx.compose.material3.CircularProgressIndicator(
-                            color = appleAccent,
+                            color = appleTextPrimary,
                             modifier = androidx.compose.ui.Modifier.size(36.dp)
                         )
                     }
@@ -3129,20 +3121,18 @@ fun MinMarksScreen(
 
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
 
-                            // Average pill
+                            // Average pill (monochrome minimalist)
                             if (subj.averageMark != null) {
                                 val avgVal = subj.averageMark
-                                val avgColor = when {
-                                    avgVal >= 8.0 -> Color(0xFF34C759)
-                                    avgVal >= 6.5 -> appleAccent
-                                    avgVal >= 5.0 -> Color(0xFFFF9500)
-                                    else -> Color(0xFFFF3B30)
-                                }
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
                                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                        .background(avgColor.copy(alpha = if (isDarkTheme) 0.20f else 0.12f))
-                                        .border(0.5.dp, avgColor.copy(alpha = 0.35f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                                        .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                                        .border(
+                                            0.8.dp,
+                                            if (isDarkTheme) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.12f),
+                                            androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                                        )
                                         .padding(horizontal = 9.dp, vertical = 3.5.dp),
                                     contentAlignment = androidx.compose.ui.Alignment.Center
                                 ) {
@@ -3152,7 +3142,7 @@ fun MinMarksScreen(
                                             fontSize = 13.5.sp,
                                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                         ),
-                                        color = if (isDarkTheme) Color.White else avgColor
+                                        color = appleTextPrimary
                                     )
                                 }
                             } else {
@@ -3192,13 +3182,13 @@ fun MinMarksScreen(
                                         fontSize = 12.sp,
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                     ),
-                                    color = if (labFrac >= 1f) Color(0xFF34C759) else appleAccent
+                                    color = appleTextPrimary
                                 )
                             }
 
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
 
-                            // Apple capsule progress bar (6.dp height)
+                            // Apple capsule progress bar (6.dp height, monochrome)
                             val subFrac = (subj.submittedLabs.toFloat() / subj.totalLabs.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
                             androidx.compose.foundation.layout.Box(
                                 modifier = androidx.compose.ui.Modifier
@@ -3212,9 +3202,7 @@ fun MinMarksScreen(
                                         .fillMaxWidth(fraction = subFrac)
                                         .fillMaxHeight()
                                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
-                                        .background(
-                                            if (subFrac >= 1f) Color(0xFF34C759) else appleAccent
-                                        )
+                                        .background(appleTextPrimary)
                                 )
                             }
                         }
@@ -3251,36 +3239,21 @@ fun MinMarksScreen(
                                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                     ) {
-                                        // Category Pill Badge (ЛР, ПЗ, ЛК)
-                                        val (badgeBg, badgeText, badgeFullTitle) = when (typeKey) {
-                                            "ЛР" -> Triple(
-                                                if (isDarkTheme) Color(0xFF007AFF).copy(alpha = 0.22f) else Color(0xFF007AFF).copy(alpha = 0.12f),
-                                                if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
-                                                "Лабы"
-                                            )
-                                            "ПЗ" -> Triple(
-                                                if (isDarkTheme) Color(0xFFBF5AF2).copy(alpha = 0.22f) else Color(0xFFAF52DE).copy(alpha = 0.12f),
-                                                if (isDarkTheme) Color(0xFFD084F6) else Color(0xFF8944AB),
-                                                "Практика"
-                                            )
-                                            "ЛК" -> Triple(
-                                                if (isDarkTheme) Color(0xFFFF9F0A).copy(alpha = 0.22f) else Color(0xFFFF9500).copy(alpha = 0.12f),
-                                                if (isDarkTheme) Color(0xFFFFB340) else Color(0xFFD97706),
-                                                "Лекции"
-                                            )
-                                            else -> Triple(
-                                                if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
-                                                appleTextSecondary,
-                                                typeKey
-                                            )
-                                        }
+                                        // Category Pill Badge (monochrome minimalist)
+                                        val badgeBg = if (isDarkTheme) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.05f)
+                                        val badgeBorder = if (isDarkTheme) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
 
                                         androidx.compose.foundation.layout.Box(
                                             modifier = androidx.compose.ui.Modifier
                                                 .width(42.dp)
                                                 .height(26.dp)
                                                 .clip(androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
-                                                .background(badgeBg),
+                                                .background(badgeBg)
+                                                .border(
+                                                    0.6.dp,
+                                                    badgeBorder,
+                                                    androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
+                                                ),
                                             contentAlignment = androidx.compose.ui.Alignment.Center
                                         ) {
                                             androidx.compose.material3.Text(
@@ -3289,7 +3262,7 @@ fun MinMarksScreen(
                                                     fontSize = 11.5.sp,
                                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                                 ),
-                                                color = badgeText,
+                                                color = appleTextPrimary,
                                                 maxLines = 1
                                             )
                                         }
@@ -3306,21 +3279,17 @@ fun MinMarksScreen(
                                         ) {
                                             marksInGroup.forEach { markInfo ->
                                                 val mVal = markInfo.mark
-                                                val markColor = when {
-                                                    mVal >= 9 -> Color(0xFF34C759)
-                                                    mVal >= 7 -> Color(0xFF007AFF)
-                                                    mVal >= 5 -> Color(0xFFFF9500)
-                                                    else -> Color(0xFFFF3B30)
-                                                }
+                                                val markCardBg = if (isDarkTheme) Color(0xFF1E1E22) else Color(0xFFF2F2F7)
+                                                val markCardBorder = if (isDarkTheme) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.10f)
 
                                                 androidx.compose.foundation.layout.Box(
                                                     modifier = androidx.compose.ui.Modifier
                                                         .size(36.dp)
                                                         .clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp))
-                                                        .background(markColor.copy(alpha = if (isDarkTheme) 0.20f else 0.12f))
+                                                        .background(markCardBg)
                                                         .border(
-                                                            0.6.dp,
-                                                            markColor.copy(alpha = 0.40f),
+                                                            0.7.dp,
+                                                            markCardBorder,
                                                             androidx.compose.foundation.shape.RoundedCornerShape(9.dp)
                                                         ),
                                                     contentAlignment = androidx.compose.ui.Alignment.Center
@@ -3335,7 +3304,7 @@ fun MinMarksScreen(
                                                                 fontSize = 14.5.sp,
                                                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                                             ),
-                                                            color = if (isDarkTheme) Color.White else markColor
+                                                            color = appleTextPrimary
                                                         )
                                                         if (markInfo.taskNumber != null && markInfo.taskNumber > 0) {
                                                             androidx.compose.material3.Text(
@@ -3344,7 +3313,7 @@ fun MinMarksScreen(
                                                                     fontSize = 8.sp,
                                                                     fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
                                                                 ),
-                                                                color = if (isDarkTheme) Color.White.copy(alpha = 0.75f) else markColor.copy(alpha = 0.85f)
+                                                                color = appleTextSecondary
                                                             )
                                                         }
                                                     }
@@ -4885,90 +4854,7 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
     }
 }
 
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-fun MinMarksScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, isDarkTheme: Boolean = true) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val dataManager = remember { DataManager(context) }
-    val mockData = remember { dataManager.getMarks() }
-    
-    val styleType = LocalStyleType.current
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 40.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        item {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Оценки", fontSize = 33.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary)
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
 
-        items(mockData.size) { index ->
-            val subject = mockData[index]
-            val average = if (subject.marks.isNotEmpty()) subject.marks.average() else 0.0
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                    .background(MinCardBg)
-                    .border(1.dp, MinBorder, androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        if (subject.name.length > 20) subject.name.take(17) + "..." else subject.name,
-                        fontSize = 21.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MinTextPrimary,
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    if (subject.marks.isNotEmpty()) {
-                        val avgColor = if (isDarkTheme) { if (average >= 8) Color(0xFF4CAF50) else if (average >= 6) Color(0xFFFF9800) else Color(0xFFF44336) } else { if (average >= 8) Color(0xFF2E7D32) else if (average >= 6) Color(0xFFE65100) else Color(0xFFB71C1C) }
-                        Box(
-                            modifier = Modifier
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                .background(avgColor.copy(alpha = 0.2f))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(String.format(java.util.Locale.US, "%.1f", average), fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = avgColor)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                androidx.compose.foundation.layout.FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    subject.marks.forEach { mark ->
-                        val markColor = if (isDarkTheme) { if (mark >= 8) Color(0xFF4CAF50) else if (mark >= 6) Color(0xFFFF9800) else Color(0xFFF44336) } else { if (mark >= 8) Color(0xFF2E7D32) else if (mark >= 6) Color(0xFFE65100) else Color(0xFFB71C1C) }
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                                .background(markColor.copy(alpha = 0.1f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(mark.toString(), fontSize = 21.sp, fontWeight = FontWeight.Bold, color = markColor)
-                        }
-                    }
-                    if (subject.marks.isEmpty()) {
-                        Text("Нет оценок", fontSize = 19.sp, color = MinTextSecondary)
-                    }
-                }
-            }
-        }
-    }
-}
 
 fun copyAttachmentToStorage(context: android.content.Context, uri: android.net.Uri): NoteAttachment? {
     try {
