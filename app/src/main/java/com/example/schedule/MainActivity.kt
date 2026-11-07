@@ -2440,6 +2440,12 @@ fun MinMarksScreen(
                             currentGroup = loginGroup
                         }
 
+                        // Version check for cache invalidation when lesson-type breakdown is added
+                        val cachedVersion = prefs.getInt("academic_progress_version", 1)
+                        if (cachedVersion < 3) {
+                            prefs.edit().remove("cached_academic_progress").putInt("academic_progress_version", 3).apply()
+                        }
+
                         // 1. Try to load cached academic progress
                         val cachedJson = prefs.getString("cached_academic_progress", null)
                         if (cachedJson != null && subjectsList.isEmpty()) {
@@ -2526,16 +2532,28 @@ fun MinMarksScreen(
 
                                         val marksList = mutableListOf<AcademicMarkInfo>()
                                         subj.lessonTypes?.forEach { lt ->
-                                            val ltAbbrev = lt.abbrev ?: ""
+                                            val rawAbbrev = lt.abbrev?.trim() ?: ""
+                                            val ltId = lt.id ?: 0
+                                            val resolvedType = when {
+                                                ltId == 4 || rawAbbrev.contains("ЛР", ignoreCase = true) || rawAbbrev.contains("лаб", ignoreCase = true) -> "ЛР"
+                                                ltId == 2 || rawAbbrev.contains("ПЗ", ignoreCase = true) || rawAbbrev.contains("практ", ignoreCase = true) -> "ПЗ"
+                                                ltId == 1 || rawAbbrev.contains("ЛК", ignoreCase = true) || rawAbbrev.contains("лек", ignoreCase = true) -> "ЛК"
+                                                ltId == 3 || rawAbbrev.contains("СЕМ", ignoreCase = true) || rawAbbrev.contains("сем", ignoreCase = true) -> "СЕМ"
+                                                rawAbbrev.contains("КП", ignoreCase = true) || rawAbbrev.contains("КР", ignoreCase = true) -> "КП"
+                                                rawAbbrev.isNotBlank() -> rawAbbrev
+                                                else -> "ПЗ"
+                                            }
+
                                             lt.lessons?.forEach { l ->
                                                 l.marks?.forEach { m ->
                                                     val mVal = m.mark ?: 0
                                                     if (mVal > 0) {
+                                                        val finalType = if ((m.taskNumber ?: 0) > 0) "ЛР" else resolvedType
                                                         marksList.add(
                                                             AcademicMarkInfo(
                                                                 mark = mVal,
                                                                 taskNumber = m.taskNumber,
-                                                                lessonType = ltAbbrev,
+                                                                lessonType = finalType,
                                                                 dateString = l.dateString,
                                                                 controlPoint = l.controlPoint
                                                             )
@@ -3187,58 +3205,136 @@ fun MinMarksScreen(
                             }
                         }
 
-                        // Bottom row: Marks carousel or empty label
+                        // Bottom row: Marks divided by lesson types (ЛР, ПЗ, ЛК)
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(12.dp))
                         if (subj.marks.isNotEmpty()) {
-                            androidx.compose.foundation.layout.Row(
-                                modifier = androidx.compose.ui.Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                            ) {
-                                subj.marks.forEach { markInfo ->
-                                    val mVal = markInfo.mark
-                                    val markBg = when {
-                                        mVal >= 9 -> Color(0xFF34C759)
-                                        mVal >= 7 -> Color(0xFF007AFF)
-                                        mVal >= 5 -> Color(0xFFFF9500)
-                                        else -> Color(0xFFFF3B30)
+                            val marksByLessonType = remember(subj.marks) {
+                                val groups = subj.marks.groupBy { mark ->
+                                    val raw = mark.lessonType?.trim()?.uppercase() ?: ""
+                                    when {
+                                        raw.contains("ЛР") || (mark.taskNumber != null && mark.taskNumber > 0) -> "ЛР"
+                                        raw.contains("ПЗ") || raw.contains("ПРАКТ") -> "ПЗ"
+                                        raw.contains("ЛК") || raw.contains("ЛЕК") -> "ЛК"
+                                        raw.contains("СЕМ") -> "СЕМ"
+                                        raw.contains("КП") || raw.contains("КР") -> "КП"
+                                        raw.isNotBlank() -> raw
+                                        else -> "ПЗ"
                                     }
+                                }
+                                val order = listOf("ЛР", "ПЗ", "ЛК", "СЕМ", "КП")
+                                groups.entries.sortedBy { entry ->
+                                    val idx = order.indexOf(entry.key)
+                                    if (idx >= 0) idx else 99
+                                }
+                            }
 
-                                    androidx.compose.foundation.layout.Box(
-                                        modifier = androidx.compose.ui.Modifier
-                                            .size(38.dp)
-                                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
-                                            .background(markBg.copy(alpha = if (isDarkTheme) 0.20f else 0.12f))
-                                            .border(
-                                                0.6.dp,
-                                                markBg.copy(alpha = 0.40f),
-                                                androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
-                                            ),
-                                        contentAlignment = androidx.compose.ui.Alignment.Center
+                            androidx.compose.foundation.layout.Column(
+                                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                            ) {
+                                marksByLessonType.forEach { (typeKey, marksInGroup) ->
+                                    androidx.compose.foundation.layout.Row(
+                                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                     ) {
-                                        androidx.compose.foundation.layout.Column(
-                                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                                        // Category Pill Badge (ЛР, ПЗ, ЛК)
+                                        val (badgeBg, badgeText, badgeFullTitle) = when (typeKey) {
+                                            "ЛР" -> Triple(
+                                                if (isDarkTheme) Color(0xFF007AFF).copy(alpha = 0.22f) else Color(0xFF007AFF).copy(alpha = 0.12f),
+                                                if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                                                "Лабы"
+                                            )
+                                            "ПЗ" -> Triple(
+                                                if (isDarkTheme) Color(0xFFBF5AF2).copy(alpha = 0.22f) else Color(0xFFAF52DE).copy(alpha = 0.12f),
+                                                if (isDarkTheme) Color(0xFFD084F6) else Color(0xFF8944AB),
+                                                "Практика"
+                                            )
+                                            "ЛК" -> Triple(
+                                                if (isDarkTheme) Color(0xFFFF9F0A).copy(alpha = 0.22f) else Color(0xFFFF9500).copy(alpha = 0.12f),
+                                                if (isDarkTheme) Color(0xFFFFB340) else Color(0xFFD97706),
+                                                "Лекции"
+                                            )
+                                            else -> Triple(
+                                                if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                                                appleTextSecondary,
+                                                typeKey
+                                            )
+                                        }
+
+                                        androidx.compose.foundation.layout.Box(
+                                            modifier = androidx.compose.ui.Modifier
+                                                .width(42.dp)
+                                                .height(26.dp)
+                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(7.dp))
+                                                .background(badgeBg),
+                                            contentAlignment = androidx.compose.ui.Alignment.Center
                                         ) {
                                             androidx.compose.material3.Text(
-                                                text = mVal.toString(),
-                                                style = AppleTypography.subheadline().copy(
-                                                    fontSize = 15.sp,
+                                                text = typeKey,
+                                                style = AppleTypography.finePrint().copy(
+                                                    fontSize = 11.5.sp,
                                                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                                 ),
-                                                color = if (isDarkTheme) Color.White else markBg
+                                                color = badgeText,
+                                                maxLines = 1
                                             )
-                                            if (markInfo.taskNumber != null && markInfo.taskNumber > 0) {
-                                                androidx.compose.material3.Text(
-                                                    text = "№${markInfo.taskNumber}",
-                                                    style = AppleTypography.finePrint().copy(
-                                                        fontSize = 8.5.sp,
-                                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                                                    ),
-                                                    color = if (isDarkTheme) Color.White.copy(alpha = 0.75f) else markBg.copy(alpha = 0.85f)
-                                                )
+                                        }
+
+                                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(8.dp))
+
+                                        // Horizontal scroll of marks for this specific lesson type
+                                        androidx.compose.foundation.layout.Row(
+                                            modifier = androidx.compose.ui.Modifier
+                                                .weight(1f)
+                                                .horizontalScroll(rememberScrollState()),
+                                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(7.dp),
+                                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                        ) {
+                                            marksInGroup.forEach { markInfo ->
+                                                val mVal = markInfo.mark
+                                                val markColor = when {
+                                                    mVal >= 9 -> Color(0xFF34C759)
+                                                    mVal >= 7 -> Color(0xFF007AFF)
+                                                    mVal >= 5 -> Color(0xFFFF9500)
+                                                    else -> Color(0xFFFF3B30)
+                                                }
+
+                                                androidx.compose.foundation.layout.Box(
+                                                    modifier = androidx.compose.ui.Modifier
+                                                        .size(36.dp)
+                                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(9.dp))
+                                                        .background(markColor.copy(alpha = if (isDarkTheme) 0.20f else 0.12f))
+                                                        .border(
+                                                            0.6.dp,
+                                                            markColor.copy(alpha = 0.40f),
+                                                            androidx.compose.foundation.shape.RoundedCornerShape(9.dp)
+                                                        ),
+                                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                                ) {
+                                                    androidx.compose.foundation.layout.Column(
+                                                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                                                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
+                                                    ) {
+                                                        androidx.compose.material3.Text(
+                                                            text = mVal.toString(),
+                                                            style = AppleTypography.subheadline().copy(
+                                                                fontSize = 14.5.sp,
+                                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                            ),
+                                                            color = if (isDarkTheme) Color.White else markColor
+                                                        )
+                                                        if (markInfo.taskNumber != null && markInfo.taskNumber > 0) {
+                                                            androidx.compose.material3.Text(
+                                                                text = "№${markInfo.taskNumber}",
+                                                                style = AppleTypography.finePrint().copy(
+                                                                    fontSize = 8.sp,
+                                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                                                                ),
+                                                                color = if (isDarkTheme) Color.White.copy(alpha = 0.75f) else markColor.copy(alpha = 0.85f)
+                                                            )
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
