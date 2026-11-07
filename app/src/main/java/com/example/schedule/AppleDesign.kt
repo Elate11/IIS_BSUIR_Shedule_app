@@ -399,13 +399,15 @@ fun AppleButtonUtility(
 fun AppleCard(
     modifier: Modifier = Modifier,
     isDarkTheme: Boolean = false,
+    cardBg: Color = if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.CanvasWhite,
+    cardBorder: Color = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     hasProductShadow: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val bgColor = if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.CanvasWhite
-    val borderColor = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
+    val bgColor = cardBg
+    val borderColor = cardBorder
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -461,12 +463,16 @@ fun AppleSearchInput(
     placeholder: String,
     modifier: Modifier = Modifier,
     isDarkTheme: Boolean = false,
+    inputBg: Color? = null,
+    inputBorder: Color? = null,
+    inputTextColor: Color? = null,
+    inputIconColor: Color? = null,
     onDone: (() -> Unit)? = null
 ) {
-    val bgColor = if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite
-    val borderColor = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
-    val textColor = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
-    val iconColor = if (isDarkTheme) AppleTokens.BodyMutedDark else AppleTokens.InkSecondary
+    val bgColor = inputBg ?: if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite
+    val borderColor = inputBorder ?: if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
+    val textColor = inputTextColor ?: if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
+    val iconColor = inputIconColor ?: if (isDarkTheme) AppleTokens.BodyMutedDark else AppleTokens.InkSecondary
 
     Box(
         modifier = modifier
