@@ -25,6 +25,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import androidx.compose.foundation.horizontalScroll
 import dev.chrisbanes.haze.haze
@@ -57,8 +58,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.text.style.TextOverflow
 
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -646,53 +652,22 @@ fun MinimalistApp() {
     val isTechnoStyle = styleType == StyleType.Techno
 
     val actualBg = if (isTechnoStyle) Color(0xFF000000)
-        else customBackgroundColor ?: if (isDarkTheme) Color(0xFF111111) else Color(0xFFFAFAFA)
+        else customBackgroundColor ?: if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.Parchment
 
     val MinBg = if (isTechnoStyle) Color.Transparent
         else if (bgMode == "Solid") actualBg else Color.Transparent
 
-    val MinCardBg = if (isTechnoStyle) Color.Transparent else Color.Transparent
+    val MinCardBg = if (isTechnoStyle) Color.Transparent 
+        else if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite
 
-    val MinBorder = if (isTechnoStyle) Color(0xFF00FF41).copy(alpha = 0.25f) else Color.Transparent
-
-    val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition()
-    val animatedPrimaryColor by infiniteTransition.animateColor(
-        initialValue = androidx.compose.ui.graphics.Color(0xFF1A237E),
-        targetValue = androidx.compose.ui.graphics.Color(0xFF1A237E),
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.keyframes {
-                durationMillis = 20000
-                androidx.compose.ui.graphics.Color(0xFF1A237E) at 0
-                androidx.compose.ui.graphics.Color(0xFF004D40) at 6666
-                androidx.compose.ui.graphics.Color(0xFF311B92) at 13332
-                androidx.compose.ui.graphics.Color(0xFF1A237E) at 20000
-            },
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-        ),
-        label = "primaryTextColor"
-    )
-
-    val animatedSecondaryColor by infiniteTransition.animateColor(
-        initialValue = androidx.compose.ui.graphics.Color(0xFF3949AB),
-        targetValue = androidx.compose.ui.graphics.Color(0xFF3949AB),
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.keyframes {
-                durationMillis = 20000
-                androidx.compose.ui.graphics.Color(0xFF3949AB) at 0
-                androidx.compose.ui.graphics.Color(0xFF00695C) at 6666
-                androidx.compose.ui.graphics.Color(0xFF512DA8) at 13332
-                androidx.compose.ui.graphics.Color(0xFF3949AB) at 20000
-            },
-            repeatMode = androidx.compose.animation.core.RepeatMode.Restart
-        ),
-        label = "secondaryTextColor"
-    )
+    val MinBorder = if (isTechnoStyle) Color(0xFF00FF41).copy(alpha = 0.25f) 
+        else if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
 
     val MinTextPrimary = if (styleType == StyleType.Techno) Color(0xFF00FF41)
-        else customPrimaryColor ?: if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF1C1C1E)
+        else customPrimaryColor ?: if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
 
     val MinTextSecondary = if (styleType == StyleType.Techno) Color(0xFF00AA22)
-        else if (isDarkTheme) Color(0xFFAAAAAA) else Color(0xFF6C6C70)
+        else if (isDarkTheme) AppleTokens.BodyMutedDark else AppleTokens.InkSecondary
     
     val view = androidx.compose.ui.platform.LocalView.current
     if (!view.isInEditMode) {
@@ -716,9 +691,9 @@ fun MinimalistApp() {
             }
         }
     }
-    // In light theme: use a nice blue accent; in dark: white/custom
+    // Apple signature single interactive blue accent: Action Blue (#0066cc) / Sky Link Blue on dark (#2997ff)
     val MinAccent = if (styleType == StyleType.Techno) Color(0xFF00FF41)
-        else customPrimaryColor ?: if (isDarkTheme) Color(0xFFEEEEEE) else Color(0xFF3478F6)
+        else customPrimaryColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
 
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val items = listOf("Расписание", "Оценки", "Заметки", "Профиль")
@@ -756,7 +731,60 @@ fun MinimalistApp() {
     }
 
     val appContent = @Composable {
-        Box(modifier = Modifier.fillMaxSize()) {
+        var showRadialMenu by remember { mutableStateOf(false) }
+        var radialTouchPosition by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+        var touchChargeOffset by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
+        val touchChargeAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitFirstDown(pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                            touchChargeOffset = down.position
+                            val job = coroutineScope.launch {
+                                touchChargeAnim.snapTo(0f)
+                                touchChargeAnim.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(durationMillis = 480, easing = LinearEasing)
+                                )
+                            }
+                            val result = withTimeoutOrNull(480L) {
+                                while (true) {
+                                    val event = awaitPointerEvent(pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) {
+                                        return@withTimeoutOrNull false
+                                    }
+                                    val dist = kotlin.math.hypot((change.position.x - down.position.x).toDouble(), (change.position.y - down.position.y).toDouble())
+                                    if (dist > 30.0) {
+                                        return@withTimeoutOrNull false
+                                    }
+                                }
+                                true
+                            }
+                            val isLongPress = (result == null)
+                            job.cancel()
+                            if (isLongPress) {
+                                AppHapticManager.playClick()
+                                radialTouchPosition = down.position
+                                showRadialMenu = true
+                                while (true) {
+                                    val event = awaitPointerEvent(pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                                    event.changes.forEach { it.consume() }
+                                    if (event.changes.none { it.pressed }) break
+                                }
+                            }
+                            touchChargeOffset = null
+                            coroutineScope.launch {
+                                touchChargeAnim.snapTo(0f)
+                            }
+                        }
+                    }
+                }
+        ) {
             Box(modifier = Modifier.fillMaxSize()) {
             if (bgMode == "Gallery" && bgImageUri != null) {
                 coil.compose.AsyncImage(
@@ -784,140 +812,13 @@ fun MinimalistApp() {
             }
             
             Scaffold(
-                bottomBar = {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
-                            .navigationBarsPadding(),
-                        contentAlignment = Alignment.BottomCenter
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (styleType == StyleType.Techno) {
-                                // ASCII terminal nav bar
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp)
-                                        .background(Color(0xFF0D0D0D).copy(alpha = 0.97f))
-                                        .border(1.dp, MinTextPrimary.copy(alpha = 0.8f)),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceEvenly
-                                ) {
-                                    val labels = listOf("[SCH]", "[MRK]", "[NTS]", "[PRF]")
-                                    items.forEachIndexed { index, _ ->
-                                        val isSelected = selectedItem == index
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxHeight()
-                                                .border(if (isSelected) 1.dp else 0.dp, if (isSelected) MinTextPrimary else Color.Transparent)
-                                                .clickable {
-                                                    AppHapticManager.playClick()
-                                                    coroutineScope.launch { pagerState.scrollToPage(index) }
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = if (isSelected) "> ${labels[index]}" else labels[index],
-                                                fontFamily = vt323FontFamily,
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = if (isSelected) MinTextPrimary else MinTextSecondary
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                            Box(modifier = Modifier.fillMaxWidth().height(72.dp)) {
-                                // Animated Sliding Bubble
-                                androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                                    val tabWidth = maxWidth / items.size
-                                    val indicatorOffset by androidx.compose.animation.core.animateDpAsState(
-                                        targetValue = tabWidth * selectedItem,
-                                        animationSpec = androidx.compose.animation.core.spring(
-                                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
-                                        )
-                                    )
-                                    Box(
-                                        modifier = Modifier.offset(x = indicatorOffset).width(tabWidth).fillMaxHeight(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(width = 64.dp, height = 48.dp)
-                                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
-                                                .background(MinAccent.copy(alpha = 0.22f))
-                                        )
-                                    }
-                                }
-                                
-                                Row(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    items.forEachIndexed { index, item ->
-                                        val isSelected = selectedItem == index
-                                        
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxHeight()
-                                                .clickable(
-                                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                                    indication = null,
-                                                    onClick = { 
-                                                        AppHapticManager.playClick()
-                                                        coroutineScope.launch {
-                                                            if (transitionsEnabled) {
-                                                                pagerState.animateScrollToPage(
-                                                                    page = index,
-                                                                    animationSpec = tween((500 / transitionSpeedMultiplier).toInt())
-                                                                )
-                                                            } else {
-                                                                pagerState.scrollToPage(index)
-                                                            }
-                                                        }
-                                                    }
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                icons[index], 
-                                                contentDescription = item, 
-                                                modifier = Modifier.size(28.dp),
-                                                tint = if (isSelected) MinTextPrimary else MinTextSecondary
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            } // end else (Minimal nav bar)
-                            if (styleType == StyleType.Minimal) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                items.indices.forEach { index ->
-                                    val isSelected = selectedItem == index
-                                    val color by androidx.compose.animation.animateColorAsState(if (isSelected) MinTextPrimary else MinTextSecondary.copy(alpha = 0.3f))
-                                    val size by androidx.compose.animation.core.animateDpAsState(if (isSelected) 6.dp else 4.dp)
-                                    Box(
-                                        modifier = Modifier
-                                            .size(size)
-                                            .clip(CircleShape)
-                                            .background(color)
-                                    )
-                                }
-                            }
-                            }
-                        }
-                    }
-                },
+                bottomBar = {},
                 containerColor = Color.Transparent
             ) { paddingValues ->
                 Box(modifier = Modifier.padding(paddingValues).fillMaxSize().background(Color.Transparent)) {
                 androidx.compose.foundation.pager.HorizontalPager(
                     state = pagerState,
+                    userScrollEnabled = false,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
@@ -972,6 +873,31 @@ fun MinimalistApp() {
                 }
             }
         }
+
+        AppleTouchChargingAura(
+            touchOffset = touchChargeOffset,
+            progress = touchChargeAnim.value,
+            isDarkTheme = isDarkTheme
+        )
+
+        AppleRadialMenu(
+            isOpen = showRadialMenu,
+            onDismiss = { showRadialMenu = false },
+            items = listOf(
+                RadialNavMenuItem("Расписание", Icons.Outlined.DateRange, 0),
+                RadialNavMenuItem("Оценки", Icons.Outlined.CheckCircle, 1),
+                RadialNavMenuItem("Заметки", Icons.Outlined.Edit, 2),
+                RadialNavMenuItem("Профиль", Icons.Outlined.Person, 3)
+            ),
+            selectedIndex = pagerState.currentPage,
+            onSelectIndex = { index ->
+                coroutineScope.launch {
+                    pagerState.scrollToPage(index)
+                }
+            },
+            isDarkTheme = isDarkTheme,
+            touchPosition = radialTouchPosition
+        )
     }
     } // closes appContent lambda
 
@@ -1080,7 +1006,11 @@ fun rememberDeviceTilt(onShake: (() -> Unit)? = null): Pair<Float, Float> {
 @Composable
 fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, isDarkTheme: Boolean, selectedGroup: String, onGroupSelected: (String) -> Unit, selectedSubgroup: Int, onSubgroupChange: (Int) -> Unit, displayTitle: String? = null) {
     var showScheduleSettings by remember { mutableStateOf(false) }
-        val carouselDays = remember {
+    var inlineTeacherData by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val effectiveGroup = inlineTeacherData?.first ?: selectedGroup
+    val effectiveTitle = inlineTeacherData?.second ?: displayTitle
+
+    val carouselDays = remember {
         val cal = java.util.Calendar.getInstance()
         cal.add(java.util.Calendar.DAY_OF_MONTH, -7)
         val list = mutableListOf<Pair<Int, String>>()
@@ -1124,19 +1054,19 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val selectedDayOfWeek = dayInfo.first
     val currentWeek = dayInfo.second
 
-    LaunchedEffect(selectedGroup) {
+    LaunchedEffect(effectiveGroup) {
         val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
-        val targetGrp = if (selectedGroup == "114001" && realLoginGrp != null) realLoginGrp else selectedGroup
-        if (targetGrp != selectedGroup) {
+        val targetGrp = if (effectiveGroup == "114001" && realLoginGrp != null) realLoginGrp else effectiveGroup
+        if (targetGrp != effectiveGroup && inlineTeacherData == null) {
             onGroupSelected(targetGrp)
             return@LaunchedEffect
         }
         // Fetch schedule
         
-        val response = if (selectedGroup.any { it.isLetter() }) {
-            BsuirApi.getEmployeeSchedule(selectedGroup)
+        val response = if (effectiveGroup.any { it.isLetter() }) {
+            BsuirApi.getEmployeeSchedule(effectiveGroup)
         } else {
-            BsuirApi.getGroupSchedule(selectedGroup)
+            BsuirApi.getGroupSchedule(effectiveGroup)
         }
         
         val newLessons = mutableListOf<Lesson>()
@@ -1278,7 +1208,6 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
     var selectedLessonForSheet by remember { mutableStateOf<Lesson?>(null) }
     var noteLessonToAdd by remember { mutableStateOf<Lesson?>(null) }
-    var teacherScheduleData by remember { mutableStateOf<Pair<String, String>?>(null) }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val (tiltX, tiltY) = rememberDeviceTilt(onShake = {
         selectedDayIndex = 7
@@ -1306,21 +1235,22 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val styleType = LocalStyleType.current
     val isDialogOpen = selectedLessonForSheet != null || showScheduleSettings || noteLessonToAdd != null
 
-    androidx.activity.compose.BackHandler(enabled = isDialogOpen || teacherScheduleData != null) {
+    androidx.activity.compose.BackHandler(enabled = isDialogOpen || inlineTeacherData != null) {
         if (selectedLessonForSheet != null) {
             selectedLessonForSheet = null
         } else if (noteLessonToAdd != null) {
             noteLessonToAdd = null
         } else if (showScheduleSettings) {
             showScheduleSettings = false
-        } else if (teacherScheduleData != null) {
-            teacherScheduleData = null
+        } else if (inlineTeacherData != null) {
+            inlineTeacherData = null
         }
     }
 
     Box(modifier = Modifier.fillMaxSize().let { if (isDialogOpen) it.blur(16.dp) else it }) {
         LazyColumn(
             modifier = Modifier.fillMaxSize()
+            .padding(end = 46.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -1330,8 +1260,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     cameraDistance = 10f * density
                 }
             },
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        contentPadding = PaddingValues(start = 20.dp, end = 2.dp, top = 24.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
             Column {
@@ -1339,12 +1269,6 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     val weekText = if (currentWeek == 0) "КАНИКУЛЫ" else "$currentWeek УЧЕБНАЯ НЕДЕЛЯ"
                     val weekTextTechno = if (currentWeek == 0) "> КАНИКУЛЫ_" else "> $currentWeek УЧЕБНАЯ НЕДЕЛЯ_"
                     Text(if (styleType == StyleType.Techno) weekTextTechno else weekText, fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary, letterSpacing = if (styleType == StyleType.Techno) 1.sp else 2.sp, fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null)
-                    androidx.compose.material3.IconButton(
-                        onClick = { showScheduleSettings = true },
-                        modifier = Modifier.align(Alignment.CenterEnd).size(24.dp)
-                    ) {
-                        Icon(Icons.Outlined.Settings, contentDescription = "Settings", tint = MinTextSecondary)
-                    }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -1357,35 +1281,67 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     )
                 }
 
-                // Header row: group number + arrow
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null
-                        ) { expanded = !expanded },
-                    contentAlignment = Alignment.Center
-                ) {
+                // Header row: group number or teacher name + back button
+                if (inlineTeacherData != null) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
+                        androidx.compose.material3.IconButton(
+                            onClick = { inlineTeacherData = null },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.KeyboardArrowLeft,
+                                contentDescription = "Назад к группе",
+                                tint = MinAccent,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (styleType == StyleType.Techno) "> ${displayTitle ?: selectedGroup}_" else (displayTitle ?: selectedGroup),
-                            fontSize = 33.sp,
+                            text = inlineTeacherData!!.second,
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
                             color = MinTextPrimary,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
-                            contentDescription = null,
-                            tint = MinTextSecondary,
-                            modifier = Modifier.size(26.dp)
-                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) { expanded = !expanded },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = if (styleType == StyleType.Techno) "> ${effectiveTitle ?: selectedGroup}_" else (effectiveTitle ?: selectedGroup),
+                                fontSize = 33.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MinTextPrimary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = MinTextSecondary,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
                     }
                 }
 
@@ -1461,7 +1417,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             if (trimmedInput.length < 2) emptyList()
                             else allEmployees.filter { 
                                 it.fullName.contains(trimmedInput, ignoreCase = true) || 
-                                (it.lastName != null && it.lastName.contains(trimmedInput, ignoreCase = true))
+                                (it.lastName != null && it.lastName.contains(trimmedInput, ignoreCase = true)) ||
+                                (it.urlId != null && it.urlId.contains(trimmedInput, ignoreCase = true))
                             }.take(5)
                         }
 
@@ -1526,7 +1483,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         .clip(RoundedCornerShape(10.dp))
                                         .clickable {
                                             AppHapticManager.playClick()
-                                            teacherScheduleData = eUrlId to eFullName
+                                            inlineTeacherData = eUrlId to eFullName
                                             val newHistory = (listOf(eFullName) + groupHistory).distinct().take(5)
                                             groupHistory = newHistory
                                             prefs.edit().putStringSet("group_history", newHistory.toSet()).apply()
@@ -1619,207 +1576,19 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         }
                     }
                 }
-            }
-        }
 
-        item {
-            val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
-            val hPadding = (screenWidth / 2) - 24.dp
-            val listState = androidx.compose.foundation.lazy.rememberLazyListState(initialFirstVisibleItemIndex = selectedDayIndex)
-
-            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-            LaunchedEffect(listState) {
-                var lastIndex = listState.firstVisibleItemIndex
-                androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
-                    if (index != lastIndex) {
-                        AppHapticManager.playClick()
-                        lastIndex = index
-                    }
-                }
-            }
-
-            @Suppress("OPT_IN_USAGE")
-            val defaultFling = androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior(lazyListState = listState)
-            val flingBehavior = remember(defaultFling, listState) {
-                object : androidx.compose.foundation.gestures.FlingBehavior {
-                    override suspend fun androidx.compose.foundation.gestures.ScrollScope.performFling(initialVelocity: Float): Float {
-                        if (kotlin.math.abs(initialVelocity) > 4000f) {
-                            listState.animateScrollToItem(7)
-                            selectedDayIndex = 7
-                            return 0f
-                        }
-                        return with(defaultFling) {
-                            performFling(initialVelocity)
-                        }
-                    }
-                }
-            }
-
-            LaunchedEffect(selectedDayIndex) {
-                val arrIndexForSelected = validDayIndices.indexOf(selectedDayIndex).coerceAtLeast(0)
-                listState.animateScrollToItem(arrIndexForSelected)
-            }
-
-            val transition = rememberInfiniteTransition(label = "glassShimmer")
-            val shimmerAlpha by transition.animateFloat(
-                initialValue = 0.18f,
-                targetValue = 0.45f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(2200, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "shimmerAlpha"
-            )
-
-            val targetArrIndex = validDayIndices.indexOf(selectedDayIndex).coerceAtLeast(0)
-            val animatedIndex by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = targetArrIndex.toFloat(),
-                animationSpec = androidx.compose.animation.core.spring(
-                    dampingRatio = 0.52f,
-                    stiffness = 200f
-                ),
-                label = "dropletSpring"
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-            ) {
-                // 1. Prominent Unified Sliding Liquid Glass Droplet
-                if (styleType != StyleType.Techno) {
-                    val stepPx = with(androidx.compose.ui.platform.LocalDensity.current) { (58.dp + 10.dp).toPx() }
-                    val hPaddingPx = with(androidx.compose.ui.platform.LocalDensity.current) { hPadding.toPx() }
-                    val scrollOffsetPx = (listState.firstVisibleItemIndex * stepPx) + listState.firstVisibleItemScrollOffset
-                    val dropletOffsetPx = hPaddingPx + (stepPx * animatedIndex) - scrollOffsetPx
-                    
-                    val velocity = (targetArrIndex - animatedIndex)
-                    val absVel = kotlin.math.abs(velocity).coerceIn(0f, 2.5f)
-                    
-                    Box(
-                        modifier = Modifier
-                            .graphicsLayer {
-                                translationX = dropletOffsetPx + (tiltX * 3.dp.toPx())
-                                translationY = tiltY * 2.dp.toPx()
-                                scaleX = 1f + 0.35f * absVel
-                                scaleY = 1f / kotlin.math.sqrt(1f + 0.35f * absVel)
-                            }
-                            .width(58.dp)
-                            .height(80.dp)
-                            .liquidGlassEffect(
-                                cornerRadius = 24.dp,
-                                accentColor = MinAccent,
-                                isDarkTheme = isDarkTheme,
-                                tiltX = tiltX,
-                                tiltY = tiltY,
-                                isActive = true
-                            )
-                    )
-                }
-
-                // 2. Interactive Day Carousel Track
-                androidx.compose.foundation.lazy.LazyRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(horizontal = hPadding),
-                    state = listState,
-                    flingBehavior = flingBehavior
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(validDayIndices.size) { arrIndex ->
-                        val index = validDayIndices[arrIndex]
-                        val day = weekDays[index]
-                        val isSelected = index == selectedDayIndex
-                        val isToday = index == 7
-                        
-                        val targetTextColor = when {
-                            styleType == StyleType.Techno -> if (isSelected) Color(0xFF00FF41) else Color(0xFF00FF41).copy(alpha = 0.7f)
-                            isSelected -> if (isDarkTheme) Color.White else MinAccent
-                            isToday -> MinTextPrimary
-                            isDarkTheme -> Color.White.copy(alpha = 0.90f)
-                            else -> Color.Black.copy(alpha = 0.90f)
-                        }
-                        val textColor by animateColorAsState(targetValue = targetTextColor, animationSpec = tween(250))
-
-                        Box(
-                            modifier = Modifier
-                                .width(58.dp)
-                                .height(80.dp)
-                                .clip(RoundedCornerShape(if (styleType == StyleType.Techno) 6.dp else 24.dp))
-                                .then(
-                                    if (styleType == StyleType.Techno) {
-                                        Modifier
-                                    } else {
-                                        Modifier
-                                            .background(Color.Transparent)
-                                    }
-                                )
-                                .drawWithContent {
-                                    if (styleType == StyleType.Techno) {
-                                        val r = 6.dp.toPx()
-                                        val cornerR = androidx.compose.ui.geometry.CornerRadius(r, r)
-                                        if (isSelected) {
-                                            drawRoundRect(
-                                                color = Color(0xFF00FF41).copy(alpha = 0.20f),
-                                                cornerRadius = cornerR
-                                            )
-                                            drawRoundRect(
-                                                color = Color(0xFF00FF41),
-                                                cornerRadius = cornerR,
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-                                            )
-                                        } else {
-                                            drawRoundRect(
-                                                color = Color(0xFF0A0A0A),
-                                                cornerRadius = cornerR
-                                            )
-                                            drawRoundRect(
-                                                color = Color(0xFF00FF41).copy(alpha = 0.25f),
-                                                cornerRadius = cornerR,
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
-                                            )
-                                        }
-                                    }
-                                    drawContent()
-                                }
-                                .clickable(
-                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                    indication = null
-                                ) { 
-                                    selectedDayIndex = index
-                                    AppHapticManager.playClick()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = days[index].toString(),
-                                    fontSize = 24.sp,
-                                    fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                                    color = textColor,
-                                    fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = day.uppercase(),
-                                    fontSize = 13.sp,
-                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                                    color = textColor,
-                                    fontFamily = if (styleType == StyleType.Techno) vt323FontFamily else null
-                                )
-                                if (isToday) {
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .size(4.dp)
-                                            .clip(CircleShape)
-                                            .background(if (styleType == StyleType.Techno) Color(0xFF00FF41) else if (isSelected) (if (isDarkTheme) Color.White else MinAccent) else MinAccent)
-                                    )
-                                }
-                            }
-                        }
+                    listOf(0 to "Все", 1 to "1 подгр.", 2 to "2 подгр.").forEach { (sg, label) ->
+                        AppleOptionChip(
+                            label = label,
+                            isSelected = selectedSubgroup == sg,
+                            onClick = { onSubgroupChange(sg) },
+                            isDarkTheme = isDarkTheme
+                        )
                     }
                 }
             }
@@ -1894,7 +1663,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                 selectedLessonForSheet = lesson
                             },
                             onLongClick = { noteLessonToAdd = lesson },
-                            onTeacherClick = { urlId, name -> teacherScheduleData = urlId to name }
+                            onTeacherClick = { urlId, name -> inlineTeacherData = urlId to name }
                         )
                     }
                 }
@@ -1945,7 +1714,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             }
         }
     }
-        if (noteLessonToAdd != null) {
+
+    if (noteLessonToAdd != null) {
         var noteText by remember { mutableStateOf("") }
         val dateTuple = remember(selectedDayIndex) {
             val cal = java.util.Calendar.getInstance()
@@ -2018,7 +1788,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             color = if (lesson.teacherUrlId.isNotBlank()) MinAccent else androidx.compose.ui.graphics.Color.White,
                             textAlign = TextAlign.Center,
                             modifier = if (lesson.teacherUrlId.isNotBlank()) Modifier.clickable {
-                                teacherScheduleData = lesson.teacherUrlId to tName
+                                inlineTeacherData = lesson.teacherUrlId to tName
                                 selectedLessonForSheet = null
                             } else Modifier
                         )
@@ -2076,66 +1846,27 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         )
     }
 
-    if (teacherScheduleData != null) {
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { teacherScheduleData = null },
-            properties = androidx.compose.ui.window.DialogProperties(
-                usePlatformDefaultWidth = false,
-                decorFitsSystemWindows = false
-            )
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(if (styleType == StyleType.Techno) Color(0xFF000000) else actualBg)
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-            ) {
-                MinScheduleScreen(
-                    MinBg = MinBg,
-                    actualBg = actualBg,
-                    MinCardBg = MinCardBg,
-                    MinBorder = MinBorder,
-                    MinTextPrimary = MinTextPrimary,
-                    MinTextSecondary = MinTextSecondary,
-                    MinAccent = MinAccent,
-                    isDarkTheme = isDarkTheme,
-                    selectedGroup = teacherScheduleData!!.first,
-                    onGroupSelected = {},
-                    selectedSubgroup = selectedSubgroup,
-                    onSubgroupChange = {},
-                    displayTitle = teacherScheduleData!!.second
-                )
-                androidx.compose.material3.IconButton(
-                    onClick = {
-                        AppHapticManager.playClick()
-                        teacherScheduleData = null
-                    },
-                    modifier = Modifier
-                        .padding(start = 16.dp, top = 8.dp)
-                        .align(Alignment.TopStart)
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.2f)
-                            else MinCardBg.copy(alpha = 0.90f)
-                        )
-                        .border(
-                            1.dp,
-                            if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.5f)
-                            else MinBorder.copy(alpha = 0.4f),
-                            CircleShape
-                        )
-                ) {
-                    Icon(
-                        Icons.Outlined.KeyboardArrowLeft,
-                        contentDescription = "Назад",
-                        tint = if (styleType == StyleType.Techno) Color(0xFF00FF41) else MinTextPrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-            }
-        }
+    // -------------------------------------------------------------
+    // Ergonomic Side Vertical Date Slider (Apple Floating Date Rail)
+    // -------------------------------------------------------------
+    Box(
+        modifier = Modifier
+            .align(Alignment.CenterEnd)
+            .fillMaxHeight()
+            .padding(top = 16.dp, bottom = 40.dp, end = 2.dp),
+        contentAlignment = Alignment.CenterEnd
+    ) {
+        AppleVerticalDateRail(
+            days = days,
+            weekDays = weekDays,
+            selectedDayIndex = selectedDayIndex,
+            onDaySelected = { index ->
+                selectedDayIndex = index
+                AppHapticManager.playClick()
+            },
+            isDarkTheme = isDarkTheme,
+            todayIndex = 7
+        )
     }
     
     if (showScheduleSettings) {
@@ -2290,185 +2021,253 @@ fun MinLessonCard(lesson: Lesson, MinTextPrimary: Color, MinTextSecondary: Color
     val isTechno = styleType == StyleType.Techno
     val monoFont = if (isTechno) vt323FontFamily else null
     val technoAccent = Color(0xFF00FF41)
-    val technoCardBg = Color(0xFF0A0A0A)
+
+    val cardBg = if (isTechno) Color(0xFF0A0A0A) else if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.CanvasWhite
+    val cardBorder = if (isTechno) Color(0xFF00FF41).copy(alpha = 0.3f) else if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
+    val cardShape = RoundedCornerShape(if (isTechno) 6.dp else AppleTokens.RadiusLg)
+
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.97f else 1f,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
+        label = "lessonCardScale"
+    )
+
     Box(
-        modifier = if (isTechno) Modifier.fillMaxWidth().border(1.dp, Color(0xFF00FF41).copy(alpha = 0.3f), androidx.compose.ui.graphics.RectangleShape).padding(horizontal = 12.dp) else Modifier.fillMaxWidth()
-    ) {
-    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
-            .combinedClickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = androidx.compose.material.ripple.rememberRipple(),
-                onClick = onClick,
-                onLongClick = onLongClick
+            .scale(scale)
+            .shadow(
+                elevation = if (isDarkTheme) 6.dp else 2.dp,
+                shape = cardShape,
+                spotColor = Color(0x2E000000),
+                ambientColor = Color(0x14000000)
             )
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .clip(cardShape)
+            .background(cardBg)
+            .border(1.dp, cardBorder, cardShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {
+                    AppHapticManager.playClick()
+                    onClick()
+                }
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        // 1. Время пары
-        Column(
-            modifier = Modifier.width(52.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            AutoSizeText(
-                lesson.startTime,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = if (isTechno) technoAccent else MinTextPrimary,
-                style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            AutoSizeText(
-                lesson.endTime,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isTechno) technoAccent.copy(alpha = 0.6f) else MinTextSecondary,
-                style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
-            )
-        }
-        
-        Spacer(modifier = Modifier.width(10.dp))
-        val typeColor = when {
-            lesson.lessonType.contains("ЛК", ignoreCase = true) -> Color(0xFF4CAF50)
-            lesson.lessonType.contains("ПЗ", ignoreCase = true) -> Color(0xFFFF9800)
-            lesson.lessonType.contains("ЛР", ignoreCase = true) -> Color(0xFF2196F3)
-            else -> if (lesson.isActive) MinAccent else MinBorder
-        }
-        // 2. Цветная полоска на всю высоту
-        Box(
-            modifier = Modifier
-                .width(4.dp)
-                .fillMaxHeight()
-                .clip(if (isTechno) androidx.compose.ui.graphics.RectangleShape else androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
-                .background(if (isTechno) technoAccent else typeColor)
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        
-        // 3. Центральная часть (Предмет + Тип и Преподаватель с отчеством)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            verticalArrangement = Arrangement.Center
-        ) {
-            // Строка 1: Название предмета
-            val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} подгр.)" else lesson.title
-            AutoSizeText(
-                displayTitle,
-                modifier = Modifier.fillMaxWidth(),
-                maxLines = 2,
-                fontSize = 17.sp,
-                fontWeight = if (lesson.isActive) FontWeight.ExtraBold else FontWeight.Bold,
-                color = if (isTechno) technoAccent else MinTextPrimary,
-                style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple, fontFamily = monoFont)
-            )
-
-            // Строка 2: Тип пары и Фамилия И. О. (с именем и отчеством)
-            val teacherDisplayName = remember(lesson.teacherName, lesson.teacherFullName) {
-                val src = if (lesson.teacherFullName.isNotBlank()) lesson.teacherFullName else lesson.teacherName
-                val parts = src.split(" ").filter { it.isNotBlank() }
-                if (parts.size >= 3) {
-                    val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
-                    val mInit = parts[2].firstOrNull()?.let { "$it." } ?: ""
-                    "${parts[0]} $fInit $mInit".trim()
-                } else if (parts.size == 2) {
-                    val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
-                    "${parts[0]} $fInit".trim()
-                } else {
-                    src
-                }
-            }
-
-            val line2Parts = mutableListOf<String>()
-            if (lesson.lessonType.isNotBlank()) line2Parts.add(lesson.lessonType)
-            if (teacherDisplayName.isNotBlank()) line2Parts.add(teacherDisplayName)
-            val line2Text = line2Parts.joinToString(" • ")
-
-            if (line2Text.isNotBlank()) {
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = line2Text,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isTechno) technoAccent.copy(alpha = 0.85f) else MinTextSecondary,
-                    fontFamily = monoFont,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
-                )
-            }
-            
-            val progress = lesson.progress
-            if (progress != null) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Canvas(modifier = Modifier.fillMaxWidth().height(3.dp)) {
-                    val cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5f.dp.toPx(), 1.5f.dp.toPx())
-                    val totalWidth = size.width
-                    
-                    val w1 = totalWidth * (45f / 95f)
-                    val g = totalWidth * (5f / 95f)
-                    val w2 = totalWidth * (45f / 95f)
-                    
-                    val barBg = MinTextSecondary.copy(alpha = 0.2f)
-                    drawRoundRect(color = barBg, size = androidx.compose.ui.geometry.Size(w1, size.height), cornerRadius = cornerRadius)
-                    drawRoundRect(color = barBg, topLeft = Offset(w1 + g, 0f), size = androidx.compose.ui.geometry.Size(w2, size.height), cornerRadius = cornerRadius)
-                    
-                    val progressTime = progress * 95f
-                    if (progressTime > 0f) {
-                        val p1 = progressTime.coerceAtMost(45f) / 45f
-                        drawRoundRect(color = MinTextPrimary, size = androidx.compose.ui.geometry.Size(w1 * p1, size.height), cornerRadius = cornerRadius)
-                    }
-                    if (progressTime > 50f) {
-                        val p2 = ((progressTime - 50f).coerceAtMost(45f)) / 45f
-                        drawRoundRect(color = MinTextPrimary, topLeft = Offset(w1 + g, 0f), size = androidx.compose.ui.geometry.Size(w2 * p2, size.height), cornerRadius = cornerRadius)
-                    }
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                val progressTime = progress * 95f
-                val statusText = when {
-                    progressTime < 45f -> "До перерыва: ${((45f - progressTime).toInt())} мин"
-                    progressTime < 50f -> "Перерыв: еще ${((50f - progressTime).toInt())} мин"
-                    progressTime < 95f -> "До конца пары: ${((95f - progressTime).toInt())} мин"
-                    else -> "Пара окончена"
-                }
-                Text(statusText, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isTechno) technoAccent else MinAccent, fontFamily = monoFont)
-            }
-        }
-
-        // 4. Отдельно справа около края экрана: Аудитория без слова 'ауд.' в пузырьке как в меню
-        val cleanAuditory = remember(lesson.auditory) {
-            lesson.auditory
-                .replace(Regex("^(ауд\\.?\\s*|aud\\.?\\s*)", RegexOption.IGNORE_CASE), "")
-                .trim()
-        }
-
-        if (cleanAuditory.isNotBlank()) {
-            Spacer(modifier = Modifier.width(10.dp))
-            Box(
-                modifier = Modifier
-                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
-                    .background(
-                        if (styleType == StyleType.Techno) Color(0xFF00FF41).copy(alpha = 0.22f)
-                        else MinAccent.copy(alpha = 0.22f)
-                    )
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center
+            // 1. Time Column
+            Column(
+                modifier = Modifier.width(52.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = cleanAuditory,
+                    text = lesson.startTime,
                     fontSize = 17.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (styleType == StyleType.Techno) technoAccent else MinTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.3).sp,
+                    color = if (isTechno) technoAccent else if (lesson.isActive) (if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue) else MinTextPrimary,
                     fontFamily = monoFont,
-                    style = androidx.compose.material3.LocalTextStyle.current.copy(lineBreak = androidx.compose.ui.text.style.LineBreak.Simple)
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = lesson.endTime,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = if (isTechno) technoAccent.copy(alpha = 0.6f) else MinTextSecondary,
+                    fontFamily = monoFont,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            // 2. Subtle Pill / Indicator for Lesson Type
+            val lessonTypeBadge = when {
+                lesson.lessonType.contains("ЛК", ignoreCase = true) -> "ЛК"
+                lesson.lessonType.contains("ПЗ", ignoreCase = true) -> "ПЗ"
+                lesson.lessonType.contains("ЛР", ignoreCase = true) -> "ЛР"
+                lesson.lessonType.contains("Экзамен", ignoreCase = true) -> "ЭКЗ"
+                else -> lesson.lessonType.take(3)
+            }
+            if (lessonTypeBadge.isNotBlank()) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                        .background(
+                            if (lesson.isActive) (if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue)
+                            else if (isDarkTheme) AppleTokens.Tile2
+                            else AppleTokens.SurfacePearl
+                        )
+                        .border(
+                            1.dp,
+                            if (lesson.isActive) Color.Transparent else if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight,
+                            RoundedCornerShape(AppleTokens.RadiusPill)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = lessonTypeBadge,
+                        style = AppleTypography.finePrint().copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = if (lesson.isActive) Color.White else if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+            }
+
+            // 3. Central Column: Title, Teacher & Progress
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.Center
+            ) {
+                val displayTitle = if (lesson.subgroup != 0) "${lesson.title} (${lesson.subgroup} п.)" else lesson.title
+                Text(
+                    text = displayTitle,
+                    style = AppleTypography.bodyStrong().copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = (-0.2).sp
+                    ),
+                    color = if (isTechno) technoAccent else MinTextPrimary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                val teacherDisplayName = remember(lesson.teacherName, lesson.teacherFullName) {
+                    val src = if (lesson.teacherFullName.isNotBlank()) lesson.teacherFullName else lesson.teacherName
+                    val parts = src.split(" ").filter { it.isNotBlank() }
+                    if (parts.size >= 3) {
+                        val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
+                        val mInit = parts[2].firstOrNull()?.let { "$it." } ?: ""
+                        "${parts[0]} $fInit $mInit".trim()
+                    } else if (parts.size == 2) {
+                        val fInit = parts[1].firstOrNull()?.let { "$it." } ?: ""
+                        "${parts[0]} $fInit".trim()
+                    } else {
+                        src
+                    }
+                }
+
+                val line2Parts = mutableListOf<String>()
+                if (lesson.lessonType.isNotBlank()) line2Parts.add(lesson.lessonType)
+                if (teacherDisplayName.isNotBlank()) line2Parts.add(teacherDisplayName)
+                val line2Text = line2Parts.joinToString(" • ")
+
+                if (line2Text.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = line2Text,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = if (isTechno) technoAccent.copy(alpha = 0.8f) else MinTextSecondary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                val progress = lesson.progress
+                if (progress != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Canvas(modifier = Modifier.fillMaxWidth().height(3.5.dp)) {
+                        val cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                        val totalWidth = size.width
+                        val w1 = totalWidth * (45f / 95f)
+                        val g = totalWidth * (5f / 95f)
+                        val w2 = totalWidth * (45f / 95f)
+
+                        val barBg = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
+                        val barColor = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
+
+                        drawRoundRect(color = barBg, size = androidx.compose.ui.geometry.Size(w1, size.height), cornerRadius = cornerRadius)
+                        drawRoundRect(color = barBg, topLeft = Offset(w1 + g, 0f), size = androidx.compose.ui.geometry.Size(w2, size.height), cornerRadius = cornerRadius)
+
+                        val progressTime = progress * 95f
+                        if (progressTime > 0f) {
+                            val p1 = progressTime.coerceAtMost(45f) / 45f
+                            drawRoundRect(color = barColor, size = androidx.compose.ui.geometry.Size(w1 * p1, size.height), cornerRadius = cornerRadius)
+                        }
+                        if (progressTime > 50f) {
+                            val p2 = ((progressTime - 50f).coerceAtMost(45f)) / 45f
+                            drawRoundRect(color = barColor, topLeft = Offset(w1 + g, 0f), size = androidx.compose.ui.geometry.Size(w2 * p2, size.height), cornerRadius = cornerRadius)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val progressTime = progress * 95f
+                    val statusText = when {
+                        progressTime < 45f -> "До перерыва: ${((45f - progressTime).toInt())} мин"
+                        progressTime < 50f -> "Перерыв: еще ${((50f - progressTime).toInt())} мин"
+                        progressTime < 95f -> "До конца пары: ${((95f - progressTime).toInt())} мин"
+                        else -> "Пара окончена"
+                    }
+                    Text(
+                        text = statusText,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            // 4. Auditory chip
+            val cleanAuditory = remember(lesson.auditory) {
+                lesson.auditory
+                    .replace(Regex("^(ауд\\.?\\s*|aud\\.?\\s*)", RegexOption.IGNORE_CASE), "")
+                    .trim()
+            }
+            if (cleanAuditory.isNotBlank()) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(AppleTokens.RadiusSm))
+                        .background(if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.SurfacePearl)
+                        .border(1.dp, if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight, RoundedCornerShape(AppleTokens.RadiusSm))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = cleanAuditory,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isTechno) technoAccent else MinTextPrimary,
+                        fontFamily = monoFont,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            if (hasNotes) {
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Outlined.Edit,
+                    contentDescription = "Заметка",
+                    tint = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
     }
-    } // end techno Box
 }
 
 data class SubjectMarks(val name: String, val marks: List<Int>)
@@ -2512,7 +2311,7 @@ fun MinMarksScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: android
                 val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                 val token = prefs.getString("auth_token", "") ?: ""
                 val loginGroup = prefs.getString("login_group", "").takeIf { !it.isNullOrBlank() }
-                    ?: prefs.getString("selectedGroup", "114001") ?: "114001"
+                    ?: prefs.getString("selectedGroup", "310101") ?: "310101"
                 val currentFio = prefs.getString("login_fio", "")?.ifBlank { prefs.getString("user_fio", "") ?: "" } ?: ""
 
                 val semesterSubjectsSet = mutableSetOf<String>()
@@ -4569,11 +4368,7 @@ fun MinGradebookScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: and
                             }
                         } else {
                             if (cachedBody == null) {
-                                if (response.code == 404 || response.code == 403) {
-                                    errorMessage = null
-                                } else {
-                                    errorMessage = "Ошибка загрузки: ${response.code}"
-                                }
+                                errorMessage = null
                             }
                             isLoading = false
                         }
@@ -5092,7 +4887,7 @@ object GoogleCalendarSync {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "114001", isDarkTheme: Boolean = true) {
+fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, MinAccent: Color, selectedGroup: String = "310101", isDarkTheme: Boolean = true) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { context.getSharedPreferences("notes_prefs", android.content.Context.MODE_PRIVATE) }
     val gson = remember { com.google.gson.Gson() }
@@ -5103,7 +4898,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                val targetGroup = if (selectedGroup.isNotBlank()) selectedGroup else appPrefs.getString("login_group", "114001") ?: "114001"
+                val targetGroup = if (selectedGroup.isNotBlank() && selectedGroup != "114001") selectedGroup else appPrefs.getString("login_group", "310101") ?: "310101"
                 val token = appPrefs.getString("auth_token", "") ?: ""
 
                 val sessionSubjects = mutableSetOf<String>()
@@ -7627,35 +7422,6 @@ fun MinCustomizationView(
             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
         }
 
-
-        item {
-            androidx.compose.material3.Text("Стиль интерфейса", fontSize = 19.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = MinTextSecondary)
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
-            androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
-                StyleType.values().forEach { style ->
-                    val isSelected = style == LocalStyleType.current
-                    androidx.compose.material3.Button(
-                        onClick = {
-                            AppHapticManager.playClick()
-                            onStyleChange(style)
-                        },
-                        modifier = androidx.compose.ui.Modifier.weight(1f).height(48.dp),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                            containerColor = MinBg,
-                            contentColor = MinTextPrimary
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) MinTextPrimary else MinBorder)
-                    ) {
-                        androidx.compose.material3.Text(style.title, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    }
-                }
-            }
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
-            androidx.compose.material3.HorizontalDivider(color = MinBorder, thickness = 1.dp)
-            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(24.dp))
-        }
-
         item {
             androidx.compose.foundation.layout.Row(modifier = androidx.compose.ui.Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                 androidx.compose.foundation.layout.Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = androidx.compose.ui.Modifier.weight(1f)) {
@@ -8681,168 +8447,181 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.Parchment)
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
     ) {
-        DynamicGradientBackground(accentColor = Color(0xFF8B5CF6), bgColor = MinBg, isDarkTheme = isDarkTheme)
-        
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 32.dp, vertical = 24.dp),
+                .padding(horizontal = 28.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text("Добро пожаловать", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center, lineHeight = 46.sp)
+            Text(
+                "ИИС БГУИР",
+                style = AppleTypography.captionStrong(),
+                color = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Личный кабинет",
+                style = AppleTypography.displayLg(),
+                color = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
             Spacer(modifier = Modifier.height(36.dp))
 
-                OutlinedTextField(
-                    value = gradebookNumber,
-                    onValueChange = { gradebookNumber = it },
-                    label = { Text("Номер зачетки", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MinTextPrimary,
-                        unfocusedTextColor = MinTextPrimary,
-                        focusedBorderColor = Color(0xFF8B5CF6),
-                        unfocusedBorderColor = MinBorder,
-                        focusedLabelColor = Color(0xFF8B5CF6),
-                        unfocusedLabelColor = MinTextSecondary
-                    ),
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+            OutlinedTextField(
+                value = gradebookNumber,
+                onValueChange = { gradebookNumber = it },
+                label = { Text("Номер зачетки", style = AppleTypography.caption()) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                textStyle = AppleTypography.bodyStrong().copy(fontSize = 18.sp, color = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                    unfocusedTextColor = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                    focusedBorderColor = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                    unfocusedBorderColor = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight,
+                    focusedContainerColor = if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite,
+                    unfocusedContainerColor = if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite,
+                    focusedLabelColor = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                    unfocusedLabelColor = if (isDarkTheme) AppleTokens.InkSecondary else AppleTokens.InkMuted48
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(AppleTokens.RadiusLg)
+            )
+            Spacer(modifier = Modifier.height(14.dp))
 
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Пароль", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
-                    visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    trailingIcon = {
-                        val icon = if (passwordVisible) androidx.compose.material.icons.Icons.Outlined.Visibility else androidx.compose.material.icons.Icons.Outlined.VisibilityOff
-                        androidx.compose.material3.IconButton(onClick = {
-                            AppHapticManager.playClick()
-                            passwordVisible = !passwordVisible
-                        }) {
-                            androidx.compose.material3.Icon(icon, contentDescription = null, tint = MinTextSecondary)
-                        }
-                    },
-                    textStyle = androidx.compose.material3.LocalTextStyle.current.copy(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = MinTextPrimary, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MinTextPrimary,
-                        unfocusedTextColor = MinTextPrimary,
-                        focusedBorderColor = Color(0xFF3B82F6),
-                        unfocusedBorderColor = MinBorder,
-                        focusedLabelColor = Color(0xFF3B82F6),
-                        unfocusedLabelColor = MinTextSecondary
-                    ),
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp)
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-
-                if (errorMessage != null) {
-                    Text(errorMessage!!, color = Color(0xFFFF6B6B), fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                Button(
-                    onClick = {
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Пароль", style = AppleTypography.caption()) },
+                visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                trailingIcon = {
+                    val icon = if (passwordVisible) androidx.compose.material.icons.Icons.Outlined.Visibility else androidx.compose.material.icons.Icons.Outlined.VisibilityOff
+                    androidx.compose.material3.IconButton(onClick = {
                         AppHapticManager.playClick()
-                        val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                        if (gradebookNumber.isBlank() || password.isBlank()) {
-                            errorMessage = "Пожалуйста, заполните все поля"
-                            return@Button
-                        }
-                        isLoading = true
-                        errorMessage = null
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                NetworkClient.init(context)
-                                val loginJson = org.json.JSONObject()
-                                loginJson.put("username", gradebookNumber.trim())
-                                loginJson.put("password", password)
-                                val body = loginJson.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                                val request = Request.Builder()
-                                    .url("https://iis.bsuir.by/api/v1/auth/login")
-                                    .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-                                    .addHeader("Accept", "application/json, text/plain, */*")
-                                    .post(body)
-                                    .build()
-                                NetworkClient.client.newCall(request).execute().use { response ->
-                                    val responseBody = response.body?.string()
-                                    withContext(Dispatchers.Main) {
-                                        isLoading = false
-                                        if (response.isSuccessful) {
-                                            android.util.Log.d("API_RESPONSE", "Login Response JSON: $responseBody")
-                                            var extractedToken = ""
-                                            if (responseBody != null) {
-                                                try {
-                                                    val json = org.json.JSONObject(responseBody)
-                                                    prefs.edit().apply {
-                                                        putString("login_fio", json.optString("fio"))
-                                                        putString("login_group", json.optString("group"))
-                                                        putString("login_photo", json.optString("photoUrl"))
-                                                    }.apply()
-                                                } catch (e: Exception) {}
+                        passwordVisible = !passwordVisible
+                    }) {
+                        androidx.compose.material3.Icon(icon, contentDescription = null, tint = if (isDarkTheme) AppleTokens.InkSecondary else AppleTokens.InkMuted48)
+                    }
+                },
+                textStyle = AppleTypography.bodyStrong().copy(fontSize = 18.sp, color = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                    unfocusedTextColor = if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink,
+                    focusedBorderColor = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                    unfocusedBorderColor = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight,
+                    focusedContainerColor = if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite,
+                    unfocusedContainerColor = if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.CanvasWhite,
+                    focusedLabelColor = if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue,
+                    unfocusedLabelColor = if (isDarkTheme) AppleTokens.InkSecondary else AppleTokens.InkMuted48
+                ),
+                singleLine = true,
+                shape = RoundedCornerShape(AppleTokens.RadiusLg)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (errorMessage != null) {
+                Text(errorMessage!!, color = Color(0xFFFF453A), style = AppleTypography.caption(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            AppleButtonPrimary(
+                text = if (isLoading) "Вход..." else "Войти",
+                onClick = {
+                    val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                    if (gradebookNumber.isBlank() || password.isBlank()) {
+                        errorMessage = "Пожалуйста, заполните все поля"
+                        return@AppleButtonPrimary
+                    }
+                    isLoading = true
+                    errorMessage = null
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            NetworkClient.init(context)
+                            val loginJson = org.json.JSONObject()
+                            loginJson.put("username", gradebookNumber.trim())
+                            loginJson.put("password", password)
+                            val body = loginJson.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                            val request = Request.Builder()
+                                .url("https://iis.bsuir.by/api/v1/auth/login")
+                                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                                .addHeader("Accept", "application/json, text/plain, */*")
+                                .post(body)
+                                .build()
+                            NetworkClient.client.newCall(request).execute().use { response ->
+                                val responseBody = response.body?.string()
+                                withContext(Dispatchers.Main) {
+                                    isLoading = false
+                                    if (response.isSuccessful) {
+                                        var extractedToken = ""
+                                        if (responseBody != null) {
+                                            try {
+                                                val json = org.json.JSONObject(responseBody)
+                                                prefs.edit().apply {
+                                                    putString("login_fio", json.optString("fio"))
+                                                    putString("login_group", json.optString("group"))
+                                                    putString("login_photo", json.optString("photoUrl"))
+                                                }.apply()
+                                            } catch (e: Exception) {}
+                                        }
+                                        val cookies = response.headers("Set-Cookie")
+                                        for (cookie in cookies) {
+                                            if (cookie.contains("SESSION") || cookie.contains("JSESSIONID") || cookie.contains("jwt") || cookie.contains("token")) {
+                                                extractedToken = cookie.substringBefore(";")
+                                                break
                                             }
-                                            val cookies = response.headers("Set-Cookie")
-                                            for (cookie in cookies) {
-                                                if (cookie.contains("SESSION") || cookie.contains("JSESSIONID") || cookie.contains("jwt") || cookie.contains("token")) {
-                                                    extractedToken = cookie.substringBefore(";")
-                                                    break
-                                                }
-                                            }
-                                            if (extractedToken.isEmpty()) extractedToken = responseBody ?: ""
-                                            // Save password for auto re-login on 401
-                                            prefs.edit()
-                                                .putString("saved_password", password)
-                                                .putString("gradebook_number", gradebookNumber)
-                                                .apply()
-                                            fetchAndStoreStudentProfile(context)
-                                            onLoginSuccess(gradebookNumber, extractedToken)
-                                        } else {
-                                            when (response.code) {
-                                                400, 401, 403, 404 -> errorMessage = "Неверный логин или пароль"
-                                                500, 502, 503 -> errorMessage = "Ошибка сервера (${response.code}). Попробуйте позже."
-                                                else -> errorMessage = "Ошибка: ${response.code} ${response.message}"
-                                            }
+                                        }
+                                        if (extractedToken.isEmpty()) extractedToken = responseBody ?: ""
+                                        prefs.edit()
+                                            .putString("saved_password", password)
+                                            .putString("gradebook_number", gradebookNumber)
+                                            .apply()
+                                        fetchAndStoreStudentProfile(context)
+                                        onLoginSuccess(gradebookNumber, extractedToken)
+                                    } else {
+                                        when (response.code) {
+                                            400, 401, 403, 404 -> errorMessage = "Неверный логин или пароль"
+                                            500, 502, 503 -> errorMessage = "Ошибка сервера (${response.code})"
+                                            else -> errorMessage = "Ошибка: ${response.code}"
                                         }
                                     }
                                 }
-                            } catch (e: java.io.IOException) {
-                                withContext(Dispatchers.Main) {
-                                    isLoading = false
-                                    errorMessage = "Отсутствует подключение к сети: ${e.message}"
-                                }
-                            } catch (e: Exception) {
-                                withContext(Dispatchers.Main) {
-                                    isLoading = false
-                                    errorMessage = "Непредвиденная ошибка: ${e.localizedMessage}"
-                                }
+                            }
+                        } catch (e: java.io.IOException) {
+                            withContext(Dispatchers.Main) {
+                                isLoading = false
+                                errorMessage = "Отсутствует подключение к сети"
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                isLoading = false
+                                errorMessage = "Ошибка: ${e.localizedMessage}"
                             }
                         }
-                    },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    enabled = !isLoading,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF8B5CF6), 
-                        contentColor = Color.White, 
-                        disabledContainerColor = Color(0xFF8B5CF6).copy(alpha = 0.5f)
-                    )
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp))
-                    } else {
-                        Text("Войти", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
-                }
+                },
+                enabled = !isLoading,
+                isDarkTheme = isDarkTheme,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            AppleButtonSecondaryPill(
+                text = "Продолжить без входа",
+                onClick = {
+                    onLoginSuccess("310101", "")
+                },
+                isDarkTheme = isDarkTheme,
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+            )
             }
         }
     }

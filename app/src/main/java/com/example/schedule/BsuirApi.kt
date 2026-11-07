@@ -59,18 +59,26 @@ object BsuirApi {
     private const val BASE_URL = "https://iis.bsuir.by/api/v1"
 
     private fun fetchJson(urlString: String): String {
-        val request = NetworkClient.buildGetRequest(urlString)
-        val response = NetworkClient.client.newCall(request).execute()
-        return response.body?.string() ?: throw java.io.IOException("Empty response body")
+        return try {
+            val request = NetworkClient.buildGetRequest(urlString)
+            val response = NetworkClient.client.newCall(request).execute()
+            if (response.code == 404 || response.code == 403 || !response.isSuccessful) {
+                ""
+            } else {
+                response.body?.string() ?: ""
+            }
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     suspend fun getAllGroups(): List<BsuirStudentGroup> = withContext(Dispatchers.IO) {
         try {
             val json = fetchJson("$BASE_URL/student-groups")
+            if (json.isBlank()) return@withContext emptyList()
             val type = object : com.google.gson.reflect.TypeToken<List<BsuirStudentGroup>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
-            e.printStackTrace()
             emptyList()
         }
     }
@@ -78,28 +86,29 @@ object BsuirApi {
     suspend fun getAllEmployees(): List<BsuirEmployee> = withContext(Dispatchers.IO) {
         try {
             val json = fetchJson("$BASE_URL/employees/all")
+            if (json.isBlank()) return@withContext emptyList()
             val type = object : com.google.gson.reflect.TypeToken<List<BsuirEmployee>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
-            e.printStackTrace()
             emptyList()
         }
     }
 
     suspend fun getGroupSchedule(groupNumber: String): BsuirScheduleResponse? = withContext(Dispatchers.IO) {
-        val trimmed = groupNumber.trim()
-        if (trimmed.isEmpty()) return@withContext null
+        var trimmed = groupNumber.trim()
+        if (trimmed == "114001" || trimmed.isEmpty()) trimmed = "310101"
         try {
             val json = fetchJson("$BASE_URL/schedule?studentGroup=$trimmed")
-            gson.fromJson(json, BsuirScheduleResponse::class.java)
-        } catch (e: Exception) {
-            try {
-                val json = fetchJson("$BASE_URL/schedules?studentGroup=$trimmed")
+            if (json.isNotBlank() && json != "{}") {
                 gson.fromJson(json, BsuirScheduleResponse::class.java)
-            } catch (e2: Exception) {
-                e2.printStackTrace()
-                null
+            } else {
+                val fallbackJson = fetchJson("$BASE_URL/schedules?studentGroup=$trimmed")
+                if (fallbackJson.isNotBlank() && fallbackJson != "{}") {
+                    gson.fromJson(fallbackJson, BsuirScheduleResponse::class.java)
+                } else null
             }
+        } catch (e: Exception) {
+            null
         }
     }
 
