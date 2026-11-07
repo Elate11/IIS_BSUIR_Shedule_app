@@ -9,3 +9,11 @@
 .cxx
 local.properties
 
+# Logs and crash dumps
+*.log
+hs_err_pid*.log
+replay_pid*.log
+.kotlin/
+.kotlin
+*.txt
+b64.txt
