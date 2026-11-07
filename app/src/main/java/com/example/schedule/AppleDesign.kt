@@ -191,6 +191,11 @@ object AppleTypography {
         lineHeight = 15.sp,
         fontFamily = fontFamily
     )
+
+    fun heroDisplayLarge(fontFamily: FontFamily? = null) = displayLg(fontFamily)
+    fun callout(fontFamily: FontFamily? = null) = bodyStrong(fontFamily)
+    fun subheadline(fontFamily: FontFamily? = null) = tagline(fontFamily)
+    fun footnote(fontFamily: FontFamily? = null) = caption(fontFamily)
 }
 
 /**
@@ -937,13 +942,19 @@ fun AppleRadialMenu(
                 label = "centerScale"
             )
 
-            val centerBg = if (isDarkTheme) AppleTokens.Tile1 else AppleTokens.CanvasWhite
-            val centerBorder = if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
+            val centerBg = if (isDarkTheme) Color(0xFF2C2C2E).copy(alpha = 0.95f) else Color.White.copy(alpha = 0.95f)
+            val centerBorder = if (isDarkTheme) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.08f)
 
             Box(
                 modifier = Modifier
-                    .size(66.dp)
+                    .size(56.dp)
                     .scale(centerScale)
+                    .shadow(
+                        elevation = 8.dp,
+                        shape = CircleShape,
+                        spotColor = Color.Black.copy(alpha = 0.35f),
+                        ambientColor = Color.Black.copy(alpha = 0.15f)
+                    )
                     .clip(CircleShape)
                     .background(centerBg)
                     .border(1.dp, centerBorder, CircleShape)
@@ -957,31 +968,16 @@ fun AppleRadialMenu(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = "Закрыть",
-                        tint = if (isDarkTheme) AppleTokens.BodyMutedDark else AppleTokens.InkSecondary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Text(
-                        text = "ЗАКРЫТЬ",
-                        style = AppleTypography.finePrint().copy(
-                            fontSize = 8.sp,
-                            fontWeight = FontWeight.SemiBold
-                        ),
-                        color = if (isDarkTheme) AppleTokens.BodyMutedDark else AppleTokens.InkSecondary,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Outlined.Close,
+                    contentDescription = "Закрыть",
+                    tint = if (isDarkTheme) Color.White.copy(alpha = 0.85f) else AppleTokens.Ink,
+                    modifier = Modifier.size(24.dp)
+                )
             }
 
             // Satellite discs blossoming dynamically from the center
-            val targetRadiusDp = 108f
+            val targetRadiusDp = 112f
             val currentRadiusDp = targetRadiusDp * bloomProgress
             val count = items.size
             items.forEachIndexed { i, item ->
@@ -1002,8 +998,8 @@ fun AppleRadialMenu(
                     label = "itemScale_$i"
                 )
 
-                val itemBg = if (isSelected) activeBlue else if (isDarkTheme) AppleTokens.Tile2 else AppleTokens.SurfacePearl
-                val itemBorder = if (isSelected) Color.Transparent else if (isDarkTheme) AppleTokens.HairlineDark else AppleTokens.HairlineLight
+                val itemBg = if (isSelected) activeBlue else if (isDarkTheme) Color(0xFF222224).copy(alpha = 0.96f) else Color(0xFFFAFAFC).copy(alpha = 0.96f)
+                val itemBorder = if (isSelected) activeBlue.copy(alpha = 0.6f) else if (isDarkTheme) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.08f)
                 val iconColor = if (isSelected) Color.White else if (isDarkTheme) AppleTokens.BodyOnDark else AppleTokens.Ink
 
                 // Kinetic angular whip during flight
@@ -1023,7 +1019,13 @@ fun AppleRadialMenu(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(58.dp)
+                                .size(62.dp)
+                                .shadow(
+                                    elevation = if (isSelected) 14.dp else 6.dp,
+                                    shape = CircleShape,
+                                    spotColor = if (isSelected) activeBlue.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
+                                    ambientColor = if (isSelected) activeBlue.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
+                                )
                                 .clip(CircleShape)
                                 .background(itemBg)
                                 .border(1.dp, itemBorder, CircleShape)
@@ -1042,28 +1044,33 @@ fun AppleRadialMenu(
                                 imageVector = item.icon,
                                 contentDescription = item.title,
                                 tint = iconColor,
-                                modifier = Modifier.size(25.dp)
+                                modifier = Modifier.size(27.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(AppleTokens.RadiusPill))
                                 .background(
-                                    if (isSelected) activeBlue.copy(alpha = 0.35f)
-                                    else Color.Black.copy(alpha = 0.50f)
+                                    if (isSelected) activeBlue.copy(alpha = 0.40f)
+                                    else Color(0xD018181A)
                                 )
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .border(
+                                    0.5.dp,
+                                    if (isSelected) activeBlue.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
+                                    RoundedCornerShape(AppleTokens.RadiusPill)
+                                )
+                                .padding(horizontal = 10.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = item.title,
                                 style = AppleTypography.finePrint().copy(
-                                    fontSize = 11.sp,
+                                    fontSize = 11.5.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 ),
-                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.90f),
+                                color = Color.White,
                                 maxLines = 1,
                                 softWrap = false
                             )
