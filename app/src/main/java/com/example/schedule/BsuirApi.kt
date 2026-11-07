@@ -91,6 +91,7 @@ data class BsuirRatingMark(
 data class BsuirRatingDeadlineGroup(
     val termHoursId: Int?,
     val labCount: Int?,
+    val taskCount: Int?,
     val deadlines: List<BsuirRatingDeadline>?
 )
 

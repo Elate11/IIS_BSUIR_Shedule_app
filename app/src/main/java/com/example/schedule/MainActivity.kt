@@ -2440,10 +2440,10 @@ fun MinMarksScreen(
                             currentGroup = loginGroup
                         }
 
-                        // Version check for cache invalidation when lesson-type breakdown is added
+                        // Version check for cache invalidation when lesson-type breakdown and taskCount are updated
                         val cachedVersion = prefs.getInt("academic_progress_version", 1)
-                        if (cachedVersion < 3) {
-                            prefs.edit().remove("cached_academic_progress").putInt("academic_progress_version", 3).apply()
+                        if (cachedVersion < 4) {
+                            prefs.edit().remove("cached_academic_progress").putInt("academic_progress_version", 4).apply()
                         }
 
                         // 1. Try to load cached academic progress
@@ -2492,7 +2492,7 @@ fun MinMarksScreen(
                             try {
                                 val ratingResp = com.example.schedule.BsuirApi.getPersonalRating(token)
                                 if (ratingResp?.subjects != null && ratingResp.subjects.isNotEmpty()) {
-                                    val deadlinesMap = ratingResp.deadlines?.associate { (it.termHoursId ?: -1) to (it.labCount ?: 0) } ?: emptyMap()
+                                    val deadlinesMap = ratingResp.deadlines?.associate { (it.termHoursId ?: -1) to (it.taskCount ?: it.labCount ?: 0) } ?: emptyMap()
                                     val parsed = ratingResp.subjects.map { subj ->
                                         val sName = subj.name ?: subj.abbrev ?: ""
                                         val sAbbrev = subj.abbrev ?: subj.name ?: ""
@@ -2767,15 +2767,10 @@ fun MinMarksScreen(
                         androidx.compose.material3.Text(
                             text = "Успеваемость",
                             style = AppleTypography.heroDisplayLarge().copy(
-                                fontSize = 30.sp,
+                                fontSize = 32.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                             ),
                             color = appleTextPrimary
-                        )
-                        androidx.compose.material3.Text(
-                            text = "БГУИР • ${if (currentGroup.isNotBlank()) "Группа $currentGroup" else "Семестр"} • ${if (isAuthorized) "Синхронизировано" else "Оффлайн"}",
-                            style = AppleTypography.footnote(),
-                            color = appleTextSecondary
                         )
                     }
 
@@ -3103,18 +3098,34 @@ fun MinMarksScreen(
                         // Top row: Subject Title & Average Mark Pill
                         androidx.compose.foundation.layout.Row(
                             modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                            verticalAlignment = androidx.compose.ui.Alignment.Top,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
                         ) {
-                            AutoResizedText(
-                                text = subj.name,
-                                fontSize = 16.5.sp,
-                                minFontSize = 13.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                color = appleTextPrimary,
-                                maxLines = 2,
+                            val shortName = subj.abbrev.takeIf { it.isNotBlank() } ?: subj.name
+                            androidx.compose.foundation.layout.Column(
                                 modifier = androidx.compose.ui.Modifier.weight(1f)
-                            )
+                            ) {
+                                androidx.compose.material3.Text(
+                                    text = shortName,
+                                    style = AppleTypography.subheadline().copy(
+                                        fontSize = 17.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    ),
+                                    color = appleTextPrimary,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                if (shortName != subj.name && subj.name.isNotBlank()) {
+                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(1.dp))
+                                    androidx.compose.material3.Text(
+                                        text = subj.name,
+                                        style = AppleTypography.finePrint().copy(fontSize = 11.5.sp),
+                                        color = appleTextSecondary,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
 
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
 
@@ -3156,7 +3167,7 @@ fun MinMarksScreen(
                             }
                         }
 
-                        // Middle row: Lab Progress (if subject has labs)
+                        // Middle row: Lab Progress Scale (if subject has labs)
                         if (subj.hasLabs) {
                             androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(10.dp))
                             androidx.compose.foundation.layout.Row(
@@ -3165,8 +3176,11 @@ fun MinMarksScreen(
                                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
                             ) {
                                 androidx.compose.material3.Text(
-                                    text = "Лабы: ${subj.submittedLabs} из ${subj.totalLabs} сдано",
-                                    style = AppleTypography.footnote().copy(fontSize = 12.sp),
+                                    text = "Лабораторные: ${subj.submittedLabs} из ${subj.totalLabs} сдано",
+                                    style = AppleTypography.footnote().copy(
+                                        fontSize = 12.5.sp,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                                    ),
                                     color = appleTextSecondary
                                 )
 
@@ -3175,29 +3189,29 @@ fun MinMarksScreen(
                                 androidx.compose.material3.Text(
                                     text = "$labPercent%",
                                     style = AppleTypography.finePrint().copy(
-                                        fontSize = 11.5.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                                     ),
                                     color = if (labFrac >= 1f) Color(0xFF34C759) else appleAccent
                                 )
                             }
 
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(5.dp))
+                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(6.dp))
 
-                            // Mini progress bar
+                            // Apple capsule progress bar (6.dp height)
                             val subFrac = (subj.submittedLabs.toFloat() / subj.totalLabs.coerceAtLeast(1).toFloat()).coerceIn(0f, 1f)
                             androidx.compose.foundation.layout.Box(
                                 modifier = androidx.compose.ui.Modifier
                                     .fillMaxWidth()
-                                    .height(4.dp)
-                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                                    .height(6.dp)
+                                    .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
                                     .background(if (isDarkTheme) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
                             ) {
                                 androidx.compose.foundation.layout.Box(
                                     modifier = androidx.compose.ui.Modifier
                                         .fillMaxWidth(fraction = subFrac)
                                         .fillMaxHeight()
-                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(3.dp))
                                         .background(
                                             if (subFrac >= 1f) Color(0xFF34C759) else appleAccent
                                         )
