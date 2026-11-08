@@ -4707,7 +4707,6 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     var statusText by remember { mutableStateOf("Загрузка данных из ИИС БГУИР...") }
     var isLoading by remember { mutableStateOf(true) }
     var isNotAuthorized by remember { mutableStateOf(false) }
-    var showGuidelines by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -5241,28 +5240,12 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
                 ) {
-                    androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        androidx.compose.material3.Text(
-                            "Оправдательные документы",
-                            fontSize = 19.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = MinTextPrimary
-                        )
-                        androidx.compose.material3.Text(
-                            "Памятка",
-                            fontSize = 13.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                            color = currentAccent,
-                            modifier = androidx.compose.ui.Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { showGuidelines = !showGuidelines }
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                    androidx.compose.material3.Text(
+                        "Оправдательные документы",
+                        fontSize = 19.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextPrimary
+                    )
 
                     if (excuseDocuments.isEmpty() && totalHours > 0) {
                         androidx.compose.foundation.layout.Box(
@@ -5348,30 +5331,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         }
                     }
 
-                    // Guidelines block
-                    AnimatedVisibility(visible = showGuidelines) {
-                        androidx.compose.foundation.layout.Column(
-                            modifier = androidx.compose.ui.Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                        ) {
-                            androidx.compose.material3.Text(
-                                "Памятка подачи документов в деканат:",
-                                fontSize = 15.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                color = currentAccent
-                            )
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                            androidx.compose.material3.Text(
-                                "1. Медицинская справка должна быть заверена в 33-й поликлинике и сдана в деканат в течение 3 рабочих дней после закрытия.\n" +
-                                "2. Заявления по семейным обстоятельствам подаются заранее на имя декана факультета.\n" +
-                                "3. После внесения справки сотрудником деканата часы в ИИС БГУИР автоматически пересчитываются в категорию уважительных.",
-                                fontSize = 13.sp,
-                                color = MinTextSecondary,
-                                lineHeight = 18.sp
-                            )
-                        }
-                    }
+
                 }
             }
 
