@@ -949,7 +949,7 @@ fun MinimalistApp() {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 fetchAndStoreStudentProfile(context)
                 val syncedGroup = sharedPreferences.getString("login_group", null)?.takeIf { it.isNotBlank() }
-                if (!syncedGroup.isNullOrBlank() && (selectedGroup == "114001" || selectedGroup == "310101" || selectedGroup.isBlank())) {
+                if (!syncedGroup.isNullOrBlank()) {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                         selectedGroup = syncedGroup
                     }
@@ -11277,9 +11277,15 @@ fun MinLoginScreen(MinBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTex
                                         if (responseBody != null) {
                                             try {
                                                 val json = org.json.JSONObject(responseBody)
+                                                val lgGroup = json.optString("group", "").ifBlank {
+                                                    json.optJSONObject("studentGroup")?.optString("name", "") ?: ""
+                                                }
                                                 prefs.edit().apply {
                                                     putString("login_fio", json.optString("fio"))
-                                                    putString("login_group", json.optString("group"))
+                                                    if (lgGroup.isNotBlank()) {
+                                                        putString("login_group", lgGroup)
+                                                        putString("selectedGroup", lgGroup)
+                                                    }
                                                     putString("login_photo", json.optString("photoUrl"))
                                                 }.apply()
                                             } catch (e: Exception) {}
