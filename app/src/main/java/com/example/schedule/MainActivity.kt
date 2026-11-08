@@ -176,7 +176,9 @@ fun findNextLessonForSubject(
     context: android.content.Context,
     group: String,
     subject: String,
-    subgroup: Int = 0
+    subgroup: Int = 0,
+    baseCalendar: java.util.Calendar = java.util.Calendar.getInstance(),
+    afterTime: String? = null
 ): NextLessonTarget? {
     val dm = DataManager(context)
     val allLessons = dm.getLessonsForTarget(group).ifEmpty { dm.getLessons() }
@@ -188,14 +190,92 @@ fun findNextLessonForSubject(
     }
     if (subjectLessons.isEmpty()) return null
 
+    // Helper to calculate BSUIR DOW (1=Mon..7=Sun) and Week (1..4) for any Calendar date
+    fun getWeekInfo(cal: java.util.Calendar): Pair<Int, Int> {
+        var dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
+        if (dow == 0) dow = 7
+
+        val year = cal.get(java.util.Calendar.YEAR)
+        val month = cal.get(java.util.Calendar.MONTH)
+        val sep1Year = if (month < java.util.Calendar.AUGUST) year - 1 else year
+
+        val sep1Cal = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.YEAR, sep1Year)
+            set(java.util.Calendar.MONTH, java.util.Calendar.SEPTEMBER)
+            set(java.util.Calendar.DAY_OF_MONTH, 1)
+            set(java.util.Calendar.HOUR_OF_DAY, 12)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }
+        var sep1Dow = sep1Cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
+        if (sep1Dow == 0) sep1Dow = 7
+        sep1Cal.add(java.util.Calendar.DAY_OF_MONTH, -(sep1Dow - 1))
+
+        val targetMonday = (cal.clone() as java.util.Calendar).apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 12)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            add(java.util.Calendar.DAY_OF_MONTH, -(dow - 1))
+        }
+
+        val diffMillis = targetMonday.timeInMillis - sep1Cal.timeInMillis
+        val diffWeeks = (diffMillis / (7L * 24 * 60 * 60 * 1000)).toInt()
+        val weekNum = ((diffWeeks % 4 + 4) % 4) + 1
+        return Pair(dow, weekNum)
+    }
+
+    // 1. If afterTime is specified, first check if there is another lesson later TODAY (after afterTime)
+    if (!afterTime.isNullOrBlank()) {
+        val (baseDow, baseWk) = getWeekInfo(baseCalendar)
+        val laterToday = subjectLessons
+            .filter { l ->
+                l.dayOfWeek == baseDow &&
+                    (l.weeks.isEmpty() || l.weeks.contains(baseWk)) &&
+                    l.startTime > afterTime
+            }
+            .sortedWith(
+                compareBy<Lesson> { if (it.lessonType.contains("ЛР", true) || it.lessonType.contains("ПЗ", true)) 0 else 1 }
+                    .thenBy { it.startTime }
+            )
+            .firstOrNull()
+
+        if (laterToday != null) {
+            val d = baseCalendar.get(java.util.Calendar.DAY_OF_MONTH)
+            val m = baseCalendar.get(java.util.Calendar.MONTH)
+            val y = baseCalendar.get(java.util.Calendar.YEAR)
+            val timeParts = laterToday.startTime.split(":")
+            val h = timeParts.getOrNull(0)?.trim()?.toIntOrNull() ?: 9
+            val min = timeParts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+            return NextLessonTarget(
+                day = d,
+                month0Based = m,
+                year = y,
+                hour = h,
+                minute = min,
+                dateFormatted = "%02d.%02d.%04d".format(d, m + 1, y),
+                timeFormatted = "%02d:%02d".format(h, min),
+                lessonType = laterToday.lessonType
+            )
+        }
+    }
+
+    // 2. Otherwise search STRICTLY FUTURE days starting from baseCalendar + 1 day
     for (offset in 1..60) {
-        val (dow, wk) = getBsuirWeekForCalendarDay(7 + offset)
+        val nextCal = (baseCalendar.clone() as java.util.Calendar).apply {
+            add(java.util.Calendar.DAY_OF_MONTH, offset)
+        }
+        val (dow, wk) = getWeekInfo(nextCal)
         val matching = subjectLessons
             .filter { it.dayOfWeek == dow && (it.weeks.isEmpty() || it.weeks.contains(wk)) }
-            .sortedBy { if (it.lessonType.contains("ЛР", true) || it.lessonType.contains("ПЗ", true)) 0 else 1 }
+            .sortedWith(
+                compareBy<Lesson> { if (it.lessonType.contains("ЛР", true) || it.lessonType.contains("ПЗ", true)) 0 else 1 }
+                    .thenBy { it.startTime }
+            )
             .firstOrNull()
         if (matching != null) {
-            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
+            val cal = nextCal
             val d = cal.get(java.util.Calendar.DAY_OF_MONTH)
             val m = cal.get(java.util.Calendar.MONTH)
             val y = cal.get(java.util.Calendar.YEAR)
@@ -644,7 +724,7 @@ fun BsuirIntroVideoSplash(
         while (!isFadingOut) {
             androidx.compose.runtime.withFrameNanos { now ->
                 elapsedSec = ((now - startNanos) / 1_000_000_000f).coerceAtLeast(0f)
-                if (elapsedSec >= 2.35f && !isFadingOut) {
+                if (elapsedSec >= 4.0f && !isFadingOut) {
                     isFadingOut = true
                 }
             }
@@ -1463,7 +1543,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     lessonType = lType,
                     teacherName = teacherShort,
                     teacherFullName = teacher?.fullName ?: teacherShort,
-                    teacherPhoto = teacher?.photoLink ?: "",
+                    teacherPhoto = teacher?.photoLink?.ifBlank { null }
+                        ?: (teacher?.id?.let { "https://iis.bsuir.by/api/v1/employees/photo/" } ?: ""),
                     teacherUrlId = teacher?.urlId ?: "",
                     auditory = aud,
                     subgroup = bl.numSubgroup ?: 0,
@@ -1504,7 +1585,8 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 lessonType = lType,
                 teacherName = teacherShort,
                 teacherFullName = teacher?.fullName ?: teacherShort,
-                teacherPhoto = teacher?.photoLink ?: "",
+                teacherPhoto = teacher?.photoLink?.ifBlank { null }
+                        ?: (teacher?.id?.let { "https://iis.bsuir.by/api/v1/employees/photo/" } ?: ""),
                 teacherUrlId = teacher?.urlId ?: "",
                 auditory = aud,
                 subgroup = bl.numSubgroup ?: 0,
@@ -2217,7 +2299,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             val forSubject = allScheduleNotes.filter { it.subject.equals(lesson.title, ignoreCase = true) }
                             val exactDay = forSubject.firstOrNull { it.date == selectedDateFormatted }
                             val pinned = forSubject.firstOrNull { it.isPinned }
-                            (exactDay ?: pinned ?: forSubject.lastOrNull())?.text
+                            (exactDay ?: pinned)?.text
                         }
                         MinLessonCard(
                             lesson = lesson,
@@ -2291,20 +2373,27 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         val targetLesson = noteLessonToAdd!!
         var noteText by remember(targetLesson) { mutableStateOf("") }
         var isPinnedQuick by remember(targetLesson) { mutableStateOf(false) }
-        val dateTuple = remember(selectedDayIndex) {
-            val cal = java.util.Calendar.getInstance()
-            cal.add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
-            Triple(cal.get(java.util.Calendar.DAY_OF_MONTH), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.YEAR))
+        val selectedDayCal = remember(selectedDayIndex) {
+            java.util.Calendar.getInstance().apply {
+                add(java.util.Calendar.DAY_OF_MONTH, -7 + selectedDayIndex)
+            }
         }
-        val currentDayStr = String.format("%02d.%02d.%04d", dateTuple.first, dateTuple.second + 1, dateTuple.third)
-        val nextLessonTarget = remember(targetLesson, effectiveGroup, selectedSubgroup) {
-            findNextLessonForSubject(context, effectiveGroup, targetLesson.title, selectedSubgroup)
+        val currentDayStr = String.format("%02d.%02d.%04d", selectedDayCal.get(java.util.Calendar.DAY_OF_MONTH), selectedDayCal.get(java.util.Calendar.MONTH) + 1, selectedDayCal.get(java.util.Calendar.YEAR))
+        val nextLessonTarget = remember(targetLesson, effectiveGroup, selectedSubgroup, selectedDayCal) {
+            findNextLessonForSubject(
+                context = context,
+                group = effectiveGroup,
+                subject = targetLesson.title,
+                subgroup = selectedSubgroup,
+                baseCalendar = selectedDayCal,
+                afterTime = targetLesson.startTime.ifBlank { null }
+            )
         }
-        var targetDateStr by remember(targetLesson, currentDayStr, nextLessonTarget) {
-            mutableStateOf(nextLessonTarget?.dateFormatted ?: currentDayStr)
+        var targetDateStr by remember(targetLesson, currentDayStr) {
+            mutableStateOf(currentDayStr)
         }
-        var targetTimeStr by remember(targetLesson, nextLessonTarget) {
-            mutableStateOf(nextLessonTarget?.timeFormatted ?: targetLesson.startTime.ifBlank { "09:00" })
+        var targetTimeStr by remember(targetLesson) {
+            mutableStateOf(targetLesson.startTime.ifBlank { "09:00" })
         }
 
         Dialog(onDismissRequest = { noteLessonToAdd = null }) {
@@ -2454,12 +2543,19 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                             .background(if (noteText.isNotBlank()) MinAccent else MinTextPrimary.copy(alpha = 0.08f))
                             .clickable(enabled = noteText.isNotBlank()) {
                                 AppHapticManager.playClick()
+                                val resolvedType = when {
+                                    targetLesson.lessonType.contains("ЛР", true) -> "ЛР"
+                                    targetLesson.lessonType.contains("ПЗ", true) -> "ПЗ"
+                                    targetLesson.lessonType.contains("ЛК", true) -> "ЛК"
+                                    else -> targetLesson.lessonType.take(4).trim()
+                                }
                                 val newNote = Note(
                                     subject = targetLesson.title,
                                     text = noteText.trim(),
                                     date = targetDateStr,
                                     time = targetTimeStr,
-                                    isPinned = isPinnedQuick
+                                    isPinned = isPinnedQuick,
+                                    lessonType = resolvedType
                                 )
                                 val currentNotesRaw = notesPrefs.getString("notes_data", "[]") ?: "[]"
                                 val type = object : com.google.gson.reflect.TypeToken<List<Note>>() {}.type
@@ -2509,7 +2605,18 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         AlertDialog(
             onDismissRequest = { selectedLessonForSheet = null },
             title = {
-                Text(lesson.subjectFullName.ifEmpty { lesson.title }, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                val fullTitle = lesson.subjectFullName.ifEmpty { lesson.title }
+                Text(
+                    text = fullTitle,
+                    fontSize = if (fullTitle.length > 35) 21.sp else if (fullTitle.length > 20) 24.sp else 28.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 28.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                )
             },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
@@ -2583,7 +2690,14 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                         Spacer(modifier = Modifier.height(10.dp))
                         if (!lesson.note.isNullOrBlank()) {
                             Text("Примечание", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                            Text(lesson.note, fontSize = 16.sp, color = MinAccent, textAlign = TextAlign.Center)
+                            Text(
+                                text = lesson.note,
+                                fontSize = 15.sp,
+                                color = MinAccent,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
                             Spacer(modifier = Modifier.height(10.dp))
                         }
                     } else {
@@ -3583,6 +3697,7 @@ data class Note(
     val time: String? = null,
     val isEvent: Boolean = false,
     val isPinned: Boolean = false,
+    val lessonType: String = "",
     val attachments: List<NoteAttachment> = emptyList(),
     val calendarEventId: Long? = null
 )
@@ -6726,6 +6841,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     }
 
     var selectedSubject by remember { mutableStateOf("Все") }
+    var selectedLessonTypeFilter by remember { mutableStateOf("Все") }
     var noteText by remember { mutableStateOf("") }
     var isEventNote by remember { mutableStateOf(false) }
     var showNewNoteTimePicker by remember { mutableStateOf(false) }
@@ -6850,20 +6966,43 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
         list.map { it.date }.toSet()
     }
     
+    // Helper to extract or infer lesson type from a note
+    fun inferNoteLessonType(note: Note): String {
+        val explicit = note.lessonType.trim().uppercase()
+        if (explicit.contains("ЛР") || explicit.contains("ЛАБ")) return "ЛР"
+        if (explicit.contains("ЛК") || explicit.contains("ЛЕК")) return "ЛК"
+        if (explicit.contains("ПЗ") || explicit.contains("ПРАК")) return "ПЗ"
+        
+        // Infer from note text if not explicitly set
+        val txt = note.text.uppercase()
+        return when {
+            txt.contains("ЛР") || txt.contains("ЛАБ") || txt.contains("ЛАБОРАТОР") -> "ЛР"
+            txt.contains("ПЗ") || txt.contains("ПРАКТ") || txt.contains("СЕМИНАР") -> "ПЗ"
+            txt.contains("ЛК") || txt.contains("ЛЕКЦ") -> "ЛК"
+            else -> ""
+        }
+    }
+
     // Filter and sort notes
-    val filteredNotes = remember(notes, selectedSubject, searchQuery) {
+    val filteredNotes = remember(notes, selectedSubject, selectedLessonTypeFilter, searchQuery) {
         var list = when (selectedSubject) {
             "Все" -> notes
             "Закрепленные" -> notes.filter { it.isPinned }
             "События" -> notes.filter { it.isEvent }
             else -> notes.filter { it.subject == selectedSubject }
         }
+        if (selectedLessonTypeFilter != "Все") {
+            list = list.filter { note ->
+                inferNoteLessonType(note) == selectedLessonTypeFilter
+            }
+        }
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
             list = list.filter { note ->
                 note.text.lowercase().contains(q) ||
                 note.subject.lowercase().contains(q) ||
-                note.date.contains(q)
+                note.date.contains(q) ||
+                inferNoteLessonType(note).lowercase().contains(q)
             }
         }
         list.sortedBy { parseNoteDateMillis(it.date) }
@@ -6953,6 +7092,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     if (noteToEdit != null) {
         var editText by remember(noteToEdit) { mutableStateOf(noteToEdit!!.text) }
         var editSubject by remember(noteToEdit) { mutableStateOf(noteToEdit!!.subject) }
+        var editLessonType by remember(noteToEdit) { mutableStateOf(inferNoteLessonType(noteToEdit!!)) }
         var editIsEvent by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isEvent) }
         var editIsPinned by remember(noteToEdit) { mutableStateOf(noteToEdit!!.isPinned) }
         var editAttachments by remember(noteToEdit) { mutableStateOf(noteToEdit!!.attachments ?: emptyList()) }
@@ -7094,6 +7234,43 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                     "К след. паре (${nextEditTarget.dateFormatted.take(5)})",
                                     color = if (isNextApplied) MinAccent else editSecTextColor,
                                     fontWeight = FontWeight.SemiBold,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Type of Lesson Selector (Все, ЛР, ЛК, ПЗ)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Тип:", color = editSecTextColor, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        listOf("" to "Обычная", "ЛР" to "ЛР", "ЛК" to "ЛК", "ПЗ" to "ПЗ").forEach { (typeVal, typeLabel) ->
+                            val isSel = editLessonType == typeVal
+                            val badgeColor = when (typeVal) {
+                                "ЛР" -> Color(0xFF34C759)
+                                "ЛК" -> Color(0xFF007AFF)
+                                "ПЗ" -> Color(0xFFFF9500)
+                                else -> MinAccent
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSel) badgeColor.copy(alpha = 0.18f) else editSubBg)
+                                    .border(1.dp, if (isSel) badgeColor.copy(alpha = 0.6f) else editBorder, RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        AppHapticManager.playClick()
+                                        editLessonType = typeVal
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = typeLabel,
+                                    color = if (isSel) badgeColor else editSecTextColor,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
                                     fontSize = 13.sp
                                 )
                             }
@@ -7323,6 +7500,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                             date = newDateStr,
                                             isEvent = editIsEvent,
                                             isPinned = editIsPinned,
+                                            lessonType = editLessonType,
                                             time = "%02d:%02d".format(editHour, editMinute),
                                             attachments = editAttachments,
                                             calendarEventId = newCalEventId
@@ -7383,6 +7561,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     val styleType = LocalStyleType.current
     var newNoteText by remember { mutableStateOf("") }
     var newNoteSubject by remember { mutableStateOf("Общее") }
+    var newNoteLessonType by remember { mutableStateOf("") }
     var newNoteIsEvent by remember { mutableStateOf(false) }
     var newNoteIsPinned by remember { mutableStateOf(false) }
     var newSubjectExpanded by remember { mutableStateOf(false) }
@@ -7426,6 +7605,30 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false)
                 )
+                val inferredType = inferNoteLessonType(note)
+                if (inferredType.isNotBlank()) {
+                    val badgeColor = when (inferredType) {
+                        "ЛР" -> Color(0xFF34C759)
+                        "ЛК" -> Color(0xFF007AFF)
+                        "ПЗ" -> Color(0xFFFF9500)
+                        else -> MinAccent
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(badgeColor.copy(alpha = 0.16f))
+                            .border(0.5.dp, badgeColor.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = inferredType,
+                            color = badgeColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 Text(
                     text = "  ·  " + (if (note.time != null) "${note.date} ${note.time}" else note.date),
                     color = MinTextSecondary.copy(alpha = 0.7f),
@@ -7641,6 +7844,53 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 }
             }
 
+            // Lesson Type Filter Segment (Все, ЛР, ЛК, ПЗ)
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val lessonTypes = listOf("Все", "ЛР", "ЛК", "ПЗ")
+                    lessonTypes.forEach { typeOption ->
+                        val isSel = selectedLessonTypeFilter == typeOption
+                        val activeColor = when (typeOption) {
+                            "ЛР" -> Color(0xFF34C759)
+                            "ЛК" -> Color(0xFF007AFF)
+                            "ПЗ" -> Color(0xFFFF9500)
+                            else -> MinAccent
+                        }
+                        val count = if (typeOption == "Все") {
+                            notes.size
+                        } else {
+                            notes.count { inferNoteLessonType(it) == typeOption }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (isSel) activeColor.copy(alpha = if (isDarkTheme) 0.22f else 0.16f) else MinCardBg)
+                                .border(1.dp, if (isSel) activeColor.copy(alpha = 0.6f) else MinBorder, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    selectedLessonTypeFilter = typeOption
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (count > 0 && typeOption != "Все") "$typeOption ($count)" else typeOption,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSel) activeColor else MinTextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+
             // Notes Content / Empty State
             if (filteredNotes.isEmpty()) {
                 item {
@@ -7740,7 +7990,23 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 pendingAttachments = emptyList()
                 newNoteIsEvent = false
                 newNoteIsPinned = false
-                newNoteSubject = if (selectedSubject != "Все") selectedSubject else allSubjects.firstOrNull() ?: "Общее"
+                newNoteLessonType = if (selectedLessonTypeFilter != "Все") selectedLessonTypeFilter else ""
+                newNoteSubject = if (selectedSubject != "Все" && selectedSubject != "Закрепленные" && selectedSubject != "События") selectedSubject else allSubjects.firstOrNull() ?: "Общее"
+                val nextTarget = findNextLessonForSubject(context, selectedGroup, newNoteSubject)
+                if (nextTarget != null) {
+                    selectedDay = nextTarget.day
+                    selectedMonth = nextTarget.month0Based
+                    selectedYear = nextTarget.year
+                    selectedHour = nextTarget.hour
+                    selectedMinute = nextTarget.minute
+                } else {
+                    val nowCal = java.util.Calendar.getInstance()
+                    selectedDay = nowCal.get(java.util.Calendar.DAY_OF_MONTH)
+                    selectedMonth = nowCal.get(java.util.Calendar.MONTH)
+                    selectedYear = nowCal.get(java.util.Calendar.YEAR)
+                    selectedHour = nowCal.get(java.util.Calendar.HOUR_OF_DAY)
+                    selectedMinute = nowCal.get(java.util.Calendar.MINUTE)
+                }
                 showNewNoteDialog = true
             },
             modifier = Modifier
@@ -7787,6 +8053,17 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                         selectedDay, selectedMonth, selectedYear
                     )
                 }
+                val resolvedType = if (newNoteLessonType.isNotBlank()) {
+                    newNoteLessonType
+                } else {
+                    val txt = newNoteText.uppercase()
+                    when {
+                        txt.contains("ЛР") || txt.contains("ЛАБ") || txt.contains("ЛАБОРАТОР") -> "ЛР"
+                        txt.contains("ПЗ") || txt.contains("ПРАКТ") || txt.contains("СЕМИНАР") -> "ПЗ"
+                        txt.contains("ЛК") || txt.contains("ЛЕКЦ") -> "ЛК"
+                        else -> ""
+                    }
+                }
                 val note = Note(
                     subject = newNoteSubject,
                     text = newNoteText,
@@ -7794,6 +8071,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     time = "%02d:%02d".format(selectedHour, selectedMinute),
                     isEvent = newNoteIsEvent,
                     isPinned = newNoteIsPinned,
+                    lessonType = resolvedType,
                     attachments = pendingAttachments,
                     calendarEventId = calId
                 )
@@ -7934,6 +8212,43 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                                 selectedMinute = nextNewTarget.minute
                                 viewMonth = nextNewTarget.month0Based
                                 viewYear = nextNewTarget.year
+                            }
+                        }
+                    }
+
+                    // Lesson type chips (ЛР, ЛК, ПЗ) for new note
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Тип:", color = secC, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        listOf("" to "Обычная", "ЛР" to "ЛР", "ЛК" to "ЛК", "ПЗ" to "ПЗ").forEach { (typeVal, typeLabel) ->
+                            val isSel = newNoteLessonType == typeVal
+                            val badgeColor = when (typeVal) {
+                                "ЛР" -> Color(0xFF34C759)
+                                "ЛК" -> Color(0xFF007AFF)
+                                "ПЗ" -> Color(0xFFFF9500)
+                                else -> MinAccent
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSel) badgeColor.copy(alpha = 0.18f) else chipBg)
+                                    .border(1.dp, if (isSel) badgeColor.copy(alpha = 0.6f) else Color.Transparent, RoundedCornerShape(10.dp))
+                                    .clickable {
+                                        AppHapticManager.playClick()
+                                        newNoteLessonType = typeVal
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = typeLabel,
+                                    color = if (isSel) badgeColor else secC,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 13.sp
+                                )
                             }
                         }
                     }
