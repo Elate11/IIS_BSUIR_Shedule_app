@@ -1035,7 +1035,18 @@ fun MinimalistApp() {
     }
     
     var bgMode by remember { mutableStateOf(sharedPreferences.getString("bgMode", "Solid") ?: "Solid") }
-    var bgImageUri by remember { mutableStateOf(sharedPreferences.getString("bgImageUri", null)) }
+    var bgImageUri by remember {
+        val saved = sharedPreferences.getString("bgImageUri", null)
+        val defaultBgFile = java.io.File(context.filesDir, "custom_background.png")
+        val initialUri = if (saved != null && java.io.File(saved).exists()) {
+            saved
+        } else if (defaultBgFile.exists()) {
+            defaultBgFile.absolutePath
+        } else {
+            saved
+        }
+        mutableStateOf(initialUri)
+    }
     var bgBlur by remember { mutableStateOf(sharedPreferences.getFloat("bgBlur", 0f)) }
     var bgDim by remember { mutableStateOf(sharedPreferences.getFloat("bgDim", 0f)) }
     var bgEmoji by remember { mutableStateOf(sharedPreferences.getString("bgEmoji", "😎") ?: "😎") }
@@ -10167,8 +10178,29 @@ fun MinCustomizationView(
             if (bgMode == "Gallery" || bgMode == "Gradient") {
                 Spacer(modifier = Modifier.height(16.dp))
                 if (bgMode == "Gallery") {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val scope = androidx.compose.runtime.rememberCoroutineScope()
                     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-                        if (uri != null) onBgImageUriChange(uri.toString())
+                        if (uri != null) {
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val bgFile = java.io.File(context.filesDir, "custom_background.png")
+                                    context.contentResolver.openInputStream(uri)?.use { input ->
+                                        bgFile.outputStream().use { output ->
+                                            input.copyTo(output)
+                                        }
+                                    }
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        onBgImageUriChange(bgFile.absolutePath)
+                                    }
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        onBgImageUriChange(uri.toString())
+                                    }
+                                }
+                            }
+                        }
                     }
                     OutlinedButton(onClick = {
                         AppHapticManager.playClick()
