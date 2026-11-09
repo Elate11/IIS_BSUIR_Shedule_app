@@ -4729,21 +4729,28 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 }
 
                 val request = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/omissions", token)
-                com.example.schedule.NetworkClient.executeWithAuth(request, context).use { response ->
-                    val body = response.body?.string()
-                    val nowCal = java.util.Calendar.getInstance()
-                    val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1 // 1..12
-                    val curYearNum = nowCal.get(java.util.Calendar.YEAR)
-                    val monthNamesAll = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
+                var omissionsLoaded = false
+                try {
+                    com.example.schedule.NetworkClient.executeWithAuth(request, context).use { response ->
+                        val body = response.body?.string()
+                        val nowCal = java.util.Calendar.getInstance()
+                        val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1 // 1..12
+                        val curYearNum = nowCal.get(java.util.Calendar.YEAR)
+                        val monthNamesAll = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
 
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        if (response.isSuccessful && body != null) {
+                        if (response.isSuccessful && !body.isNullOrBlank()) {
                             try {
-                                val jsonArray = if (body.trim().startsWith("[")) org.json.JSONArray(body) else org.json.JSONArray()
+                                val jsonArray = if (body.trim().startsWith("[")) {
+                                    org.json.JSONArray(body)
+                                } else if (body.trim().startsWith("{")) {
+                                    val obj = org.json.JSONObject(body)
+                                    obj.optJSONArray("omissions") ?: obj.optJSONArray("items") ?: org.json.JSONArray()
+                                } else {
+                                    org.json.JSONArray()
+                                }
+
                                 var tHours = 0
                                 var uHoursCurrentMonth = 0
-                                val mData = mutableMapOf<String, Int>()
-                                val muData = mutableMapOf<String, Int>()
                                 val parsedLessons = mutableListOf<RealOmissionLesson>()
 
                                 for (i in 0 until jsonArray.length()) {
@@ -4778,15 +4785,11 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                             } else null
                                             if (lessonMonthIndex != null && lessonMonthIndex in 1..12) {
                                                 mName = monthNamesAll[lessonMonthIndex - 1]
-                                                mData[mName] = (mData[mName] ?: 0) + omissions
-                                                if (!isRespectful) {
-                                                    muData[mName] = (muData[mName] ?: 0) + omissions
-                                                }
                                             }
                                         }
 
                                         tHours += omissions
-                                        if (!isRespectful && lessonMonthIndex == curMonthNum) {
+                                        if (!isRespectful && (lessonMonthIndex == null || lessonMonthIndex == curMonthNum)) {
                                             uHoursCurrentMonth += omissions
                                         }
 
@@ -4807,7 +4810,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                     }
                                 }
 
-                                // Extract real excuse documents from respectful omissions
+                                // Extract excuse documents from respectful omissions
                                 val respectfulList = parsedLessons.filter { it.isRespectful }
                                 val docsMap = mutableMapOf<String, MutableList<RealOmissionLesson>>()
                                 for (rl in respectfulList) {
@@ -4817,8 +4820,8 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
 
                                 val parsedDocs = docsMap.map { (key, list) ->
                                     val docHours = list.sumOf { it.hours }
-                                    val docDates = list.map { it.dateString }.distinct().take(4)
-                                    val docSubjects = list.map { it.subject }.distinct().take(3)
+                                    val docDates = list.map { it.dateString }.filter { it.isNotBlank() }.distinct().take(4)
+                                    val docSubjects = list.map { it.subject }.filter { it.isNotBlank() }.distinct().take(3)
                                     RealExcuseDocument(
                                         title = if (key.contains("справ", ignoreCase = true) || key.contains("095", ignoreCase = true)) "Медицинская справка" else if (key.contains("заявл", ignoreCase = true)) "Заявление деканата" else "Оправдательный документ",
                                         note = key,
@@ -4828,101 +4831,137 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                     )
                                 }.toMutableList()
 
-                                prefs.edit().putInt("cached_unexcused_hours", uHoursCurrentMonth).apply()
-                                totalHours = tHours
-                                unexcusedHours = uHoursCurrentMonth
-                                monthlyData = mData
-                                monthlyUnexcusedData = muData
-                                allLessons = parsedLessons
-                                excuseDocuments = parsedDocs
-                                statusText = ""
-                                isLoading = false
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    prefs.edit().putInt("cached_unexcused_hours", uHoursCurrentMonth).apply()
+                                    totalHours = tHours
+                                    unexcusedHours = uHoursCurrentMonth
+                                    allLessons = parsedLessons
+                                    if (parsedDocs.isNotEmpty()) {
+                                        excuseDocuments = (parsedDocs + excuseDocuments).distinctBy { it.title + it.note }
+                                    }
+                                    statusText = ""
+                                    isLoading = false
+                                    isNotAuthorized = false
+                                }
+                                omissionsLoaded = true
                             } catch (e: Exception) {
-                                statusText = "Ошибка парсинга: ${e.message}"
-                                isLoading = false
+                                e.printStackTrace()
                             }
-                        } else {
-                            if (response.code == 401 || response.code == 403) {
+                        } else if (response.code in listOf(401, 403)) {
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
                                 isNotAuthorized = true
                                 statusText = "Сессия ИИС БГУИР устарела. Пожалуйста, перезайдите в профиле."
-                            } else {
-                                statusText = "Ошибка сервера: ${response.code} ${response.message}"
+                                isLoading = false
                             }
-                            isLoading = false
+                            return@withContext
                         }
                     }
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
 
-                // Additionally fetch /api/v1/omissions-by-student (real medical certificates & date ranges)
+                // Additionally fetch /api/v1/omissions-by-student (real medical certificates & excuse records)
                 try {
                     val certReq = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/omissions-by-student", token)
                     com.example.schedule.NetworkClient.executeWithAuth(certReq, context).use { certResp ->
                         val certBody = certResp.body?.string()
                         if (certResp.isSuccessful && !certBody.isNullOrBlank()) {
-                            val certJson = org.json.JSONObject(certBody)
-                            val dtoList = certJson.optJSONArray("omissionDtoList")
+                            val extraDocs = mutableListOf<RealExcuseDocument>()
+                            val certJson = if (certBody.trim().startsWith("{")) org.json.JSONObject(certBody) else org.json.JSONObject()
+                            val dtoList = certJson.optJSONArray("omissionDtoList") 
+                                ?: certJson.optJSONArray("omissions")
+                                ?: if (certBody.trim().startsWith("[")) org.json.JSONArray(certBody) else null
+
                             if (dtoList != null && dtoList.length() > 0) {
-                                val extraDocs = mutableListOf<RealExcuseDocument>()
                                 for (k in 0 until dtoList.length()) {
                                     val item = dtoList.optJSONObject(k) ?: continue
-                                    val name = item.optString("name", "Справка").takeIf { it != "null" && it.isNotBlank() } ?: "Справка"
-                                    val note = item.optString("note", "").takeIf { it != "null" } ?: ""
-                                    val dFrom = (item.optString("dateFrom", "").takeIf { it != "null" } ?: "").take(10)
-                                    val dTo = (item.optString("dateTo", "").takeIf { it != "null" } ?: "").take(10)
-                                    val term = item.optString("term", "").takeIf { it != "null" } ?: ""
+                                    val name = item.optString("name", item.optString("title", "Справка")).takeIf { it != "null" && it.isNotBlank() } ?: "Справка"
+                                    val note = item.optString("note", item.optString("reason", "")).takeIf { it != "null" } ?: ""
+                                    val dFrom = (item.optString("dateFrom", item.optString("dateStart", "")).takeIf { it != "null" } ?: "").take(10)
+                                    val dTo = (item.optString("dateTo", item.optString("dateEnd", "")).takeIf { it != "null" } ?: "").take(10)
+                                    val term = item.optString("term", item.optString("semester", "")).takeIf { it != "null" } ?: ""
+                                    val hrs = item.optInt("omissionCount", item.optInt("hours", item.optInt("hoursClosed", 0)))
                                     val rangeStr = if (dFrom.isNotBlank() && dTo.isNotBlank()) "С $dFrom по $dTo" else dFrom
                                     extraDocs.add(
                                         RealExcuseDocument(
                                             title = name,
                                             note = listOf(rangeStr, note, if (term.isNotBlank()) "$term семестр" else "").filter { it.isNotBlank() }.joinToString(" • "),
-                                            hoursClosed = 0,
+                                            hoursClosed = hrs,
                                             dates = listOfNotNull(dFrom.takeIf { it.isNotBlank() }, dTo.takeIf { it.isNotBlank() }),
                                             subjects = emptyList()
                                         )
                                     )
                                 }
-                                if (extraDocs.isNotEmpty()) {
-                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        excuseDocuments = (extraDocs + excuseDocuments).distinctBy { it.title + it.note }
-                                        isNotAuthorized = false
-                                        isLoading = false
-                                    }
+                            }
+                            if (extraDocs.isNotEmpty()) {
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    excuseDocuments = (extraDocs + excuseDocuments).distinctBy { it.title + it.note }
+                                    isNotAuthorized = false
+                                    isLoading = false
                                 }
                             }
                         }
                     }
                 } catch (_: Exception) {}
 
-                // Additionally fetch /api/v1/disrespectful-omissions-by-student (count monthly & current month)
+                // Also fetch /api/v1/certificate to see any active or issued certificates from BSUIR
+                try {
+                    val userCertsReq = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/certificate", token)
+                    com.example.schedule.NetworkClient.executeWithAuth(userCertsReq, context).use { uResp ->
+                        val uBody = uResp.body?.string()
+                        if (uResp.isSuccessful && !uBody.isNullOrBlank() && uBody.trim().startsWith("[")) {
+                            val uArr = org.json.JSONArray(uBody.trim())
+                            val uDocs = mutableListOf<RealExcuseDocument>()
+                            for (k in 0 until uArr.length()) {
+                                val item = uArr.optJSONObject(k) ?: continue
+                                val certType = item.optString("certificateType", "Справка об обучении")
+                                val certPlace = item.optString("placeOfSubmission", item.optString("place", ""))
+                                val issueDate = item.optString("dateIssue", item.optString("dateOrder", "")).take(10)
+                                val status = item.optString("status", "")
+                                val noteParts = listOfNotNull(
+                                    issueDate.takeIf { it.isNotBlank() }?.let { "Выдана $it" },
+                                    certPlace.takeIf { it.isNotBlank() }?.let { "По месту: $it" },
+                                    status.takeIf { it.isNotBlank() }
+                                )
+                                uDocs.add(
+                                    RealExcuseDocument(
+                                        title = if (certType.isNotBlank()) certType else "Справка студента",
+                                        note = noteParts.joinToString(" • "),
+                                        hoursClosed = 0,
+                                        dates = listOfNotNull(issueDate.takeIf { it.isNotBlank() }),
+                                        subjects = emptyList()
+                                    )
+                                )
+                            }
+                            if (uDocs.isNotEmpty()) {
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    excuseDocuments = (excuseDocuments + uDocs).distinctBy { it.title + it.note }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                // Additionally fetch /api/v1/disrespectful-omissions-by-student to ensure exact disrespectful hours
                 try {
                     val nowCal = java.util.Calendar.getInstance()
                     val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1
                     val curYearNum = nowCal.get(java.util.Calendar.YEAR)
-                    val monthNamesAll = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
                     val disReq = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/disrespectful-omissions-by-student", token)
                     com.example.schedule.NetworkClient.executeWithAuth(disReq, context).use { disResp ->
                         val disBody = disResp.body?.string()
                         if (disResp.isSuccessful && !disBody.isNullOrBlank() && disBody.trim().startsWith("[")) {
                             val arr = org.json.JSONArray(disBody.trim())
-                            val disMonthlyMap = mutableMapOf<String, Int>()
                             var curMonthDisSum = 0
+                            var allDisSum = 0
                             for (k in 0 until arr.length()) {
                                 val obj = arr.optJSONObject(k) ?: continue
                                 val hrs = obj.optInt("omissionCount", obj.optInt("hours", 0))
                                 val mNum = obj.optInt("month", -1)
                                 val dt = obj.optString("date", "").takeIf { it != "null" } ?: ""
 
-                                var targetMonthIndex: Int? = null
-                                if (mNum in 1..12) {
-                                    targetMonthIndex = mNum
-                                } else if (dt.length >= 7) {
-                                    val parts = dt.split(".", "-")
-                                    targetMonthIndex = if (parts.size >= 2) parts[1].toIntOrNull() else null
-                                }
-
-                                if (targetMonthIndex != null && targetMonthIndex in 1..12 && hrs > 0) {
-                                    val mLabel = monthNamesAll[targetMonthIndex - 1]
-                                    disMonthlyMap[mLabel] = (disMonthlyMap[mLabel] ?: 0) + hrs
+                                if (hrs > 0) {
+                                    allDisSum += hrs
                                 }
 
                                 val isThisMonth = when {
@@ -4940,45 +4979,26 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 }
                             }
 
-                            if (disMonthlyMap.isNotEmpty() || curMonthDisSum > 0) {
-                                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    // Merge into monthlyData and monthlyUnexcusedData if they are empty
-                                    if (monthlyData.isEmpty()) {
-                                        monthlyData = disMonthlyMap
-                                    } else {
-                                        // Update total with disrespectful if monthly was 0 for those months
-                                        val mergedM = monthlyData.toMutableMap()
-                                        disMonthlyMap.forEach { (m, v) ->
-                                            if ((mergedM[m] ?: 0) < v) mergedM[m] = v
-                                        }
-                                        monthlyData = mergedM
-                                    }
-
-                                    if (monthlyUnexcusedData.isEmpty()) {
-                                        monthlyUnexcusedData = disMonthlyMap
-                                    } else {
-                                        val mergedU = monthlyUnexcusedData.toMutableMap()
-                                        disMonthlyMap.forEach { (m, v) ->
-                                            if ((mergedU[m] ?: 0) < v) mergedU[m] = v
-                                        }
-                                        monthlyUnexcusedData = mergedU
-                                    }
-
-                                    if (unexcusedHours == 0 && curMonthDisSum > 0) {
-                                        unexcusedHours = curMonthDisSum
-                                        prefs.edit().putInt("cached_unexcused_hours", curMonthDisSum).apply()
-                                    }
-                                    if (totalHours == 0) {
-                                        val sumAll = disMonthlyMap.values.sum()
-                                        if (sumAll > 0) totalHours = sumAll
-                                    }
-                                    isNotAuthorized = false
-                                    isLoading = false
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (curMonthDisSum > 0 || unexcusedHours == 0) {
+                                    unexcusedHours = curMonthDisSum
+                                    prefs.edit().putInt("cached_unexcused_hours", curMonthDisSum).apply()
                                 }
+                                if (totalHours == 0 && allDisSum > 0) {
+                                    totalHours = allDisSum
+                                } else if (totalHours < unexcusedHours) {
+                                    totalHours = unexcusedHours
+                                }
+                                isNotAuthorized = false
+                                isLoading = false
                             }
                         }
                     }
                 } catch (_: Exception) {}
+
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isLoading = false
+                }
             } catch (e: Exception) {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     statusText = "Ошибка сети: ${e.message}"
@@ -5141,140 +5161,6 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                             color = MinTextSecondary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
-                    }
-                }
-            }
-
-            // Interactive Monthly Chart (without background or border)
-            item {
-                androidx.compose.foundation.layout.Column(
-                    modifier = androidx.compose.ui.Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                ) {
-                    androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                    ) {
-                        androidx.compose.material3.Text(
-                            "График по месяцам",
-                            fontSize = 18.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            color = MinTextPrimary
-                        )
-                        if (selectedMonth != null) {
-                            val selTotal = monthlyData[selectedMonth] ?: 0
-                            val selUn = monthlyUnexcusedData[selectedMonth] ?: 0
-                            androidx.compose.material3.Text(
-                                "$selectedMonth: $selTotal ч ($selUn без ув.) [Сброс]",
-                                fontSize = 12.sp,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                color = currentAccent,
-                                modifier = androidx.compose.ui.Modifier.clickable { selectedMonth = null }
-                            )
-                        }
-                    }
-                    
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(20.dp))
-
-                    val academicMonths = listOf("Сен", "Окт", "Ноя", "Дек", "Янв", "Фев", "Мар", "Апр", "Май", "Июн")
-                    val maxVal = monthlyData.values.maxOrNull()?.coerceAtLeast(10) ?: 10
-
-                    androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier
-                            .fillMaxWidth()
-                            .height(170.dp),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.Bottom
-                    ) {
-                        academicMonths.forEach { m ->
-                            val t = monthlyData[m] ?: 0
-                            val u = monthlyUnexcusedData[m] ?: 0
-                            val isSel = selectedMonth == m
-                            val heightRatio = if (t > 0) (t.toFloat() / maxVal).coerceIn(0.12f, 1f) else 0.05f
-
-                            androidx.compose.foundation.layout.Column(
-                                modifier = androidx.compose.ui.Modifier
-                                    .weight(1f)
-                                    .clickable(
-                                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                        indication = null
-                                    ) {
-                                        selectedMonth = if (selectedMonth == m) null else m
-                                    },
-                                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Bottom
-                            ) {
-                                if (t > 0) {
-                                    androidx.compose.material3.Text(
-                                        "$t",
-                                        fontSize = 10.sp,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                                        color = if (isSel) currentAccent else MinTextSecondary
-                                    )
-                                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
-                                }
-
-                                // Stacked Bar
-                                androidx.compose.foundation.layout.Box(
-                                    modifier = androidx.compose.ui.Modifier
-                                        .width(if (isSel) 22.dp else 16.dp)
-                                        .height((120 * heightRatio).dp)
-                                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp))
-                                        .background(if (t == 0) MinBorder.copy(alpha = 0.25f) else (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)))
-                                ) {
-                                    if (u > 0 && t > 0) {
-                                        val unexcusedRatio = (u.toFloat() / t).coerceIn(0f, 1f)
-                                        androidx.compose.foundation.layout.Box(
-                                            modifier = androidx.compose.ui.Modifier
-                                                .fillMaxWidth()
-                                                .fillMaxHeight(unexcusedRatio)
-                                                .align(androidx.compose.ui.Alignment.BottomCenter)
-                                                .background(currentAccent)
-                                        )
-                                    }
-                                }
-
-                                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
-                                androidx.compose.material3.Text(
-                                    m,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) androidx.compose.ui.text.font.FontWeight.SemiBold else androidx.compose.ui.text.font.FontWeight.Medium,
-                                    color = if (isSel) currentAccent else MinTextSecondary
-                                )
-                            }
-                        }
-                    }
-
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
-
-                    // Legend
-                    androidx.compose.foundation.layout.Row(
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-                    ) {
-                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .size(10.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background((if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A)))
-                            )
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
-                            androidx.compose.material3.Text("Уважительные (справки)", fontSize = 11.sp, color = MinTextSecondary)
-                        }
-                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(18.dp))
-                        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            androidx.compose.foundation.layout.Box(
-                                modifier = androidx.compose.ui.Modifier
-                                    .size(10.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(currentAccent)
-                            )
-                            androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(6.dp))
-                            androidx.compose.material3.Text("Без ув. причины", fontSize = 11.sp, color = MinTextSecondary)
-                        }
                     }
                 }
             }
