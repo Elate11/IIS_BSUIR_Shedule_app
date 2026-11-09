@@ -2664,6 +2664,111 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     Text("${lesson.startTime} — ${lesson.endTime} • ${if (lesson.subgroup == 0) "Вся группа" else "${lesson.subgroup} подгруппа"}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(10.dp))
 
+                    if (lesson.isActive) {
+                        val sheetTimeBreakdown = remember(currentTimeMillis, lesson.startTime, lesson.endTime) {
+                            try {
+                                val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+                                val nowSec = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 3600 +
+                                             nowCal.get(java.util.Calendar.MINUTE) * 60 +
+                                             nowCal.get(java.util.Calendar.SECOND)
+
+                                val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
+                                val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
+                                val startSec = sParts[0] * 3600 + sParts[1] * 60
+                                val endSec = eParts[0] * 3600 + eParts[1] * 60
+
+                                val totalSec = (endSec - startSec).coerceAtLeast(60)
+                                val elapsedSec = (nowSec - startSec).coerceIn(0, totalSec)
+                                val remainingSec = (endSec - nowSec).coerceAtLeast(0)
+                                val remMinutes = (remainingSec + 59) / 60
+
+                                val isStandardPair = totalSec >= 70 * 60
+                                val halfDurationSec = if (isStandardPair) 40 * 60 else (totalSec - 5 * 60) / 2
+                                val breakDurationSec = 5 * 60
+                                val breakStartSec = halfDurationSec
+                                val breakEndSec = breakStartSec + breakDurationSec
+
+                                val isBreak: Boolean
+                                val statusText: String
+
+                                if (isStandardPair) {
+                                    if (elapsedSec < breakStartSec) {
+                                        val toBreakSec = breakStartSec - elapsedSec
+                                        val toBreakMin = (toBreakSec + 59) / 60
+                                        isBreak = false
+                                        statusText = if (toBreakSec < 60) {
+                                            "До конца пары: $remMinutes мин (перерыв через $toBreakSec сек)"
+                                        } else {
+                                            "До конца пары: $remMinutes мин (перерыв через $toBreakMin мин)"
+                                        }
+                                    } else if (elapsedSec < breakEndSec) {
+                                        val breakRemSec = breakEndSec - elapsedSec
+                                        val bMin = breakRemSec / 60
+                                        val bSec = breakRemSec % 60
+                                        val bStr = if (bMin > 0) "$bMin мин $bSec сек" else "$bSec сек"
+                                        isBreak = true
+                                        statusText = "Перерыв $bStr · До конца пары: $remMinutes мин"
+                                    } else {
+                                        isBreak = false
+                                        statusText = if (remMinutes <= 3) {
+                                            val rSec = remainingSec % 60
+                                            "2-я часть • До конца пары: $remMinutes мин ($rSec сек)"
+                                        } else {
+                                            "2-я часть • До конца пары: $remMinutes мин"
+                                        }
+                                    }
+                                } else {
+                                    isBreak = false
+                                    statusText = "До конца пары: $remMinutes мин"
+                                }
+
+                                val calculatedProg = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+                                Triple(statusText, isBreak, calculatedProg)
+                            } catch (e: Exception) {
+                                val rem = ((1f - (lesson.progress ?: 0f)) * 85).toInt().coerceAtLeast(1)
+                                Triple("До конца пары: $rem мин", false, lesson.progress ?: 0f)
+                            }
+                        }
+
+                        val (stText, isBrk, actProg) = sheetTimeBreakdown
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = stText,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isBrk) androidx.compose.ui.graphics.Color(0xFFFF9500) else MinAccent,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
+                                    val cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                                    val barBg = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.15f)
+                                    val barColor = if (isBrk) androidx.compose.ui.graphics.Color(0xFFFF9500) else MinAccent
+                                    drawRoundRect(color = barBg, size = size, cornerRadius = cornerRadius)
+                                    val activeWidth = size.width * actProg.coerceIn(0f, 1f)
+                                    if (activeWidth > 0f) {
+                                        drawRoundRect(color = barColor, size = androidx.compose.ui.geometry.Size(activeWidth, size.height), cornerRadius = cornerRadius)
+                                    }
+                                    val notchX = size.width * (40f / 85f)
+                                    drawRoundRect(
+                                        color = androidx.compose.ui.graphics.Color(0xFF16171D),
+                                        topLeft = androidx.compose.ui.geometry.Offset(notchX, 0f),
+                                        size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height)
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
                     if (displayedGroups.isNotEmpty()) {
                         Text("Группы на занятии", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
                         androidx.compose.foundation.layout.FlowRow(
@@ -3292,105 +3397,6 @@ fun MinLessonCard(
                     }
                 }
 
-                val progress = lesson.progress
-                if (progress != null && lesson.isActive) {
-                    val timeBreakdown = remember(currentTimeMillis, lesson.startTime, lesson.endTime) {
-                        try {
-                            val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
-                            val nowSec = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 3600 +
-                                         nowCal.get(java.util.Calendar.MINUTE) * 60 +
-                                         nowCal.get(java.util.Calendar.SECOND)
-
-                            val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
-                            val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
-                            val startSec = sParts[0] * 3600 + sParts[1] * 60
-                            val endSec = eParts[0] * 3600 + eParts[1] * 60
-
-                            val totalSec = (endSec - startSec).coerceAtLeast(60)
-                            val elapsedSec = (nowSec - startSec).coerceIn(0, totalSec)
-                            val remainingSec = (endSec - nowSec).coerceAtLeast(0)
-
-                            val remMinutes = (remainingSec + 59) / 60
-
-                            // BSUIR standard lesson: 85 min total (40 min 1st half, 5 min break, 40 min 2nd half)
-                            val isStandardPair = totalSec >= 70 * 60
-                            val halfDurationSec = if (isStandardPair) 40 * 60 else (totalSec - 5 * 60) / 2
-                            val breakDurationSec = 5 * 60
-                            val breakStartSec = halfDurationSec
-                            val breakEndSec = breakStartSec + breakDurationSec
-
-                            val isBreak: Boolean
-                            val statusText: String
-
-                            if (isStandardPair) {
-                                if (elapsedSec < breakStartSec) {
-                                    val toBreakSec = breakStartSec - elapsedSec
-                                    val toBreakMin = (toBreakSec + 59) / 60
-                                    isBreak = false
-                                    statusText = if (toBreakSec < 60) {
-                                        "До конца пары: $remMinutes мин (перерыв через $toBreakSec сек)"
-                                    } else {
-                                        "До конца пары: $remMinutes мин (перерыв через $toBreakMin мин)"
-                                    }
-                                } else if (elapsedSec < breakEndSec) {
-                                    val breakRemSec = breakEndSec - elapsedSec
-                                    val bMin = breakRemSec / 60
-                                    val bSec = breakRemSec % 60
-                                    val bStr = if (bMin > 0) "$bMin мин $bSec сек" else "$bSec сек"
-                                    isBreak = true
-                                    statusText = "Перерыв $bStr · До конца пары: $remMinutes мин"
-                                } else {
-                                    isBreak = false
-                                    statusText = if (remMinutes <= 3) {
-                                        val rSec = remainingSec % 60
-                                        "2-я часть • До конца пары: $remMinutes мин ($rSec сек)"
-                                    } else {
-                                        "2-я часть • До конца пары: $remMinutes мин"
-                                    }
-                                }
-                            } else {
-                                isBreak = false
-                                statusText = "До конца пары: $remMinutes мин"
-                            }
-
-                            val calculatedProg = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
-                            Triple(statusText, isBreak, calculatedProg)
-                        } catch (e: Exception) {
-                            val rem = ((1f - progress) * 85).toInt().coerceAtLeast(1)
-                            Triple("До конца пары: $rem мин", false, progress)
-                        }
-                    }
-
-                    val (statusText, isBreak, activeProgress) = timeBreakdown
-
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Canvas(modifier = Modifier.fillMaxWidth().height(4.dp)) {
-                        val cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.dp.toPx(), 2.dp.toPx())
-                        val barBg = if (isDarkTheme) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
-                        val barColor = if (isBreak) Color(0xFFFF9500) else if (isTechno) technoAccent else MinAccent
-                        drawRoundRect(color = barBg, size = size, cornerRadius = cornerRadius)
-                        val activeWidth = size.width * activeProgress.coerceIn(0f, 1f)
-                        if (activeWidth > 0f) {
-                            drawRoundRect(color = barColor, size = androidx.compose.ui.geometry.Size(activeWidth, size.height), cornerRadius = cornerRadius)
-                        }
-                        // Visual break notch around middle (40/85 = 47.05%)
-                        val notchX = size.width * (40f / 85f)
-                        drawRoundRect(
-                            color = if (isDarkTheme) Color(0xFF16171D) else Color.White,
-                            topLeft = androidx.compose.ui.geometry.Offset(notchX, 0f),
-                            size = androidx.compose.ui.geometry.Size(1.5.dp.toPx(), size.height)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = statusText,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (isBreak) Color(0xFFFF9500) else if (isTechno) technoAccent else MinAccent,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
             }
 
             // 4. Auditory chip (without "ауд.")
@@ -4722,13 +4728,8 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     return@withContext
                 }
 
-                val client = com.example.schedule.NetworkClient.client
-                val request = okhttp3.Request.Builder()
-                    .url("https://iis.bsuir.by/api/v1/omissions")
-                    .addHeader("Cookie", token)
-                    .addHeader("User-Agent", "Mozilla/5.0")
-                    .build()
-                client.newCall(request).execute().use { response ->
+                val request = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/omissions", token)
+                com.example.schedule.NetworkClient.executeWithAuth(request, context).use { response ->
                     val body = response.body?.string()
                     val nowCal = java.util.Calendar.getInstance()
                     val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1 // 1..12
@@ -4892,41 +4893,85 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     }
                 } catch (_: Exception) {}
 
-                // Additionally fetch /api/v1/disrespectful-omissions-by-student (count ONLY current month)
+                // Additionally fetch /api/v1/disrespectful-omissions-by-student (count monthly & current month)
                 try {
                     val nowCal = java.util.Calendar.getInstance()
                     val curMonthNum = nowCal.get(java.util.Calendar.MONTH) + 1
                     val curYearNum = nowCal.get(java.util.Calendar.YEAR)
+                    val monthNamesAll = arrayOf("Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек")
                     val disReq = com.example.schedule.NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/disrespectful-omissions-by-student", token)
                     com.example.schedule.NetworkClient.executeWithAuth(disReq, context).use { disResp ->
                         val disBody = disResp.body?.string()
                         if (disResp.isSuccessful && !disBody.isNullOrBlank() && disBody.trim().startsWith("[")) {
                             val arr = org.json.JSONArray(disBody.trim())
-                            if (allLessons.isEmpty()) {
-                                var curMonthDisSum = 0
-                                for (k in 0 until arr.length()) {
-                                    val obj = arr.optJSONObject(k) ?: continue
-                                    val hrs = obj.optInt("omissionCount", obj.optInt("hours", 0))
-                                    val mNum = obj.optInt("month", -1)
-                                    val dt = obj.optString("date", "").takeIf { it != "null" } ?: ""
-                                    val isThisMonth = when {
-                                        mNum in 1..12 -> mNum == curMonthNum
-                                        dt.length >= 7 -> {
-                                            val parts = dt.split(".", "-")
-                                            val parsedM = if (parts.size >= 2) parts[1].toIntOrNull() else null
-                                            val parsedY = if (parts.size >= 3) (if (parts[0].length == 4) parts[0].toIntOrNull() else parts[2].toIntOrNull()) else curYearNum
-                                            parsedM == curMonthNum && parsedY == curYearNum
-                                        }
-                                        else -> false
-                                    }
-                                    if (isThisMonth && hrs > 0) {
-                                        curMonthDisSum += hrs
-                                    }
+                            val disMonthlyMap = mutableMapOf<String, Int>()
+                            var curMonthDisSum = 0
+                            for (k in 0 until arr.length()) {
+                                val obj = arr.optJSONObject(k) ?: continue
+                                val hrs = obj.optInt("omissionCount", obj.optInt("hours", 0))
+                                val mNum = obj.optInt("month", -1)
+                                val dt = obj.optString("date", "").takeIf { it != "null" } ?: ""
+
+                                var targetMonthIndex: Int? = null
+                                if (mNum in 1..12) {
+                                    targetMonthIndex = mNum
+                                } else if (dt.length >= 7) {
+                                    val parts = dt.split(".", "-")
+                                    targetMonthIndex = if (parts.size >= 2) parts[1].toIntOrNull() else null
                                 }
-                                prefs.edit().putInt("cached_unexcused_hours", curMonthDisSum).apply()
+
+                                if (targetMonthIndex != null && targetMonthIndex in 1..12 && hrs > 0) {
+                                    val mLabel = monthNamesAll[targetMonthIndex - 1]
+                                    disMonthlyMap[mLabel] = (disMonthlyMap[mLabel] ?: 0) + hrs
+                                }
+
+                                val isThisMonth = when {
+                                    mNum in 1..12 -> mNum == curMonthNum
+                                    dt.length >= 7 -> {
+                                        val parts = dt.split(".", "-")
+                                        val parsedM = if (parts.size >= 2) parts[1].toIntOrNull() else null
+                                        val parsedY = if (parts.size >= 3) (if (parts[0].length == 4) parts[0].toIntOrNull() else parts[2].toIntOrNull()) else curYearNum
+                                        parsedM == curMonthNum && parsedY == curYearNum
+                                    }
+                                    else -> false
+                                }
+                                if (isThisMonth && hrs > 0) {
+                                    curMonthDisSum += hrs
+                                }
+                            }
+
+                            if (disMonthlyMap.isNotEmpty() || curMonthDisSum > 0) {
                                 withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    unexcusedHours = curMonthDisSum
-                                    if (totalHours == 0) totalHours = curMonthDisSum
+                                    // Merge into monthlyData and monthlyUnexcusedData if they are empty
+                                    if (monthlyData.isEmpty()) {
+                                        monthlyData = disMonthlyMap
+                                    } else {
+                                        // Update total with disrespectful if monthly was 0 for those months
+                                        val mergedM = monthlyData.toMutableMap()
+                                        disMonthlyMap.forEach { (m, v) ->
+                                            if ((mergedM[m] ?: 0) < v) mergedM[m] = v
+                                        }
+                                        monthlyData = mergedM
+                                    }
+
+                                    if (monthlyUnexcusedData.isEmpty()) {
+                                        monthlyUnexcusedData = disMonthlyMap
+                                    } else {
+                                        val mergedU = monthlyUnexcusedData.toMutableMap()
+                                        disMonthlyMap.forEach { (m, v) ->
+                                            if ((mergedU[m] ?: 0) < v) mergedU[m] = v
+                                        }
+                                        monthlyUnexcusedData = mergedU
+                                    }
+
+                                    if (unexcusedHours == 0 && curMonthDisSum > 0) {
+                                        unexcusedHours = curMonthDisSum
+                                        prefs.edit().putInt("cached_unexcused_hours", curMonthDisSum).apply()
+                                    }
+                                    if (totalHours == 0) {
+                                        val sumAll = disMonthlyMap.values.sum()
+                                        if (sumAll > 0) totalHours = sumAll
+                                    }
                                     isNotAuthorized = false
                                     isLoading = false
                                 }
