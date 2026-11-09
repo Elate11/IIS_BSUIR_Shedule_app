@@ -5128,7 +5128,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                             "$excusedHours ч",
                             fontSize = 24.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                            color = (if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF4CC38A) else androidx.compose.ui.graphics.Color(0xFF16A34A))
+                            color = currentAccent
                         )
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
                         androidx.compose.material3.Text(
@@ -5151,7 +5151,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                             "$totalHours ч",
                             fontSize = 24.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                            color = MinTextPrimary
+                            color = currentAccent
                         )
                         androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
                         androidx.compose.material3.Text(
