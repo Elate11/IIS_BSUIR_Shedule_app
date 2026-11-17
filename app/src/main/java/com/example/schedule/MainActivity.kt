@@ -2591,372 +2591,293 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     if (selectedLessonForSheet != null) {
-        val currentDayLessons = remember(selectedLessonForSheet, isSessionMode, filteredSessionExams, filteredLessons) {
-            val list = if (isSessionMode) filteredSessionExams else filteredLessons
-            if (selectedLessonForSheet !in list) {
-                listOf(selectedLessonForSheet!!) + list
-            } else {
-                list
+        val lesson = selectedLessonForSheet!!
+        var displayedGroups by remember(lesson) {
+            mutableStateOf(lesson.studentGroups)
+        }
+        LaunchedEffect(lesson) {
+            if (lesson.teacherUrlId.isNotBlank()) {
+                val resolved = BsuirApi.resolveAllGroupsForLesson(
+                    teacherUrlId = lesson.teacherUrlId,
+                    dayOfWeekInt = lesson.dayOfWeek,
+                    startTime = lesson.startTime,
+                    subjectTitle = lesson.title,
+                    lessonType = lesson.lessonType,
+                    fallbackGroups = lesson.studentGroups,
+                    currentGroup = selectedGroup,
+                    dateLesson = lesson.dateLesson
+                )
+                if (resolved.isNotEmpty() && resolved != displayedGroups) {
+                    displayedGroups = resolved
+                }
             }
         }
-        val initialPageIndex = remember(selectedLessonForSheet, currentDayLessons) {
-            val idx = currentDayLessons.indexOf(selectedLessonForSheet)
-            if (idx >= 0) idx else 0
-        }
-        val lessonPagerState = androidx.compose.foundation.pager.rememberPagerState(
-            initialPage = initialPageIndex,
-            pageCount = { currentDayLessons.size }
-        )
-        val coroutineScope = rememberCoroutineScope()
 
         AlertDialog(
             onDismissRequest = { selectedLessonForSheet = null },
-            title = null,
+            title = {
+                val fullTitle = lesson.subjectFullName.ifEmpty { lesson.title }
+                Text(
+                    text = fullTitle,
+                    fontSize = if (fullTitle.length > 35) 21.sp else if (fullTitle.length > 20) 24.sp else 28.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 28.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
+                )
+            },
             text = {
-                Box(
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 280.dp, max = 560.dp),
-                    contentAlignment = Alignment.Center
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    androidx.compose.foundation.pager.VerticalPager(
-                        state = lessonPagerState,
-                        modifier = Modifier.fillMaxWidth().fillMaxHeight()
-                    ) { page ->
-                        val lesson = currentDayLessons[page]
-                        var displayedGroups by remember(lesson) {
-                            mutableStateOf(lesson.studentGroups)
-                        }
-                        LaunchedEffect(lesson) {
-                            if (lesson.teacherUrlId.isNotBlank()) {
-                                val resolved = BsuirApi.resolveAllGroupsForLesson(
-                                    teacherUrlId = lesson.teacherUrlId,
-                                    dayOfWeekInt = lesson.dayOfWeek,
-                                    startTime = lesson.startTime,
-                                    subjectTitle = lesson.title,
-                                    lessonType = lesson.lessonType,
-                                    fallbackGroups = lesson.studentGroups,
-                                    currentGroup = selectedGroup,
-                                    dateLesson = lesson.dateLesson
-                                )
-                                if (resolved.isNotEmpty() && resolved != displayedGroups) {
-                                    displayedGroups = resolved
+                    if (lesson.lessonType.isNotBlank()) {
+                        Text("Тип занятия", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text(lesson.lessonType, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (lesson.teacherFullName.isNotBlank() || lesson.teacherName.isNotBlank()) {
+                        Text("Преподаватель", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        val tName = lesson.teacherFullName.ifBlank { lesson.teacherName }
+                        Text(
+                            tName,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (lesson.teacherUrlId.isNotBlank()) MinAccent else androidx.compose.ui.graphics.Color.White,
+                            textAlign = TextAlign.Center,
+                            modifier = if (lesson.teacherUrlId.isNotBlank()) Modifier.clickable {
+                                inlineTeacherData = lesson.teacherUrlId to tName
+                                selectedLessonForSheet = null
+                            } else Modifier
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (lesson.auditory.isNotBlank()) {
+                        Text("Аудитория", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text("ауд. ${lesson.auditory}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    Text("Время и подгруппа", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                    Text("${lesson.startTime} — ${lesson.endTime} • ${if (lesson.subgroup == 0) "Вся группа" else "${lesson.subgroup} подгруппа"}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (lesson.isActive) {
+                        val sheetTimeBreakdown = remember(currentTimeMillis, lesson.startTime, lesson.endTime) {
+                            try {
+                                val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
+                                val nowSec = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 3600 +
+                                             nowCal.get(java.util.Calendar.MINUTE) * 60 +
+                                             nowCal.get(java.util.Calendar.SECOND)
+
+                                val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
+                                val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
+                                val startSec = sParts[0] * 3600 + sParts[1] * 60
+                                val endSec = eParts[0] * 3600 + eParts[1] * 60
+
+                                val totalSec = (endSec - startSec).coerceAtLeast(60)
+                                val elapsedSec = (nowSec - startSec).coerceIn(0, totalSec)
+                                val remainingSec = (endSec - nowSec).coerceAtLeast(0)
+                                val remMinutes = (remainingSec + 59) / 60
+
+                                val isStandardPair = totalSec >= 70 * 60
+                                val halfDurationSec = if (isStandardPair) 40 * 60 else (totalSec - 5 * 60) / 2
+                                val breakDurationSec = 5 * 60
+                                val breakStartSec = halfDurationSec
+                                val breakEndSec = breakStartSec + breakDurationSec
+
+                                val isBreak: Boolean
+                                val statusText: String
+
+                                if (isStandardPair) {
+                                    if (elapsedSec < breakStartSec) {
+                                        val toBreakSec = breakStartSec - elapsedSec
+                                        val toBreakMin = (toBreakSec + 59) / 60
+                                        isBreak = false
+                                        statusText = if (toBreakSec < 60) {
+                                            "До конца пары: $remMinutes мин (перерыв через $toBreakSec сек)"
+                                        } else {
+                                            "До конца пары: $remMinutes мин (перерыв через $toBreakMin мин)"
+                                        }
+                                    } else if (elapsedSec < breakEndSec) {
+                                        val breakRemSec = breakEndSec - elapsedSec
+                                        val bMin = breakRemSec / 60
+                                        val bSec = breakRemSec % 60
+                                        val bStr = if (bMin > 0) "$bMin мин $bSec сек" else "$bSec сек"
+                                        isBreak = true
+                                        statusText = "Перерыв $bStr · До конца пары: $remMinutes мин"
+                                    } else {
+                                        isBreak = false
+                                        statusText = if (remMinutes <= 3) {
+                                            val rSec = remainingSec % 60
+                                            "2-я часть • До конца пары: $remMinutes мин ($rSec сек)"
+                                        } else {
+                                            "2-я часть • До конца пары: $remMinutes мин"
+                                        }
+                                    }
+                                } else {
+                                    isBreak = false
+                                    statusText = "До конца пары: $remMinutes мин"
                                 }
+
+                                val calculatedProg = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+                                Triple(statusText, isBreak, calculatedProg)
+                            } catch (e: Exception) {
+                                val rem = ((1f - (lesson.progress ?: 0f)) * 85).toInt().coerceAtLeast(1)
+                                Triple("До конца пары: $rem мин", false, lesson.progress ?: 0f)
                             }
                         }
 
-                        Column(
+                        val (stText, isBrk, actProg) = sheetTimeBreakdown
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .verticalScroll(rememberScrollState()),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            // Page indicator & Next/Prev pair controls if more than 1 lesson
-                            if (currentDayLessons.size > 1) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            if (page > 0) {
-                                                coroutineScope.launch { lessonPagerState.animateScrollToPage(page - 1) }
-                                            }
-                                        },
-                                        enabled = page > 0,
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.KeyboardArrowUp,
-                                            contentDescription = "Предыдущая пара",
-                                            tint = if (page > 0) MinTextPrimary else MinTextSecondary.copy(alpha = 0.25f)
-                                        )
-                                    }
-
-                                    Text(
-                                        text = "${page + 1} из ${currentDayLessons.size} • ${lesson.startTime}",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MinAccent
-                                    )
-
-                                    IconButton(
-                                        onClick = {
-                                            if (page < currentDayLessons.size - 1) {
-                                                coroutineScope.launch { lessonPagerState.animateScrollToPage(page + 1) }
-                                            }
-                                        },
-                                        enabled = page < currentDayLessons.size - 1,
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.KeyboardArrowDown,
-                                            contentDescription = "Следующая пара",
-                                            tint = if (page < currentDayLessons.size - 1) MinTextPrimary else MinTextSecondary.copy(alpha = 0.25f)
-                                        )
-                                    }
-                                }
-                            }
-
-                            val fullTitle = lesson.subjectFullName.ifEmpty { lesson.title }
-                            Text(
-                                text = fullTitle,
-                                fontSize = if (fullTitle.length > 35) 21.sp else if (fullTitle.length > 20) 24.sp else 28.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = androidx.compose.ui.graphics.Color.White,
-                                textAlign = TextAlign.Center,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                lineHeight = 28.sp,
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
-                            )
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            if (lesson.lessonType.isNotBlank()) {
-                                Text("Тип занятия", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                Text(lesson.lessonType, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-
-                            if (lesson.teacherFullName.isNotBlank() || lesson.teacherName.isNotBlank()) {
-                                Text("Преподаватель", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                val tName = lesson.teacherFullName.ifBlank { lesson.teacherName }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    tName,
-                                    fontSize = 20.sp,
+                                    text = stText,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (lesson.teacherUrlId.isNotBlank()) MinAccent else androidx.compose.ui.graphics.Color.White,
-                                    textAlign = TextAlign.Center,
-                                    modifier = if (lesson.teacherUrlId.isNotBlank()) Modifier.clickable {
-                                        inlineTeacherData = lesson.teacherUrlId to tName
-                                        selectedLessonForSheet = null
-                                    } else Modifier
+                                    color = if (isBrk) androidx.compose.ui.graphics.Color(0xFFFF9500) else MinAccent,
+                                    textAlign = TextAlign.Center
                                 )
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-
-                            if (lesson.auditory.isNotBlank()) {
-                                Text("Аудитория", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                Text("ауд. ${lesson.auditory}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-
-                            Text("Время и подгруппа", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                            Text("${lesson.startTime} — ${lesson.endTime} • ${if (lesson.subgroup == 0) "Вся группа" else "${lesson.subgroup} подгруппа"}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            if (lesson.isActive) {
-                                val sheetTimeBreakdown = remember(currentTimeMillis, lesson.startTime, lesson.endTime) {
-                                    try {
-                                        val nowCal = java.util.Calendar.getInstance().apply { timeInMillis = currentTimeMillis }
-                                        val nowSec = nowCal.get(java.util.Calendar.HOUR_OF_DAY) * 3600 +
-                                                     nowCal.get(java.util.Calendar.MINUTE) * 60 +
-                                                     nowCal.get(java.util.Calendar.SECOND)
-
-                                        val sParts = lesson.startTime.split(":").map { it.trim().toInt() }
-                                        val eParts = lesson.endTime.split(":").map { it.trim().toInt() }
-                                        val startSec = sParts[0] * 3600 + sParts[1] * 60
-                                        val endSec = eParts[0] * 3600 + eParts[1] * 60
-
-                                        val totalSec = (endSec - startSec).coerceAtLeast(60)
-                                        val elapsedSec = (nowSec - startSec).coerceIn(0, totalSec)
-                                        val remainingSec = (endSec - nowSec).coerceAtLeast(0)
-                                        val remMinutes = (remainingSec + 59) / 60
-
-                                        val isStandardPair = totalSec >= 70 * 60
-                                        val halfDurationSec = if (isStandardPair) 40 * 60 else (totalSec - 5 * 60) / 2
-                                        val breakDurationSec = 5 * 60
-                                        val breakStartSec = halfDurationSec
-                                        val breakEndSec = breakStartSec + breakDurationSec
-
-                                        val isBreak: Boolean
-                                        val statusText: String
-
-                                        if (isStandardPair) {
-                                            if (elapsedSec < breakStartSec) {
-                                                val toBreakSec = breakStartSec - elapsedSec
-                                                val toBreakMin = (toBreakSec + 59) / 60
-                                                isBreak = false
-                                                statusText = if (toBreakSec < 60) {
-                                                    "До конца пары: $remMinutes мин (перерыв через $toBreakSec сек)"
-                                                } else {
-                                                    "До конца пары: $remMinutes мин (перерыв через $toBreakMin мин)"
-                                                }
-                                            } else if (elapsedSec < breakEndSec) {
-                                                val breakRemSec = breakEndSec - elapsedSec
-                                                val bMin = breakRemSec / 60
-                                                val bSec = breakRemSec % 60
-                                                val bStr = if (bMin > 0) "$bMin мин $bSec сек" else "$bSec сек"
-                                                isBreak = true
-                                                statusText = "Перерыв $bStr · До конца пары: $remMinutes мин"
-                                            } else {
-                                                isBreak = false
-                                                statusText = if (remMinutes <= 3) {
-                                                    val rSec = remainingSec % 60
-                                                    "2-я часть • До конца пары: $remMinutes мин ($rSec сек)"
-                                                } else {
-                                                    "2-я часть • До конца пары: $remMinutes мин"
-                                                }
-                                            }
-                                        } else {
-                                            isBreak = false
-                                            statusText = "До конца пары: $remMinutes мин"
-                                        }
-
-                                        val calculatedProg = (elapsedSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
-                                        Triple(statusText, isBreak, calculatedProg)
-                                    } catch (e: Exception) {
-                                        val rem = ((1f - (lesson.progress ?: 0f)) * 85).toInt().coerceAtLeast(1)
-                                        Triple("До конца пары: $rem мин", false, lesson.progress ?: 0f)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
+                                    val cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                                    val barBg = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.15f)
+                                    val barColor = if (isBrk) androidx.compose.ui.graphics.Color(0xFFFF9500) else MinAccent
+                                    drawRoundRect(color = barBg, size = size, cornerRadius = cornerRadius)
+                                    val activeWidth = size.width * actProg.coerceIn(0f, 1f)
+                                    if (activeWidth > 0f) {
+                                        drawRoundRect(color = barColor, size = androidx.compose.ui.geometry.Size(activeWidth, size.height), cornerRadius = cornerRadius)
                                     }
-                                }
-
-                                val (stText, isBrk, actProg) = sheetTimeBreakdown
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(androidx.compose.ui.graphics.Color.White.copy(alpha = 0.08f))
-                                        .padding(12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                                        Text(
-                                            text = stText,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (isBrk) androidx.compose.ui.graphics.Color(0xFFFF9500) else MinAccent,
-                                            textAlign = TextAlign.Center
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Canvas(modifier = Modifier.fillMaxWidth().height(6.dp)) {
-                                            val cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx(), 3.dp.toPx())
-                                            val barBg = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.15f)
-                                            val barColor = if (isBrk) androidx.compose.ui.graphics.Color(0xFFFF9500) else MinAccent
-                                            drawRoundRect(color = barBg, size = size, cornerRadius = cornerRadius)
-                                            val activeWidth = size.width * actProg.coerceIn(0f, 1f)
-                                            if (activeWidth > 0f) {
-                                                drawRoundRect(color = barColor, size = androidx.compose.ui.geometry.Size(activeWidth, size.height), cornerRadius = cornerRadius)
-                                            }
-                                            val notchX = size.width * (40f / 85f)
-                                            drawRoundRect(
-                                                color = androidx.compose.ui.graphics.Color(0xFF16171D),
-                                                topLeft = androidx.compose.ui.geometry.Offset(notchX, 0f),
-                                                size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height)
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-
-                            if (displayedGroups.isNotEmpty()) {
-                                Text("Группы на занятии", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                androidx.compose.foundation.layout.FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                                ) {
-                                    displayedGroups.forEach { grpName ->
-                                        val isCurrent = grpName == selectedGroup
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(CircleShape)
-                                                .background(if (isCurrent) MinAccent else MinAccent.copy(alpha = 0.16f))
-                                                .clickable {
-                                                    onGroupSelected(grpName)
-                                                    selectedLessonForSheet = null
-                                                }
-                                                .padding(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Text(
-                                                text = grpName,
-                                                fontSize = 14.sp,
-                                                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Bold,
-                                                color = if (isCurrent) androidx.compose.ui.graphics.Color.White else MinAccent
-                                            )
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(10.dp))
-                            }
-
-                            if (lesson.dateLesson != null) {
-                                Text("Дата", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                Text(formatExamDateHeader(lesson.dateLesson), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                                Spacer(modifier = Modifier.height(10.dp))
-                                if (!lesson.note.isNullOrBlank()) {
-                                    Text("Примечание", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                    Text(
-                                        text = lesson.note,
-                                        fontSize = 15.sp,
-                                        color = MinAccent,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 3,
-                                        overflow = TextOverflow.Ellipsis
+                                    val notchX = size.width * (40f / 85f)
+                                    drawRoundRect(
+                                        color = androidx.compose.ui.graphics.Color(0xFF16171D),
+                                        topLeft = androidx.compose.ui.geometry.Offset(notchX, 0f),
+                                        size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height)
                                     )
-                                    Spacer(modifier = Modifier.height(10.dp))
                                 }
-                            } else {
-                                Text("Учебные недели", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
-                                Text(lesson.weeks.joinToString(", "), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
-                                
-                                val upcomingDates = remember(lesson) {
-                                    val dates = mutableListOf<Pair<Int, String>>()
-                                    val cal = java.util.Calendar.getInstance()
-                                    for (offset in 1..75) {
-                                        val info = getBsuirWeekForCalendarDay(7 + offset)
-                                        val dow = info.first
-                                        val w = info.second
-                                        if (dow == lesson.dayOfWeek && (lesson.weeks.isEmpty() || lesson.weeks.contains(w))) {
-                                            val itemCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
-                                            val dateStr = String.format("%02d.%02d", itemCal.get(java.util.Calendar.DAY_OF_MONTH), itemCal.get(java.util.Calendar.MONTH) + 1)
-                                            dates.add((7 + offset) to dateStr)
-                                            if (dates.size == 3) break
-                                        }
-                                    }
-                                    dates
-                                }
-                                if (upcomingDates.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text("Ближайшие занятия", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        upcomingDates.forEach { (targetIndex, dateStr) ->
-                                            Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).border(2.dp, MinTextPrimary, RoundedCornerShape(8.dp)).clickable {
-                                                selectedDayIndex = targetIndex
-                                                selectedLessonForSheet = null
-                                            }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                                                Text(dateStr, fontSize = 20.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
 
-                                Spacer(modifier = Modifier.height(14.dp))
+                    if (displayedGroups.isNotEmpty()) {
+                        Text("Группы на занятии", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            displayedGroups.forEach { grpName ->
+                                val isCurrent = grpName == selectedGroup
                                 Box(
                                     modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(MinAccent)
+                                        .clip(CircleShape)
+                                        .background(if (isCurrent) MinAccent else MinAccent.copy(alpha = 0.16f))
                                         .clickable {
-                                            AppHapticManager.playClick()
-                                            val target = lesson
+                                            onGroupSelected(grpName)
                                             selectedLessonForSheet = null
-                                            noteLessonToAdd = target
                                         }
-                                        .padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center
+                                        .padding(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
                                     Text(
-                                        "+ Добавить заметку к паре",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MinCardBg
+                                        text = grpName,
+                                        fontSize = 14.sp,
+                                        fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Bold,
+                                        color = if (isCurrent) androidx.compose.ui.graphics.Color.White else MinAccent
                                     )
                                 }
                             }
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
+
+                    if (lesson.dateLesson != null) {
+                        Text("Дата", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text(formatExamDateHeader(lesson.dateLesson), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        if (!lesson.note.isNullOrBlank()) {
+                            Text("Примечание", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                            Text(
+                                text = lesson.note,
+                                fontSize = 15.sp,
+                                color = MinAccent,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                        }
+                    } else {
+                        Text("Учебные недели", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color(0xFFAAAAAA), textAlign = TextAlign.Center)
+                        Text(lesson.weeks.joinToString(", "), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White, textAlign = TextAlign.Center)
+                        
+                        val upcomingDates = remember(lesson) {
+                            val dates = mutableListOf<Pair<Int, String>>()
+                            val cal = java.util.Calendar.getInstance()
+                            for (offset in 1..75) {
+                                val info = getBsuirWeekForCalendarDay(7 + offset)
+                                val dow = info.first
+                                val w = info.second
+                                if (dow == lesson.dayOfWeek && (lesson.weeks.isEmpty() || lesson.weeks.contains(w))) {
+                                    val itemCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, offset) }
+                                    val dateStr = String.format("%02d.%02d", itemCal.get(java.util.Calendar.DAY_OF_MONTH), itemCal.get(java.util.Calendar.MONTH) + 1)
+                                    dates.add((7 + offset) to dateStr)
+                                    if (dates.size == 3) break
+                                }
+                            }
+                            dates
+                        }
+                        if (upcomingDates.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Ближайшие занятия", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color(0xFFEEEEEE), textAlign = TextAlign.Center)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                upcomingDates.forEach { (targetIndex, dateStr) ->
+                                    Box(modifier = Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).border(2.dp, MinTextPrimary, RoundedCornerShape(8.dp)).clickable {
+                                        selectedDayIndex = targetIndex
+                                        selectedLessonForSheet = null
+                                    }.padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                                        Text(dateStr, fontSize = 20.sp, color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MinAccent)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    val target = lesson
+                                    selectedLessonForSheet = null
+                                    noteLessonToAdd = target
+                                }
+                                .padding(vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "+ Добавить заметку к паре",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MinCardBg
+                            )
                         }
                     }
                 }
