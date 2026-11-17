@@ -898,19 +898,21 @@ fun AppleRadialMenu(
     val menuDiameterDp = 300.dp
     val halfSizeDp = menuDiameterDp / 2
 
-    val targetCenterXDp = with(density) { touchPosition?.x?.toDp() } ?: (screenWidthDp / 2)
-    val targetCenterYDp = with(density) { touchPosition?.y?.toDp() } ?: (screenHeightDp / 2)
-
-    val exactCenterXDp = targetCenterXDp
-    val exactCenterYDp = targetCenterYDp
+    val rawCenterXDp = with(density) { touchPosition?.x?.toDp() } ?: (screenWidthDp / 2)
+    val rawCenterYDp = with(density) { touchPosition?.y?.toDp() } ?: (screenHeightDp / 2)
 
     // Corner / Edge proximity detection in Dp relative to the real finger position
-    val isNearLeft = targetCenterXDp < 140.dp
-    val isNearRight = targetCenterXDp > (screenWidthDp - 140.dp)
-    val isNearTop = targetCenterYDp < 180.dp
-    val isNearBottom = targetCenterYDp > (screenHeightDp - 180.dp)
+    val isNearLeft = rawCenterXDp < 140.dp
+    val isNearRight = rawCenterXDp > (screenWidthDp - 140.dp)
+    val isNearTop = rawCenterYDp < 180.dp
+    val isNearBottom = rawCenterYDp > (screenHeightDp - 180.dp)
     val isCorner = (isNearLeft || isNearRight) && (isNearTop || isNearBottom)
     val isEdge = !isCorner && (isNearLeft || isNearRight || isNearTop || isNearBottom)
+
+    // Clamping center point to avoid cutting off icons or labels on screen edges
+    val minSafeMargin = if (isCorner) 44.dp else if (isEdge) 36.dp else 24.dp
+    val exactCenterXDp = rawCenterXDp.coerceIn(minSafeMargin, screenWidthDp - minSafeMargin)
+    val exactCenterYDp = rawCenterYDp.coerceIn(minSafeMargin, screenHeightDp - minSafeMargin)
 
     val count = items.size
     val angles = calculateAdaptiveAngles(
@@ -934,7 +936,7 @@ fun AppleRadialMenu(
                 onClick = onDismiss
             )
     ) {
-        // Radial container positioned EXACTLY under the finger
+        // Radial container positioned under the finger
         Box(
             modifier = Modifier
                 .offset(x = exactCenterXDp - halfSizeDp, y = exactCenterYDp - halfSizeDp)
@@ -1014,14 +1016,20 @@ fun AppleRadialMenu(
                 )
             }
 
-            // Satellite discs blossoming dynamically from the center
-            // В центре компактный радиус 96dp, в углах/краях 128dp
-            val baseRadiusDp = if (isCorner || isEdge) 128f else 96f
-            val currentRadiusDp = baseRadiusDp * bloomProgress
+            // Satellite discs blossoming dynamically from the center along radial rays
+            // Polar Outward Ray Alignment:
+            // R_icon = 135dp for corners/edges (dist between icons ~60dp > 54dp icon size)
+            // R_label = R_icon + 48dp = 183dp (dist between labels ~81dp > label size)
+            // Icons and labels travel on the exact same radial ray outward, guaranteeing zero overlap.
+            val baseRadiusIconDp = if (isCorner || isEdge) 135f else 100f
+            val labelRayOffsetDp = if (isCorner || isEdge) 48f else 0f
+            val currentRadiusIconDp = baseRadiusIconDp * bloomProgress
+            val currentRadiusLabelDp = (baseRadiusIconDp + labelRayOffsetDp) * bloomProgress
+
             items.forEachIndexed { i, item ->
                 val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
-                val xOffset = (currentRadiusDp * kotlin.math.cos(angleRad)).toFloat()
-                val yOffset = (currentRadiusDp * kotlin.math.sin(angleRad)).toFloat()
+                val iconX = (currentRadiusIconDp * kotlin.math.cos(angleRad)).toFloat()
+                val iconY = (currentRadiusIconDp * kotlin.math.sin(angleRad)).toFloat()
 
                 val isSelected = item.index == selectedIndex
                 val itemInteraction = remember { MutableInteractionSource() }
@@ -1044,24 +1052,54 @@ fun AppleRadialMenu(
                 val spinAngle = (1f - bloomProgress.coerceIn(0f, 1f)) * (if (i % 2 == 0) 35f else -35f)
                 val bloomFade = (bloomProgress * 1.2f).coerceIn(0f, 1f)
 
-                // Позиция подписи относительно значка:
-                // Выносим строго внутрь экрана (к центру), чтобы текст никогда не выходил за границы экрана и не пересекался с соседними элементами
-                val labelAlignLeft = isNearRight // если палец справа у экрана — текст слева от значка
-                val labelAlignRight = isNearLeft // если палец слева у экрана — текст справа от значка
+                if (isCorner || isEdge) {
+                    // 1. Separate Round Icon Disc
+                    Box(
+                        modifier = Modifier
+                            .offset(x = iconX.dp, y = iconY.dp)
+                            .scale(itemScale * bloomFade)
+                            .graphicsLayer { rotationZ = spinAngle }
+                            .size(54.dp)
+                            .shadow(
+                                elevation = if (isSelected) 10.dp else 4.dp,
+                                shape = CircleShape,
+                                spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
+                                ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
+                            )
+                            .clip(CircleShape)
+                            .background(itemBg)
+                            .border(1.dp, itemBorder, CircleShape)
+                            .clickable(
+                                interactionSource = itemInteraction,
+                                indication = null,
+                                onClick = {
+                                    AppHapticManager.playClick()
+                                    onSelectIndex(item.index)
+                                    onDismiss()
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = item.title,
+                            tint = iconColor,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
 
-                Box(
-                    modifier = Modifier
-                        .offset(x = xOffset.dp, y = yOffset.dp)
-                        .scale(itemScale * bloomFade)
-                        .graphicsLayer { rotationZ = spinAngle },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isCorner || isEdge) {
-                        // В углах и на краях: круглый значок 54dp и рядом текст (строго направлен внутрь экрана)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.clickable(
+                    // 2. Separate Text Label Pill further along the same ray (zero intersection)
+                    val labelX = (currentRadiusLabelDp * kotlin.math.cos(angleRad)).toFloat()
+                    val labelY = (currentRadiusLabelDp * kotlin.math.sin(angleRad)).toFloat()
+
+                    Box(
+                        modifier = Modifier
+                            .offset(x = labelX.dp, y = labelY.dp)
+                            .scale(bloomFade)
+                            .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                            .background(if (isSelected) activeColor.copy(alpha = 0.60f) else Color(0xEB161618))
+                            .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.16f), RoundedCornerShape(AppleTokens.RadiusPill))
+                            .clickable(
                                 interactionSource = itemInteraction,
                                 indication = null,
                                 onClick = {
@@ -1070,65 +1108,26 @@ fun AppleRadialMenu(
                                     onDismiss()
                                 }
                             )
-                        ) {
-                            if (labelAlignLeft) {
-                                // Текст слева от значка (направлен внутрь экрана)
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
-                                        .background(if (isSelected) activeColor.copy(alpha = 0.50f) else Color(0xEA161618))
-                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.15f), RoundedCornerShape(AppleTokens.RadiusPill))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = item.title,
-                                        style = AppleTypography.finePrint().copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-
-                            // Круглый значок (54dp)
-                            Box(
-                                modifier = Modifier
-                                    .size(54.dp)
-                                    .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = CircleShape, spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f), ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
-                                    .clip(CircleShape)
-                                    .background(itemBg)
-                                    .border(1.dp, itemBorder, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = item.icon,
-                                    contentDescription = item.title,
-                                    tint = iconColor,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-
-                            if (labelAlignRight) {
-                                // Текст справа от значка (направлен внутрь экрана)
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
-                                        .background(if (isSelected) activeColor.copy(alpha = 0.50f) else Color(0xEA161618))
-                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.15f), RoundedCornerShape(AppleTokens.RadiusPill))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Text(
-                                        text = item.title,
-                                        style = AppleTypography.finePrint().copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
-                                        color = Color.White,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        // В центре экрана: значок и снизу подпись
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = item.title,
+                            style = AppleTypography.finePrint().copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                } else {
+                    // Center screen: Icon with label underneath
+                    Box(
+                        modifier = Modifier
+                            .offset(x = iconX.dp, y = iconY.dp)
+                            .scale(itemScale * bloomFade)
+                            .graphicsLayer { rotationZ = spinAngle },
+                        contentAlignment = Alignment.Center
+                    ) {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
@@ -1145,7 +1144,12 @@ fun AppleRadialMenu(
                             Box(
                                 modifier = Modifier
                                     .size(54.dp)
-                                    .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = CircleShape, spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f), ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
+                                    .shadow(
+                                        elevation = if (isSelected) 10.dp else 4.dp,
+                                        shape = CircleShape,
+                                        spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
+                                        ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
+                                    )
                                     .clip(CircleShape)
                                     .background(itemBg)
                                     .border(1.dp, itemBorder, CircleShape),
