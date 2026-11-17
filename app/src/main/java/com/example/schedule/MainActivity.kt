@@ -5519,6 +5519,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
         var signaturePoints by remember { mutableStateOf<List<List<androidx.compose.ui.geometry.Offset>>>(emptyList()) }
         var currentStroke by remember { mutableStateOf<List<androidx.compose.ui.geometry.Offset>>(emptyList()) }
         var isPosting by remember { mutableStateOf(false) }
+        var isSignatureFullscreen by remember { mutableStateOf(false) }
 
         // Fetch permanent address default if available
         LaunchedEffect(Unit) {
@@ -5536,6 +5537,172 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         }
                     }
                 } catch (_: Exception) {}
+            }
+        }
+
+        if (isSignatureFullscreen) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { isSignatureFullscreen = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxSize()
+                        .background(MinBg)
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxSize()
+                            .padding(20.dp)
+                    ) {
+                        // Top Header Row
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.foundation.layout.Column {
+                                androidx.compose.material3.Text(
+                                    "Ваша подпись",
+                                    fontSize = 22.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                    color = MinTextPrimary
+                                )
+                                androidx.compose.material3.Text(
+                                    "Распишитесь пальцем на экране ниже",
+                                    fontSize = 13.sp,
+                                    color = MinTextSecondary
+                                )
+                            }
+                            androidx.compose.material3.Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = "Закрыть",
+                                tint = MinTextSecondary,
+                                modifier = androidx.compose.ui.Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { isSignatureFullscreen = false }
+                            )
+                        }
+
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
+
+                        // Fullscreen Drawing Canvas Box
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MinCardBg)
+                                .border(1.5.dp, if (signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()) currentAccent else MinBorder, RoundedCornerShape(20.dp))
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            isSigned = false
+                                            currentStroke = listOf(offset)
+                                        },
+                                        onDrag = { change, _ ->
+                                            change.consume()
+                                            currentStroke = currentStroke + change.position
+                                        },
+                                        onDragEnd = {
+                                            if (currentStroke.isNotEmpty()) {
+                                                signaturePoints = signaturePoints + listOf(currentStroke)
+                                                currentStroke = emptyList()
+                                            }
+                                        }
+                                    )
+                                }
+                        ) {
+                            androidx.compose.foundation.Canvas(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                                val strokeColor = if (isDarkTheme) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Black
+                                for (stroke in signaturePoints) {
+                                    for (i in 0 until stroke.size - 1) {
+                                        drawLine(
+                                            color = strokeColor,
+                                            start = stroke[i],
+                                            end = stroke[i + 1],
+                                            strokeWidth = 5f,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                        )
+                                    }
+                                }
+                                for (i in 0 until currentStroke.size - 1) {
+                                    drawLine(
+                                        color = strokeColor,
+                                        start = currentStroke[i],
+                                        end = currentStroke[i + 1],
+                                        strokeWidth = 5f,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                    )
+                                }
+                            }
+
+                            if (signaturePoints.isEmpty() && currentStroke.isEmpty()) {
+                                androidx.compose.material3.Text(
+                                    "Поле для подписи (проведите пальцем)",
+                                    color = MinTextSecondary.copy(alpha = 0.4f),
+                                    fontSize = 15.sp,
+                                    modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center)
+                                )
+                            }
+                        }
+
+                        androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
+
+                        // Action Buttons Bar
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .weight(1f)
+                                    .height(50.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MinCardBg)
+                                    .border(1.dp, MinBorder, RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        AppHapticManager.playClick()
+                                        signaturePoints = emptyList()
+                                        currentStroke = emptyList()
+                                        isSigned = false
+                                    },
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.material3.Text(
+                                    "Очистить",
+                                    fontSize = 15.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                    color = MinTextPrimary
+                                )
+                            }
+
+                            val hasSignature = signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier
+                                    .weight(1.5f)
+                                    .height(50.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (hasSignature) currentAccent else MinBorder.copy(alpha = 0.4f))
+                                    .clickable(enabled = hasSignature) {
+                                        AppHapticManager.playClick()
+                                        isSigned = true
+                                        isSignatureFullscreen = false
+                                    },
+                                contentAlignment = androidx.compose.ui.Alignment.Center
+                            ) {
+                                androidx.compose.material3.Text(
+                                    "Сохранить подпись",
+                                    fontSize = 15.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = if (hasSignature) MinCardBg else MinTextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -5660,117 +5827,93 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     )
                 }
 
-                // Текст инструкции по подписи
+                // Инструкция и статус подписи
                 androidx.compose.material3.Text(
-                    "Оставьте Вашу подпись в расположенном ниже квадратном поле и нажмите «Подписать».",
-                    fontSize = 12.sp,
+                    "Подпись заявления:",
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                     color = MinTextSecondary
                 )
 
-                // Квадратное поле для подписи (Canvas)
+                // Карточка открытия полноэкранного холста подписи
                 androidx.compose.foundation.layout.Box(
                     modifier = androidx.compose.ui.Modifier
-                        .size(200.dp)
-                        .align(androidx.compose.ui.Alignment.CenterHorizontally)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF1E1F24) else androidx.compose.ui.graphics.Color(0xFFFFFFFF))
-                        .border(1.dp, if (isSigned) currentAccent else MinBorder, RoundedCornerShape(12.dp))
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { offset ->
-                                    isSigned = false
-                                    currentStroke = listOf(offset)
-                                },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    currentStroke = currentStroke + change.position
-                                },
-                                onDragEnd = {
-                                    if (currentStroke.isNotEmpty()) {
-                                        signaturePoints = signaturePoints + listOf(currentStroke)
-                                        currentStroke = emptyList()
-                                    }
-                                }
-                            )
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MinBg)
+                        .border(1.dp, if (isSigned) currentAccent else MinBorder, RoundedCornerShape(14.dp))
+                        .clickable {
+                            AppHapticManager.playClick()
+                            isSignatureFullscreen = true
                         }
                 ) {
-                    androidx.compose.foundation.Canvas(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
-                        val strokeColor = if (isDarkTheme) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Black
-                        for (stroke in signaturePoints) {
-                            for (i in 0 until stroke.size - 1) {
-                                drawLine(
-                                    color = strokeColor,
-                                    start = stroke[i],
-                                    end = stroke[i + 1],
-                                    strokeWidth = 4f,
-                                    cap = androidx.compose.ui.graphics.StrokeCap.Round
-                                )
+                    if (signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()) {
+                        androidx.compose.foundation.Canvas(modifier = androidx.compose.ui.Modifier.fillMaxSize().padding(12.dp)) {
+                            val strokeColor = if (isDarkTheme) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Black
+                            for (stroke in signaturePoints) {
+                                for (i in 0 until stroke.size - 1) {
+                                    drawLine(
+                                        color = strokeColor,
+                                        start = stroke[i],
+                                        end = stroke[i + 1],
+                                        strokeWidth = 3f,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                    )
+                                }
                             }
                         }
-                        for (i in 0 until currentStroke.size - 1) {
-                            drawLine(
-                                color = strokeColor,
-                                start = currentStroke[i],
-                                end = currentStroke[i + 1],
-                                strokeWidth = 4f,
-                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        androidx.compose.foundation.layout.Row(
+                            modifier = androidx.compose.ui.Modifier
+                                .align(androidx.compose.ui.Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(currentAccent.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
+                        ) {
+                            androidx.compose.material3.Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = null,
+                                tint = currentAccent,
+                                modifier = androidx.compose.ui.Modifier.size(14.dp)
+                            )
+                            androidx.compose.material3.Text(
+                                "Нажмите для изменения",
+                                fontSize = 11.sp,
+                                color = currentAccent,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                             )
                         }
-                    }
-                    if (signaturePoints.isEmpty() && currentStroke.isEmpty()) {
-                        androidx.compose.material3.Text(
-                            "Поле для подписи",
-                            color = MinTextSecondary.copy(alpha = 0.4f),
-                            fontSize = 12.sp,
-                            modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center)
-                        )
+                    } else {
+                        androidx.compose.foundation.layout.Column(
+                            modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center),
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)
+                        ) {
+                            androidx.compose.material3.Icon(
+                                Icons.Outlined.Draw,
+                                contentDescription = null,
+                                tint = currentAccent,
+                                modifier = androidx.compose.ui.Modifier.size(28.dp)
+                            )
+                            androidx.compose.material3.Text(
+                                "Нажмите, чтобы расписаться на весь экран",
+                                fontSize = 13.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                color = MinTextPrimary
+                            )
+                            androidx.compose.material3.Text(
+                                "Откроется удобный полноэкранный холст",
+                                fontSize = 11.sp,
+                                color = MinTextSecondary
+                            )
+                        }
                     }
                 }
 
-                // Кнопки Очистить и Подписать
-                androidx.compose.foundation.layout.Row(
-                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    androidx.compose.foundation.layout.Box(
-                        modifier = androidx.compose.ui.Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, MinBorder, RoundedCornerShape(10.dp))
-                            .clickable {
-                                AppHapticManager.playClick()
-                                signaturePoints = emptyList()
-                                currentStroke = emptyList()
-                                isSigned = false
-                            }
-                            .padding(horizontal = 18.dp, vertical = 8.dp)
-                    ) {
-                        androidx.compose.material3.Text("Очистить", fontSize = 13.sp, color = MinTextPrimary)
-                    }
-                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
-                    androidx.compose.foundation.layout.Box(
-                        modifier = androidx.compose.ui.Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSigned) currentAccent.copy(alpha = 0.2f) else currentAccent)
-                            .border(1.dp, if (isSigned) currentAccent else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(10.dp))
-                            .clickable {
-                                AppHapticManager.playClick()
-                                if (signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()) {
-                                    isSigned = true
-                                }
-                            }
-                            .padding(horizontal = 18.dp, vertical = 8.dp)
-                    ) {
-                        androidx.compose.material3.Text(
-                            if (isSigned) "Подписано ✓" else "Подписать",
-                            fontSize = 13.sp,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                            color = if (isSigned) currentAccent else MinCardBg
-                        )
-                    }
-                }
-
-                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
 
                 // Кнопка Отправить заявку
                 val canSubmit = placeOfStay.isNotBlank() && isSigned && !isPosting
@@ -5790,11 +5933,11 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 var errorMsg = ""
                                 try {
                                     // Generate base64 PNG signature
-                                    val bmp = android.graphics.Bitmap.createBitmap(200, 200, android.graphics.Bitmap.Config.ARGB_8888)
+                                    val bmp = android.graphics.Bitmap.createBitmap(400, 400, android.graphics.Bitmap.Config.ARGB_8888)
                                     val canvas = android.graphics.Canvas(bmp)
                                     val paint = android.graphics.Paint().apply {
                                         color = android.graphics.Color.BLACK
-                                        strokeWidth = 4f
+                                        strokeWidth = 5f
                                         style = android.graphics.Paint.Style.STROKE
                                         strokeCap = android.graphics.Paint.Cap.ROUND
                                     }
