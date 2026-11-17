@@ -24,17 +24,28 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         when (intent.action) {
             ACTION_REFRESH_WIDGET, ACTION_TODAY_WIDGET -> {
-                prefs.edit().putInt("widget_day_offset", 0).apply()
+                prefs.edit().putInt("widget_day_offset", 0).putInt("widget_scroll_offset", 0).apply()
                 updateAllWidgets(context)
             }
             ACTION_PREV_DAY -> {
                 val cur = prefs.getInt("widget_day_offset", 0)
-                prefs.edit().putInt("widget_day_offset", (cur - 1).coerceIn(-7, 30)).apply()
+                prefs.edit().putInt("widget_day_offset", (cur - 1).coerceIn(-7, 30)).putInt("widget_scroll_offset", 0).apply()
                 updateAllWidgets(context)
             }
             ACTION_NEXT_DAY -> {
                 val cur = prefs.getInt("widget_day_offset", 0)
-                prefs.edit().putInt("widget_day_offset", (cur + 1).coerceIn(-7, 30)).apply()
+                prefs.edit().putInt("widget_day_offset", (cur + 1).coerceIn(-7, 30)).putInt("widget_scroll_offset", 0).apply()
+                updateAllWidgets(context)
+            }
+            ACTION_SCROLL_UP -> {
+                val cur = prefs.getInt("widget_scroll_offset", 0)
+                prefs.edit().putInt("widget_scroll_offset", (cur - 1).coerceAtLeast(0)).apply()
+                updateAllWidgets(context)
+            }
+            ACTION_SCROLL_DOWN -> {
+                val cur = prefs.getInt("widget_scroll_offset", 0)
+                val maxOffset = prefs.getInt("widget_scroll_max", 0)
+                prefs.edit().putInt("widget_scroll_offset", (cur + 1).coerceAtMost(maxOffset)).apply()
                 updateAllWidgets(context)
             }
         }
@@ -64,6 +75,8 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         const val ACTION_PREV_DAY = "com.example.schedule.ACTION_WIDGET_PREV_DAY"
         const val ACTION_NEXT_DAY = "com.example.schedule.ACTION_WIDGET_NEXT_DAY"
         const val ACTION_TODAY_WIDGET = "com.example.schedule.ACTION_WIDGET_TODAY"
+        const val ACTION_SCROLL_UP = "com.example.schedule.ACTION_WIDGET_SCROLL_UP"
+        const val ACTION_SCROLL_DOWN = "com.example.schedule.ACTION_WIDGET_SCROLL_DOWN"
 
         fun updateAllWidgets(context: Context) {
             val appContext = context.applicationContext
@@ -77,6 +90,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     ?: "510902"
                 val subgroup = groupPrefs.getInt("subgroup", 0)
                 val dayOffset = prefs.getInt("widget_day_offset", 0)
+                val scrollOffset = prefs.getInt("widget_scroll_offset", 0)
 
                 val isDarkTheme = prefs.getBoolean("isDarkTheme", true)
                 val customPrimary = prefs.getInt("customPrimaryColor", -1)
@@ -166,7 +180,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     }
 
                     if (targetLessons.isNotEmpty()) {
-                        targetLessons.take(5).forEach { rows.add(mapLesson(it)) }
+                        targetLessons.forEach { rows.add(mapLesson(it)) }
                     } else if (schedules.isEmpty()) {
                         // Offline fallback to DataManager cached Lesson list
                         val dm = DataManager(appContext)
@@ -176,7 +190,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                                 (l.weeks.isEmpty() || l.weeks.contains(targetWeek)) &&
                                 (subgroup == 0 || l.subgroup == 0 || l.subgroup == subgroup)
                         }
-                        localForDay.take(5).forEach { l ->
+                        localForDay.forEach { l ->
                             val subBit = if (l.subgroup != 0) " (${l.subgroup} п.)" else ""
                             rows.add(
                                 WidgetLessonRow(
@@ -274,15 +288,55 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     )
                     views.setOnClickPendingIntent(R.id.widget_subtitle, todayPending)
 
+                    val scrollUpIntent = Intent(appContext, ScheduleWidgetProvider::class.java).apply {
+                        action = ACTION_SCROLL_UP
+                    }
+                    val scrollUpPending = PendingIntent.getBroadcast(
+                        appContext,
+                        5,
+                        scrollUpIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    views.setOnClickPendingIntent(R.id.widget_scroll_up_btn, scrollUpPending)
+
+                    val scrollDownIntent = Intent(appContext, ScheduleWidgetProvider::class.java).apply {
+                        action = ACTION_SCROLL_DOWN
+                    }
+                    val scrollDownPending = PendingIntent.getBroadcast(
+                        appContext,
+                        6,
+                        scrollDownIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    views.setOnClickPendingIntent(R.id.widget_scroll_down_btn, scrollDownPending)
+
                     if (rows.isEmpty()) {
                         views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
+                        views.setViewVisibility(R.id.widget_scroll_bar, View.GONE)
                         rowDefs.forEach { views.setViewVisibility(it.containerId, View.GONE) }
                     } else {
                         views.setViewVisibility(R.id.widget_empty, View.GONE)
+                        val totalLessons = rows.size
+                        val maxScroll = (totalLessons - 5).coerceAtLeast(0)
+                        prefs.edit().putInt("widget_scroll_max", maxScroll).apply()
+                        val currentOffset = scrollOffset.coerceIn(0, maxScroll)
+
+                        if (totalLessons > 5) {
+                            views.setViewVisibility(R.id.widget_scroll_bar, View.VISIBLE)
+                            val endIdx = (currentOffset + 5).coerceAtMost(totalLessons)
+                            views.setTextViewText(R.id.widget_scroll_info, "${currentOffset + 1}-$endIdx из $totalLessons")
+                            views.setTextColor(R.id.widget_scroll_info, secondaryColor)
+                            views.setTextColor(R.id.widget_scroll_up_btn, if (currentOffset > 0) primaryColor else secondaryColor)
+                            views.setTextColor(R.id.widget_scroll_down_btn, if (currentOffset < maxScroll) primaryColor else secondaryColor)
+                        } else {
+                            views.setViewVisibility(R.id.widget_scroll_bar, View.GONE)
+                        }
+
                         for (i in rowDefs.indices) {
                             val def = rowDefs[i]
-                            if (i < rows.size) {
-                                val r = rows[i]
+                            val lessonIndex = currentOffset + i
+                            if (lessonIndex < rows.size) {
+                                val r = rows[lessonIndex]
                                 views.setViewVisibility(def.containerId, View.VISIBLE)
                                 views.setTextViewText(def.startId, r.startTime)
                                 views.setTextColor(def.startId, primaryColor)

@@ -561,4 +561,46 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Bottom Lesson Scroll Navigation Bar (shown when lessons count > 5) -->
+    <LinearLayout
+        android:id="@+id/widget_scroll_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_scroll_up_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="4dp"
+            android:text="▲ Вверх"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_scroll_info"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="8dp"
+            android:text="1-5 из 7"
+            android:textColor="#9AA0A6"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/widget_scroll_down_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="4dp"
+            android:text="▼ Вниз"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
 </LinearLayout>
