@@ -97,6 +97,8 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import coil.compose.rememberAsyncImagePainter
+import coil.imageLoader
+import coil.request.ImageRequest
 import androidx.compose.animation.AnimatedVisibility
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
@@ -1038,7 +1040,8 @@ fun MinimalistApp() {
     var bgImageUri by remember {
         val saved = sharedPreferences.getString("bgImageUri", null)
         val defaultBgFile = java.io.File(context.filesDir, "custom_background.png")
-        val initialUri = if (saved != null && java.io.File(saved).exists()) {
+        val cleanSaved = saved?.substringBefore("?")
+        val initialUri = if (cleanSaved != null && java.io.File(cleanSaved).exists()) {
             saved
         } else if (defaultBgFile.exists()) {
             defaultBgFile.absolutePath
@@ -1203,8 +1206,18 @@ fun MinimalistApp() {
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
             if (bgMode == "Gallery" && bgImageUri != null) {
+                val imageModel = remember(bgImageUri) {
+                    val cleanPath = bgImageUri?.substringBefore("?")
+                    val targetFile = if (cleanPath != null) java.io.File(cleanPath) else null
+                    if (targetFile != null && targetFile.exists()) targetFile else bgImageUri
+                }
                 coil.compose.AsyncImage(
-                    model = bgImageUri,
+                    model = ImageRequest.Builder(context)
+                        .data(imageModel)
+                        .crossfade(true)
+                        .memoryCachePolicy(coil.request.CachePolicy.DISABLED)
+                        .diskCachePolicy(coil.request.CachePolicy.DISABLED)
+                        .build(),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize().let { if (bgBlur > 0f) it.blur((bgBlur * 50).dp) else it },
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop
@@ -10737,11 +10750,15 @@ fun MinCustomizationView(
                                         }
                                     }
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        onBgImageUriChange(bgFile.absolutePath)
+                                        context.imageLoader.memoryCache?.clear()
+                                        context.imageLoader.diskCache?.clear()
+                                        onBgImageUriChange(bgFile.absolutePath + "?ts=" + System.currentTimeMillis())
                                     }
                                 } catch (e: Exception) {
                                     e.printStackTrace()
                                     withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        context.imageLoader.memoryCache?.clear()
+                                        context.imageLoader.diskCache?.clear()
                                         onBgImageUriChange(uri.toString())
                                     }
                                 }

@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -173,6 +175,7 @@ fun MinStudyCertificatesAndSheetsScreen(
 
     var showCreateCertificateDialog by remember { mutableStateOf(false) }
     var showCreateMarkSheetDialog by remember { mutableStateOf(false) }
+    var showOrviDialog by remember { mutableStateOf(false) }
 
     fun parseCertificates(jsonStr: String): List<IisCertificateItem> {
         val list = mutableListOf<IisCertificateItem>()
@@ -429,30 +432,61 @@ fun MinStudyCertificatesAndSheetsScreen(
         }
 
         item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(currentAccent)
-                    .clickable {
-                        AppHapticManager.playClick()
-                        if (selectedTab == 0) showCreateCertificateDialog = true
-                        else showCreateMarkSheetDialog = true
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(currentAccent)
+                        .clickable {
+                            AppHapticManager.playClick()
+                            if (selectedTab == 0) showCreateCertificateDialog = true
+                            else showCreateMarkSheetDialog = true
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.Add, contentDescription = null, tint = MinCardBg, modifier = Modifier.size(20.dp))
-                    Text(
-                        if (selectedTab == 0) "Заказать справку" else "Заказать ведомость",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MinCardBg
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = null, tint = MinCardBg, modifier = Modifier.size(20.dp))
+                        Text(
+                            if (selectedTab == 0) "Заказать справку" else "Заказать ведомость",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MinCardBg
+                        )
+                    }
+                }
+
+                if (selectedTab == 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MinCardBg)
+                            .border(1.dp, MinBorder, RoundedCornerShape(14.dp))
+                            .clickable {
+                                AppHapticManager.playClick()
+                                showOrviDialog = true
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Outlined.MedicalServices, contentDescription = null, tint = currentAccent, modifier = Modifier.size(18.dp))
+                            Text(
+                                "Подать заявку на ОРВИ",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MinTextPrimary
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1151,6 +1185,504 @@ fun MinStudyCertificatesAndSheetsScreen(
                     ) {
                         Text(if (isSubmitting) "Отправка..." else "Заказать", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MinCardBg)
                     }
+                }
+            }
+        }
+    }
+
+    if (showOrviDialog) {
+        val nowCal = java.util.Calendar.getInstance()
+        val defaultStart = "%02d.%02d.%04d".format(nowCal.get(java.util.Calendar.DAY_OF_MONTH), nowCal.get(java.util.Calendar.MONTH) + 1, nowCal.get(java.util.Calendar.YEAR))
+        val endCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 4) }
+        val defaultEnd = "%02d.%02d.%04d".format(endCal.get(java.util.Calendar.DAY_OF_MONTH), endCal.get(java.util.Calendar.MONTH) + 1, endCal.get(java.util.Calendar.YEAR))
+
+        var startDateStr by remember { mutableStateOf(defaultStart) }
+        var endDateStr by remember { mutableStateOf(defaultEnd) }
+        var placeOfStay by remember { mutableStateOf("") }
+        var isSigned by remember { mutableStateOf(false) }
+        var signaturePoints by remember { mutableStateOf<List<List<androidx.compose.ui.geometry.Offset>>>(emptyList()) }
+        var currentStroke by remember { mutableStateOf<List<androidx.compose.ui.geometry.Offset>>(emptyList()) }
+        var isPosting by remember { mutableStateOf(false) }
+        var isSignatureFullscreen by remember { mutableStateOf(false) }
+
+        // Fetch permanent address default if available
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                val token = prefs.getString("auth_token", "") ?: ""
+                try {
+                    val req = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/student-details/permanent-address", token)
+                    NetworkClient.executeWithAuth(req, context).use { resp ->
+                        val body = resp.body?.string()?.trim()
+                        if (resp.isSuccessful && !body.isNullOrBlank()) {
+                            withContext(Dispatchers.Main) {
+                                if (placeOfStay.isBlank()) placeOfStay = body.removeSurrounding("\"")
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        if (isSignatureFullscreen) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { isSignatureFullscreen = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MinBg)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp)
+                    ) {
+                        // Top Header Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "Ваша подпись",
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MinTextPrimary
+                                )
+                                Text(
+                                    "Распишитесь пальцем на экране ниже",
+                                    fontSize = 13.sp,
+                                    color = MinTextSecondary
+                                )
+                            }
+                            Icon(
+                                Icons.Outlined.Close,
+                                contentDescription = "Закрыть",
+                                tint = MinTextSecondary,
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { isSignatureFullscreen = false }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Fullscreen Drawing Canvas Box
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MinCardBg)
+                                .border(1.5.dp, if (signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()) currentAccent else MinBorder, RoundedCornerShape(20.dp))
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            isSigned = false
+                                            currentStroke = listOf(offset)
+                                        },
+                                        onDrag = { change, _ ->
+                                            change.consume()
+                                            currentStroke = currentStroke + change.position
+                                        },
+                                        onDragEnd = {
+                                            if (currentStroke.isNotEmpty()) {
+                                                signaturePoints = signaturePoints + listOf(currentStroke)
+                                                currentStroke = emptyList()
+                                            }
+                                        }
+                                    )
+                                }
+                        ) {
+                            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                                val strokeColor = if (isDarkTheme) Color.White else Color.Black
+                                for (stroke in signaturePoints) {
+                                    for (i in 0 until stroke.size - 1) {
+                                        drawLine(
+                                            color = strokeColor,
+                                            start = stroke[i],
+                                            end = stroke[i + 1],
+                                            strokeWidth = 5f,
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                        )
+                                    }
+                                }
+                                for (i in 0 until currentStroke.size - 1) {
+                                    drawLine(
+                                        color = strokeColor,
+                                        start = currentStroke[i],
+                                        end = currentStroke[i + 1],
+                                        strokeWidth = 5f,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                    )
+                                }
+                            }
+
+                            if (signaturePoints.isEmpty() && currentStroke.isEmpty()) {
+                                Text(
+                                    "Поле для подписи (проведите пальцем)",
+                                    color = MinTextSecondary.copy(alpha = 0.4f),
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Action Buttons Bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(50.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MinCardBg)
+                                    .border(1.dp, MinBorder, RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        AppHapticManager.playClick()
+                                        signaturePoints = emptyList()
+                                        currentStroke = emptyList()
+                                        isSigned = false
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Очистить",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MinTextPrimary
+                                )
+                            }
+
+                            val hasSignature = signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()
+                            Box(
+                                modifier = Modifier
+                                    .weight(1.5f)
+                                    .height(50.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (hasSignature) currentAccent else MinBorder.copy(alpha = 0.4f))
+                                    .clickable(enabled = hasSignature) {
+                                        AppHapticManager.playClick()
+                                        isSigned = true
+                                        isSignatureFullscreen = false
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Сохранить подпись",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (hasSignature) MinCardBg else MinTextSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Dialog(onDismissRequest = { showOrviDialog = false }) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MinCardBg)
+                    .border(1.dp, MinBorder, RoundedCornerShape(24.dp))
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Оформление заявления по ОРВИ",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MinTextPrimary
+                    )
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = "Закрыть",
+                        tint = MinTextSecondary,
+                        modifier = Modifier.size(20.dp).clickable { showOrviDialog = false }
+                    )
+                }
+
+                // Дата начала
+                Text("Дата начала", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MinTextSecondary)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicTextField(
+                            value = startDateStr,
+                            onValueChange = { startDateStr = it },
+                            textStyle = TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(currentAccent),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            Icons.Outlined.CalendarToday,
+                            contentDescription = null,
+                            tint = MinTextSecondary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Дата окончания
+                Text("Дата окончания", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MinTextSecondary)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BasicTextField(
+                            value = endDateStr,
+                            onValueChange = { endDateStr = it },
+                            textStyle = TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(currentAccent),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            Icons.Outlined.CalendarToday,
+                            contentDescription = null,
+                            tint = MinTextSecondary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Место пребывания
+                Text("Место пребывания", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MinTextSecondary)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    BasicTextField(
+                        value = placeOfStay,
+                        onValueChange = { placeOfStay = it },
+                        textStyle = TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                        cursorBrush = SolidColor(currentAccent),
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { inner ->
+                            if (placeOfStay.isEmpty()) {
+                                Text(
+                                    "Республика Беларусь, г. Минск...",
+                                    color = MinTextSecondary.copy(alpha = 0.5f),
+                                    fontSize = 14.sp
+                                )
+                            }
+                            inner()
+                        }
+                    )
+                }
+
+                // Инструкция и статус подписи
+                Text(
+                    "Подпись заявления:",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MinTextSecondary
+                )
+
+                // Карточка открытия полноэкранного холста подписи
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MinBg)
+                        .border(1.dp, if (isSigned) currentAccent else MinBorder, RoundedCornerShape(14.dp))
+                        .clickable {
+                            AppHapticManager.playClick()
+                            isSignatureFullscreen = true
+                        }
+                ) {
+                    if (signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()) {
+                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                            val strokeColor = if (isDarkTheme) Color.White else Color.Black
+                            for (stroke in signaturePoints) {
+                                for (i in 0 until stroke.size - 1) {
+                                    drawLine(
+                                        color = strokeColor,
+                                        start = stroke[i],
+                                        end = stroke[i + 1],
+                                        strokeWidth = 3f,
+                                        cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                    )
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(currentAccent.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = null,
+                                tint = currentAccent,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                "Нажмите для изменения",
+                                fontSize = 11.sp,
+                                color = currentAccent,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Outlined.Draw,
+                                contentDescription = null,
+                                tint = currentAccent,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Text(
+                                "Нажмите, чтобы расписаться на весь экран",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MinTextPrimary
+                            )
+                            Text(
+                                "Откроется удобный полноэкранный холст",
+                                fontSize = 11.sp,
+                                color = MinTextSecondary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Кнопка Отправить заявку
+                val canSubmit = placeOfStay.isNotBlank() && isSigned && !isPosting
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (canSubmit) currentAccent else MinBorder.copy(alpha = 0.5f))
+                        .clickable(enabled = canSubmit) {
+                            AppHapticManager.playClick()
+                            isPosting = true
+                            scope.launch(Dispatchers.IO) {
+                                val token = prefs.getString("auth_token", "") ?: ""
+                                var ok = false
+                                var errorMsg = ""
+                                try {
+                                    // Generate base64 PNG signature
+                                    val bmp = android.graphics.Bitmap.createBitmap(400, 400, android.graphics.Bitmap.Config.ARGB_8888)
+                                    val canvas = android.graphics.Canvas(bmp)
+                                    val paint = android.graphics.Paint().apply {
+                                        color = android.graphics.Color.BLACK
+                                        strokeWidth = 5f
+                                        style = android.graphics.Paint.Style.STROKE
+                                        strokeCap = android.graphics.Paint.Cap.ROUND
+                                    }
+                                    for (stroke in signaturePoints) {
+                                        for (i in 0 until stroke.size - 1) {
+                                            canvas.drawLine(stroke[i].x, stroke[i].y, stroke[i + 1].x, stroke[i + 1].y, paint)
+                                        }
+                                    }
+                                    val baos = java.io.ByteArrayOutputStream()
+                                    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, baos)
+                                    val sigBase64 = "data:image/png;base64," + android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP)
+
+                                    // ISO formatted dates YYYY-MM-DD
+                                    fun toIso(d: String): String {
+                                        val parts = d.split(".", "-")
+                                        return if (parts.size == 3 && parts[0].length <= 2) {
+                                            "%04d-%02d-%02d".format(parts[2].toInt(), parts[1].toInt(), parts[0].toInt())
+                                        } else d
+                                    }
+
+                                    val payload = JSONObject().apply {
+                                        put("file", JSONObject.NULL)
+                                        put("startDate", toIso(startDateStr))
+                                        put("endDate", toIso(endDateStr))
+                                        put("placeOfStay", placeOfStay.trim())
+                                        put("signature", sigBase64)
+                                    }
+                                    val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                                    val reqBuilder = Request.Builder()
+                                        .url("https://iis.bsuir.by/api/v1/omissions/create")
+                                        .addHeader("User-Agent", "Mozilla/5.0")
+                                        .addHeader("Accept", "application/json, text/plain, */*")
+                                        .post(reqBody)
+                                    if (token.isNotBlank()) reqBuilder.addHeader("Cookie", token)
+                                    NetworkClient.executeWithAuth(reqBuilder.build(), context).use { resp ->
+                                        ok = resp.isSuccessful
+                                        if (resp.code == 409) {
+                                            errorMsg = "Вы превысили лимит дней на заявление студента в текущем месяце"
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+
+                                withContext(Dispatchers.Main) {
+                                    isPosting = false
+                                    if (ok) {
+                                        showOrviDialog = false
+                                        Toast.makeText(context, "Заявка успешно отправлена", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val msg = if (errorMsg.isNotBlank()) errorMsg else "Заявка отправлена в деканат"
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                        showOrviDialog = false
+                                    }
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (isPosting) "Отправка..." else "Отправить заявку",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (canSubmit) MinCardBg else MinTextSecondary
+                    )
                 }
             }
         }
