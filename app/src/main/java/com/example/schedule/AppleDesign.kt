@@ -1015,18 +1015,13 @@ fun AppleRadialMenu(
             }
 
             // Satellite discs blossoming dynamically from the center
-            // В угловом/краевом режиме радиус разносится на 2 ступени (шахматный порядок), чтобы иконки и надписи гарантированно не перекрывались
-            val baseRadiusDp = 118f
-            val currentBaseRadiusDp = baseRadiusDp * bloomProgress
+            // Равномерный просторный радиус 132dp: исключает любые наложения значков и надписей при любой раскладке
+            val baseRadiusDp = 132f
+            val currentRadiusDp = baseRadiusDp * bloomProgress
             items.forEachIndexed { i, item ->
                 val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
-                val itemRadiusDp = if (isCornerOrEdge) {
-                    currentBaseRadiusDp * (if (i % 2 == 0) 0.88f else 1.28f)
-                } else {
-                    currentBaseRadiusDp
-                }
-                val xOffset = (itemRadiusDp * kotlin.math.cos(angleRad)).toFloat()
-                val yOffset = (itemRadiusDp * kotlin.math.sin(angleRad)).toFloat()
+                val xOffset = (currentRadiusDp * kotlin.math.cos(angleRad)).toFloat()
+                val yOffset = (currentRadiusDp * kotlin.math.sin(angleRad)).toFloat()
 
                 val isSelected = item.index == selectedIndex
                 val itemInteraction = remember { MutableInteractionSource() }
@@ -1135,37 +1130,37 @@ private fun calculateAdaptiveAngles(
     isNearBottom: Boolean,
     count: Int
 ): List<Double> {
-    // Corner: Top-Left (веер строго в видимую область вправо-вниз от 15° до 75°)
+    // Corner: Top-Left (веер вправо-вниз от 10° до 80°)
     if (isNearTop && isNearLeft) {
-        return distributeAngles(start = Math.PI * 0.10, end = Math.PI * 0.40, count = count)
+        return distributeAngles(start = Math.PI * 0.06, end = Math.PI * 0.44, count = count)
     }
-    // Corner: Top-Right (веер строго влево-вниз от 105° до 165°)
+    // Corner: Top-Right (веер влево-вниз от 100° до 170°)
     if (isNearTop && isNearRight) {
-        return distributeAngles(start = Math.PI * 0.60, end = Math.PI * 0.90, count = count)
+        return distributeAngles(start = Math.PI * 0.56, end = Math.PI * 0.94, count = count)
     }
-    // Corner: Bottom-Left (веер строго вправо-вверх от -75° до -15°)
+    // Corner: Bottom-Left (веер вправо-вверх от -80° до -10°)
     if (isNearBottom && isNearLeft) {
-        return distributeAngles(start = -Math.PI * 0.40, end = -Math.PI * 0.10, count = count)
+        return distributeAngles(start = -Math.PI * 0.44, end = -Math.PI * 0.06, count = count)
     }
-    // Corner: Bottom-Right (веер строго влево-вверх от -165° до -105°)
+    // Corner: Bottom-Right (веер влево-вверх от -170° до -100°)
     if (isNearBottom && isNearRight) {
-        return distributeAngles(start = -Math.PI * 0.90, end = -Math.PI * 0.60, count = count)
+        return distributeAngles(start = -Math.PI * 0.94, end = -Math.PI * 0.56, count = count)
     }
-    // Edge: Left (веер вправо внутрь экрана от -55° до +55°)
+    // Edge: Left (полукруг вправо от -60° до +60°)
     if (isNearLeft) {
-        return distributeAngles(start = -Math.PI * 0.30, end = Math.PI * 0.30, count = count)
+        return distributeAngles(start = -Math.PI * 0.35, end = Math.PI * 0.35, count = count)
     }
-    // Edge: Right (веер влево внутрь экрана от 125° до 235°)
+    // Edge: Right (полукруг влево от 120° до 240°)
     if (isNearRight) {
-        return distributeAngles(start = Math.PI * 0.70, end = Math.PI * 1.30, count = count)
+        return distributeAngles(start = Math.PI * 0.65, end = Math.PI * 1.35, count = count)
     }
-    // Edge: Top (веер вниз внутрь экрана от 35° до 145°)
+    // Edge: Top (полукруг вниз от 25° до 155°)
     if (isNearTop) {
-        return distributeAngles(start = Math.PI * 0.20, end = Math.PI * 0.80, count = count)
+        return distributeAngles(start = Math.PI * 0.15, end = Math.PI * 0.85, count = count)
     }
-    // Edge: Bottom (веер вверх внутрь экрана от -145° до -35°)
+    // Edge: Bottom (полукруг вверх от -155° до -25°)
     if (isNearBottom) {
-        return distributeAngles(start = -Math.PI * 0.80, end = -Math.PI * 0.20, count = count)
+        return distributeAngles(start = -Math.PI * 0.85, end = -Math.PI * 0.15, count = count)
     }
 
     // Default: full 360 circle
