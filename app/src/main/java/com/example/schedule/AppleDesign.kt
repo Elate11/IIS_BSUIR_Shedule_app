@@ -1057,16 +1057,16 @@ fun AppleRadialMenu(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(48.dp)
+                            .height(44.dp)
                             .shadow(
-                                elevation = if (isSelected) 10.dp else 5.dp,
-                                shape = CircleShape,
+                                elevation = if (isSelected) 10.dp else 4.dp,
+                                shape = RoundedCornerShape(22.dp),
                                 spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
                                 ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
                             )
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(22.dp))
                             .background(itemBg)
-                            .border(1.dp, itemBorder, CircleShape)
+                            .border(1.dp, itemBorder, RoundedCornerShape(22.dp))
                             .clickable(
                                 interactionSource = itemInteraction,
                                 indication = null,
@@ -1075,42 +1075,31 @@ fun AppleRadialMenu(
                                     onSelectIndex(item.index)
                                     onDismiss()
                                 }
-                            ),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = item.icon,
-                            contentDescription = item.title,
-                            tint = iconColor,
-                            modifier = Modifier.size(23.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .offset(y = labelOffsetY)
-                            .clip(RoundedCornerShape(AppleTokens.RadiusPill))
-                            .background(
-                                if (isSelected) activeColor.copy(alpha = 0.45f)
-                                else Color(0xD818181A)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.title,
+                                tint = iconColor,
+                                modifier = Modifier.size(20.dp)
                             )
-                            .border(
-                                0.5.dp,
-                                if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
-                                RoundedCornerShape(AppleTokens.RadiusPill)
+                            Text(
+                                text = item.title,
+                                style = AppleTypography.finePrint().copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                ),
+                                color = iconColor,
+                                maxLines = 1,
+                                softWrap = false
                             )
-                            .padding(horizontal = 7.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = item.title,
-                            style = AppleTypography.finePrint().copy(
-                                fontSize = 10.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            ),
-                            color = Color.White,
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        }
                     }
                 }
             }
