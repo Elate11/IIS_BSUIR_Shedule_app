@@ -1015,8 +1015,8 @@ fun AppleRadialMenu(
             }
 
             // Satellite discs blossoming dynamically from the center
-            // В центре компактный радиус 96dp, в углах просторный 144dp
-            val baseRadiusDp = if (isCorner) 144f else if (isEdge) 124f else 96f
+            // В центре компактный радиус 96dp, в углах/краях 128dp
+            val baseRadiusDp = if (isCorner || isEdge) 128f else 96f
             val currentRadiusDp = baseRadiusDp * bloomProgress
             items.forEachIndexed { i, item ->
                 val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
@@ -1044,9 +1044,9 @@ fun AppleRadialMenu(
                 val spinAngle = (1f - bloomProgress.coerceIn(0f, 1f)) * (if (i % 2 == 0) 35f else -35f)
                 val bloomFade = (bloomProgress * 1.2f).coerceIn(0f, 1f)
 
-                // Радиальное смещение подписи от центра пальца: строго НАД или ПОД кнопкой (40dp за ее границы)
-                val isUpperHalf = kotlin.math.sin(angleRad) < 0
-                val labelOffsetY = if (isUpperHalf) (-38).dp else 38.dp
+                // Позиционирование отдельной подписи:
+                // В углах и краях выносим текст СПРАВА или СЛЕВА от значка (horizontal), чтобы по дуге они гарантированно не пересекались!
+                val isRightSide = kotlin.math.cos(angleRad) >= 0
 
                 Box(
                     modifier = Modifier
@@ -1055,19 +1055,85 @@ fun AppleRadialMenu(
                         .graphicsLayer { rotationZ = spinAngle },
                     contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .height(44.dp)
-                            .shadow(
-                                elevation = if (isSelected) 10.dp else 4.dp,
-                                shape = RoundedCornerShape(22.dp),
-                                spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
-                                ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
-                            )
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(itemBg)
-                            .border(1.dp, itemBorder, RoundedCornerShape(22.dp))
-                            .clickable(
+                    if (isCorner || isEdge) {
+                        // В углу/краю: круглый значок и отдельно рядом с ним текст (в строке)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .offset(x = if (isRightSide) 24.dp else (-24).dp)
+                                .clickable(
+                                    interactionSource = itemInteraction,
+                                    indication = null,
+                                    onClick = {
+                                        AppHapticManager.playClick()
+                                        onSelectIndex(item.index)
+                                        onDismiss()
+                                    }
+                                )
+                        ) {
+                            if (!isRightSide) {
+                                // Текст слева от значка
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                                        .background(if (isSelected) activeColor.copy(alpha = 0.45f) else Color(0xD818181A))
+                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(AppleTokens.RadiusPill))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = item.title,
+                                        style = AppleTypography.finePrint().copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+
+                            // Круглый значок (56dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = CircleShape, spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f), ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
+                                    .clip(CircleShape)
+                                    .background(itemBg)
+                                    .border(1.dp, itemBorder, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = item.title,
+                                    tint = iconColor,
+                                    modifier = Modifier.size(27.dp)
+                                )
+                            }
+
+                            if (isRightSide) {
+                                // Текст справа от значка
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                                        .background(if (isSelected) activeColor.copy(alpha = 0.45f) else Color(0xD818181A))
+                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(AppleTokens.RadiusPill))
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Text(
+                                        text = item.title,
+                                        style = AppleTypography.finePrint().copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                                        color = Color.White,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // В центре экрана: классическая колонка — круглый значок и отдельно снизу подпись
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.clickable(
                                 interactionSource = itemInteraction,
                                 indication = null,
                                 onClick = {
@@ -1076,29 +1142,41 @@ fun AppleRadialMenu(
                                     onDismiss()
                                 }
                             )
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = item.title,
-                                tint = iconColor,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = item.title,
-                                style = AppleTypography.finePrint().copy(
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                ),
-                                color = iconColor,
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = CircleShape, spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f), ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
+                                    .clip(CircleShape)
+                                    .background(itemBg)
+                                    .border(1.dp, itemBorder, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = item.title,
+                                    tint = iconColor,
+                                    modifier = Modifier.size(27.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                                    .background(if (isSelected) activeColor.copy(alpha = 0.45f) else Color(0xD818181A))
+                                    .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(AppleTokens.RadiusPill))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = item.title,
+                                    style = AppleTypography.finePrint().copy(fontSize = 10.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
