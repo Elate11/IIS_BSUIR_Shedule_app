@@ -1044,9 +1044,10 @@ fun AppleRadialMenu(
                 val spinAngle = (1f - bloomProgress.coerceIn(0f, 1f)) * (if (i % 2 == 0) 35f else -35f)
                 val bloomFade = (bloomProgress * 1.2f).coerceIn(0f, 1f)
 
-                // Позиционирование отдельной подписи:
-                // В углах и краях выносим текст СПРАВА или СЛЕВА от значка (horizontal), чтобы по дуге они гарантированно не пересекались!
-                val isRightSide = kotlin.math.cos(angleRad) >= 0
+                // Позиция подписи относительно значка:
+                // Выносим строго внутрь экрана (к центру), чтобы текст никогда не выходил за границы экрана и не пересекался с соседними элементами
+                val labelAlignLeft = isNearRight // если палец справа у экрана — текст слева от значка
+                val labelAlignRight = isNearLeft // если палец слева у экрана — текст справа от значка
 
                 Box(
                     modifier = Modifier
@@ -1056,29 +1057,27 @@ fun AppleRadialMenu(
                     contentAlignment = Alignment.Center
                 ) {
                     if (isCorner || isEdge) {
-                        // В углу/краю: круглый значок и отдельно рядом с ним текст (в строке)
+                        // В углах и на краях: круглый значок 54dp и рядом текст (строго направлен внутрь экрана)
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier
-                                .offset(x = if (isRightSide) 24.dp else (-24).dp)
-                                .clickable(
-                                    interactionSource = itemInteraction,
-                                    indication = null,
-                                    onClick = {
-                                        AppHapticManager.playClick()
-                                        onSelectIndex(item.index)
-                                        onDismiss()
-                                    }
-                                )
+                            modifier = Modifier.clickable(
+                                interactionSource = itemInteraction,
+                                indication = null,
+                                onClick = {
+                                    AppHapticManager.playClick()
+                                    onSelectIndex(item.index)
+                                    onDismiss()
+                                }
+                            )
                         ) {
-                            if (!isRightSide) {
-                                // Текст слева от значка
+                            if (labelAlignLeft) {
+                                // Текст слева от значка (направлен внутрь экрана)
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(AppleTokens.RadiusPill))
-                                        .background(if (isSelected) activeColor.copy(alpha = 0.45f) else Color(0xD818181A))
-                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(AppleTokens.RadiusPill))
+                                        .background(if (isSelected) activeColor.copy(alpha = 0.50f) else Color(0xEA161618))
+                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.15f), RoundedCornerShape(AppleTokens.RadiusPill))
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                 ) {
                                     Text(
@@ -1091,10 +1090,10 @@ fun AppleRadialMenu(
                                 }
                             }
 
-                            // Круглый значок (56dp)
+                            // Круглый значок (54dp)
                             Box(
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(54.dp)
                                     .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = CircleShape, spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f), ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
                                     .clip(CircleShape)
                                     .background(itemBg)
@@ -1105,17 +1104,17 @@ fun AppleRadialMenu(
                                     imageVector = item.icon,
                                     contentDescription = item.title,
                                     tint = iconColor,
-                                    modifier = Modifier.size(27.dp)
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
 
-                            if (isRightSide) {
-                                // Текст справа от значка
+                            if (labelAlignRight) {
+                                // Текст справа от значка (направлен внутрь экрана)
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(AppleTokens.RadiusPill))
-                                        .background(if (isSelected) activeColor.copy(alpha = 0.45f) else Color(0xD818181A))
-                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f), RoundedCornerShape(AppleTokens.RadiusPill))
+                                        .background(if (isSelected) activeColor.copy(alpha = 0.50f) else Color(0xEA161618))
+                                        .border(0.5.dp, if (isSelected) activeColor.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.15f), RoundedCornerShape(AppleTokens.RadiusPill))
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
                                 ) {
                                     Text(
@@ -1129,7 +1128,7 @@ fun AppleRadialMenu(
                             }
                         }
                     } else {
-                        // В центре экрана: классическая колонка — круглый значок и отдельно снизу подпись
+                        // В центре экрана: значок и снизу подпись
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center,
@@ -1145,7 +1144,7 @@ fun AppleRadialMenu(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(54.dp)
                                     .shadow(elevation = if (isSelected) 10.dp else 4.dp, shape = CircleShape, spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f), ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f))
                                     .clip(CircleShape)
                                     .background(itemBg)
@@ -1156,7 +1155,7 @@ fun AppleRadialMenu(
                                     imageVector = item.icon,
                                     contentDescription = item.title,
                                     tint = iconColor,
-                                    modifier = Modifier.size(27.dp)
+                                    modifier = Modifier.size(26.dp)
                                 )
                             }
 
