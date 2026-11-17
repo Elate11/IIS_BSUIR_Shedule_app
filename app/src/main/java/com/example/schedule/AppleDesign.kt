@@ -901,16 +901,16 @@ fun AppleRadialMenu(
     val targetCenterXDp = with(density) { touchPosition?.x?.toDp() } ?: (screenWidthDp / 2)
     val targetCenterYDp = with(density) { touchPosition?.y?.toDp() } ?: (screenHeightDp / 2)
 
-    // Center is placed EXACTLY under the finger, no artificial offset
     val exactCenterXDp = targetCenterXDp
     val exactCenterYDp = targetCenterYDp
 
     // Corner / Edge proximity detection in Dp relative to the real finger position
-    val isNearLeft = targetCenterXDp < 160.dp
-    val isNearRight = targetCenterXDp > (screenWidthDp - 160.dp)
-    val isNearTop = targetCenterYDp < 220.dp
-    val isNearBottom = targetCenterYDp > (screenHeightDp - 220.dp)
-    val isCornerOrEdge = isNearLeft || isNearRight || isNearTop || isNearBottom
+    val isNearLeft = targetCenterXDp < 140.dp
+    val isNearRight = targetCenterXDp > (screenWidthDp - 140.dp)
+    val isNearTop = targetCenterYDp < 180.dp
+    val isNearBottom = targetCenterYDp > (screenHeightDp - 180.dp)
+    val isCorner = (isNearLeft || isNearRight) && (isNearTop || isNearBottom)
+    val isEdge = !isCorner && (isNearLeft || isNearRight || isNearTop || isNearBottom)
 
     val count = items.size
     val angles = calculateAdaptiveAngles(
@@ -1015,8 +1015,8 @@ fun AppleRadialMenu(
             }
 
             // Satellite discs blossoming dynamically from the center
-            // Равномерный просторный радиус 132dp: исключает любые наложения значков и надписей при любой раскладке
-            val baseRadiusDp = 132f
+            // В центре дефолтный компактный радиус 96dp (не разлетается далеко), в углах/краях 128dp
+            val baseRadiusDp = if (isCorner || isEdge) 128f else 96f
             val currentRadiusDp = baseRadiusDp * bloomProgress
             items.forEachIndexed { i, item ->
                 val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
@@ -1057,9 +1057,9 @@ fun AppleRadialMenu(
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(62.dp)
+                                .size(50.dp)
                                 .shadow(
-                                    elevation = if (isSelected) 14.dp else 6.dp,
+                                    elevation = if (isSelected) 10.dp else 5.dp,
                                     shape = CircleShape,
                                     spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
                                     ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
@@ -1082,30 +1082,30 @@ fun AppleRadialMenu(
                                 imageVector = item.icon,
                                 contentDescription = item.title,
                                 tint = iconColor,
-                                modifier = Modifier.size(27.dp)
+                                modifier = Modifier.size(23.dp)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(AppleTokens.RadiusPill))
                                 .background(
-                                    if (isSelected) activeColor.copy(alpha = 0.40f)
-                                    else Color(0xD018181A)
+                                    if (isSelected) activeColor.copy(alpha = 0.45f)
+                                    else Color(0xD818181A)
                                 )
                                 .border(
                                     0.5.dp,
                                     if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
                                     RoundedCornerShape(AppleTokens.RadiusPill)
                                 )
-                                .padding(horizontal = 10.dp, vertical = 3.dp)
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
                         ) {
                             Text(
                                 text = item.title,
                                 style = AppleTypography.finePrint().copy(
-                                    fontSize = 11.5.sp,
+                                    fontSize = 10.5.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 ),
                                 color = Color.White,
@@ -1130,29 +1130,29 @@ private fun calculateAdaptiveAngles(
     isNearBottom: Boolean,
     count: Int
 ): List<Double> {
-    // Corner: Top-Left (веер вправо-вниз от 10° до 80°)
+    // Corner: Top-Left (веер вправо-вниз от 0° до 90°)
     if (isNearTop && isNearLeft) {
-        return distributeAngles(start = Math.PI * 0.06, end = Math.PI * 0.44, count = count)
+        return distributeAngles(start = 0.05 * Math.PI, end = 0.45 * Math.PI, count = count)
     }
-    // Corner: Top-Right (веер влево-вниз от 100° до 170°)
+    // Corner: Top-Right (веер влево-вниз от 90° до 180°)
     if (isNearTop && isNearRight) {
-        return distributeAngles(start = Math.PI * 0.56, end = Math.PI * 0.94, count = count)
+        return distributeAngles(start = 0.55 * Math.PI, end = 0.95 * Math.PI, count = count)
     }
-    // Corner: Bottom-Left (веер вправо-вверх от -80° до -10°)
+    // Corner: Bottom-Left (веер вправо-вверх от -90° до 0°)
     if (isNearBottom && isNearLeft) {
-        return distributeAngles(start = -Math.PI * 0.44, end = -Math.PI * 0.06, count = count)
+        return distributeAngles(start = -0.45 * Math.PI, end = -0.05 * Math.PI, count = count)
     }
-    // Corner: Bottom-Right (веер влево-вверх от -170° до -100°)
+    // Corner: Bottom-Right (веер влево-вверх от -180° до -90°)
     if (isNearBottom && isNearRight) {
-        return distributeAngles(start = -Math.PI * 0.94, end = -Math.PI * 0.56, count = count)
+        return distributeAngles(start = -0.95 * Math.PI, end = -0.55 * Math.PI, count = count)
     }
-    // Edge: Left (полукруг вправо от -60° до +60°)
+    // Edge: Left (полукруг вправо от -65° до +65°)
     if (isNearLeft) {
-        return distributeAngles(start = -Math.PI * 0.35, end = Math.PI * 0.35, count = count)
+        return distributeAngles(start = -Math.PI * 0.36, end = Math.PI * 0.36, count = count)
     }
-    // Edge: Right (полукруг влево от 120° до 240°)
+    // Edge: Right (полукруг влево от 115° до 245°)
     if (isNearRight) {
-        return distributeAngles(start = Math.PI * 0.65, end = Math.PI * 1.35, count = count)
+        return distributeAngles(start = Math.PI * 0.64, end = Math.PI * 1.36, count = count)
     }
     // Edge: Top (полукруг вниз от 25° до 155°)
     if (isNearTop) {
