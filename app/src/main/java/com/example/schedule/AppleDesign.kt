@@ -910,6 +910,7 @@ fun AppleRadialMenu(
     val isNearRight = targetCenterXDp > (screenWidthDp - 160.dp)
     val isNearTop = targetCenterYDp < 220.dp
     val isNearBottom = targetCenterYDp > (screenHeightDp - 220.dp)
+    val isCornerOrEdge = isNearLeft || isNearRight || isNearTop || isNearBottom
 
     val count = items.size
     val angles = calculateAdaptiveAngles(
@@ -1014,12 +1015,18 @@ fun AppleRadialMenu(
             }
 
             // Satellite discs blossoming dynamically from the center
-            val targetRadiusDp = 112f
-            val currentRadiusDp = targetRadiusDp * bloomProgress
+            // В угловом/краевом режиме радиус разносится на 2 ступени (шахматный порядок), чтобы иконки и надписи гарантированно не перекрывались
+            val baseRadiusDp = 118f
+            val currentBaseRadiusDp = baseRadiusDp * bloomProgress
             items.forEachIndexed { i, item ->
                 val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
-                val xOffset = (currentRadiusDp * kotlin.math.cos(angleRad)).toFloat()
-                val yOffset = (currentRadiusDp * kotlin.math.sin(angleRad)).toFloat()
+                val itemRadiusDp = if (isCornerOrEdge) {
+                    currentBaseRadiusDp * (if (i % 2 == 0) 0.88f else 1.28f)
+                } else {
+                    currentBaseRadiusDp
+                }
+                val xOffset = (itemRadiusDp * kotlin.math.cos(angleRad)).toFloat()
+                val yOffset = (itemRadiusDp * kotlin.math.sin(angleRad)).toFloat()
 
                 val isSelected = item.index == selectedIndex
                 val itemInteraction = remember { MutableInteractionSource() }
