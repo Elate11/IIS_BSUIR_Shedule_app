@@ -901,15 +901,15 @@ fun AppleRadialMenu(
     val targetCenterXDp = with(density) { touchPosition?.x?.toDp() } ?: (screenWidthDp / 2)
     val targetCenterYDp = with(density) { touchPosition?.y?.toDp() } ?: (screenHeightDp / 2)
 
-    val margin = 36.dp
+    val margin = 48.dp
     val clampedXDp = targetCenterXDp.coerceIn(margin, screenWidthDp - margin)
-    val clampedYDp = targetCenterYDp.coerceIn(margin + 36.dp, screenHeightDp - margin - 48.dp)
+    val clampedYDp = targetCenterYDp.coerceIn(margin + 20.dp, screenHeightDp - margin - 30.dp)
 
     // Corner / Edge proximity detection in Dp
-    val isNearLeft = targetCenterXDp < 140.dp
-    val isNearRight = targetCenterXDp > (screenWidthDp - 140.dp)
-    val isNearTop = targetCenterYDp < 180.dp
-    val isNearBottom = targetCenterYDp > (screenHeightDp - 200.dp)
+    val isNearLeft = targetCenterXDp < 160.dp
+    val isNearRight = targetCenterXDp > (screenWidthDp - 160.dp)
+    val isNearTop = targetCenterYDp < 220.dp
+    val isNearBottom = targetCenterYDp > (screenHeightDp - 220.dp)
 
     val count = items.size
     val angles = calculateAdaptiveAngles(
@@ -1128,37 +1128,37 @@ private fun calculateAdaptiveAngles(
     isNearBottom: Boolean,
     count: Int
 ): List<Double> {
-    // Corner: Top-Left (веер вправо-вниз от 10° до 80°)
+    // Corner: Top-Left (веер строго в видимую область вправо-вниз от 15° до 75°)
     if (isNearTop && isNearLeft) {
-        return distributeAngles(start = Math.PI * 0.08, end = Math.PI * 0.44, count = count)
+        return distributeAngles(start = Math.PI * 0.10, end = Math.PI * 0.40, count = count)
     }
-    // Corner: Top-Right (веер влево-вниз от 100° до 170°)
+    // Corner: Top-Right (веер строго влево-вниз от 105° до 165°)
     if (isNearTop && isNearRight) {
-        return distributeAngles(start = Math.PI * 0.56, end = Math.PI * 0.92, count = count)
+        return distributeAngles(start = Math.PI * 0.60, end = Math.PI * 0.90, count = count)
     }
-    // Corner: Bottom-Left (веер вправо-вверх от -10° до -80°)
+    // Corner: Bottom-Left (веер строго вправо-вверх от -75° до -15°)
     if (isNearBottom && isNearLeft) {
-        return distributeAngles(start = -Math.PI * 0.44, end = -Math.PI * 0.08, count = count)
+        return distributeAngles(start = -Math.PI * 0.40, end = -Math.PI * 0.10, count = count)
     }
-    // Corner: Bottom-Right (веер влево-вверх от -170° до -100°)
+    // Corner: Bottom-Right (веер строго влево-вверх от -165° до -105°)
     if (isNearBottom && isNearRight) {
-        return distributeAngles(start = -Math.PI * 0.92, end = -Math.PI * 0.56, count = count)
+        return distributeAngles(start = -Math.PI * 0.90, end = -Math.PI * 0.60, count = count)
     }
-    // Edge: Left (веер вправо от -65° до +65°)
+    // Edge: Left (веер вправо внутрь экрана от -55° до +55°)
     if (isNearLeft) {
-        return distributeAngles(start = -Math.PI / 2.6, end = Math.PI / 2.6, count = count)
+        return distributeAngles(start = -Math.PI * 0.30, end = Math.PI * 0.30, count = count)
     }
-    // Edge: Right (веер влево от 115° до 245°)
+    // Edge: Right (веер влево внутрь экрана от 125° до 235°)
     if (isNearRight) {
-        return distributeAngles(start = Math.PI - (Math.PI / 2.6), end = Math.PI + (Math.PI / 2.6), count = count)
+        return distributeAngles(start = Math.PI * 0.70, end = Math.PI * 1.30, count = count)
     }
-    // Edge: Top (веер вниз от 25° до 155°)
+    // Edge: Top (веер вниз внутрь экрана от 35° до 145°)
     if (isNearTop) {
-        return distributeAngles(start = Math.PI * 0.14, end = Math.PI * 0.86, count = count)
+        return distributeAngles(start = Math.PI * 0.20, end = Math.PI * 0.80, count = count)
     }
-    // Edge: Bottom (веер вверх от -155° до -25°)
+    // Edge: Bottom (веер вверх внутрь экрана от -145° до -35°)
     if (isNearBottom) {
-        return distributeAngles(start = -Math.PI * 0.86, end = -Math.PI * 0.14, count = count)
+        return distributeAngles(start = -Math.PI * 0.80, end = -Math.PI * 0.20, count = count)
     }
 
     // Default: full 360 circle
