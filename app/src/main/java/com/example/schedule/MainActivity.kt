@@ -5507,9 +5507,37 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     }
 
     if (showOrviDialog) {
-        var orviReason by remember { mutableStateOf("ОРВИ / ухудшение самочувствия") }
-        var orviNote by remember { mutableStateOf("") }
+        val nowCal = java.util.Calendar.getInstance()
+        val defaultStart = "%02d.%02d.%04d".format(nowCal.get(java.util.Calendar.DAY_OF_MONTH), nowCal.get(java.util.Calendar.MONTH) + 1, nowCal.get(java.util.Calendar.YEAR))
+        val endCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 4) }
+        val defaultEnd = "%02d.%02d.%04d".format(endCal.get(java.util.Calendar.DAY_OF_MONTH), endCal.get(java.util.Calendar.MONTH) + 1, endCal.get(java.util.Calendar.YEAR))
+
+        var startDateStr by remember { mutableStateOf(defaultStart) }
+        var endDateStr by remember { mutableStateOf(defaultEnd) }
+        var placeOfStay by remember { mutableStateOf("") }
+        var isSigned by remember { mutableStateOf(false) }
+        var signaturePoints by remember { mutableStateOf<List<List<androidx.compose.ui.geometry.Offset>>>(emptyList()) }
+        var currentStroke by remember { mutableStateOf<List<androidx.compose.ui.geometry.Offset>>(emptyList()) }
         var isPosting by remember { mutableStateOf(false) }
+
+        // Fetch permanent address default if available
+        LaunchedEffect(Unit) {
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                val token = prefs.getString("auth_token", "") ?: ""
+                try {
+                    val req = NetworkClient.buildGetRequest("https://iis.bsuir.by/api/v1/student-details/permanent-address", token)
+                    NetworkClient.executeWithAuth(req, context).use { resp ->
+                        val body = resp.body?.string()?.trim()
+                        if (resp.isSuccessful && !body.isNullOrBlank()) {
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (placeOfStay.isBlank()) placeOfStay = body.removeSurrounding("\"")
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
 
         androidx.compose.ui.window.Dialog(onDismissRequest = { showOrviDialog = false }) {
             androidx.compose.foundation.layout.Column(
@@ -5520,50 +5548,91 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     .border(1.dp, MinBorder, RoundedCornerShape(24.dp))
                     .padding(20.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)
             ) {
-                androidx.compose.material3.Text(
-                    "Заявка на ОРВИ",
-                    fontSize = 20.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                    color = MinTextPrimary
-                )
-
-                androidx.compose.material3.Text(
-                    "Подача заявления на отсутствие по причине признаков ОРВИ (до 5 дней без справки в соответствии с нормами Минздрава и регламентом деканата).",
-                    fontSize = 13.sp,
-                    color = MinTextSecondary
-                )
-
-                androidx.compose.material3.Text(
-                    "Причина",
-                    fontSize = 13.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                    color = MinTextSecondary
-                )
-                androidx.compose.foundation.layout.Box(
-                    modifier = androidx.compose.ui.Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MinBg)
-                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = orviReason,
-                        onValueChange = { orviReason = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(color = MinTextPrimary, fontSize = 14.sp),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(currentAccent),
-                        modifier = androidx.compose.ui.Modifier.fillMaxWidth()
+                    androidx.compose.material3.Text(
+                        "Оформление заявления по ОРВИ",
+                        fontSize = 17.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MinTextPrimary
+                    )
+                    androidx.compose.material3.Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = "Закрыть",
+                        tint = MinTextSecondary,
+                        modifier = androidx.compose.ui.Modifier.size(20.dp).clickable { showOrviDialog = false }
                     )
                 }
 
-                androidx.compose.material3.Text(
-                    "Примечание / даты (необязательно)",
-                    fontSize = 13.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                    color = MinTextSecondary
-                )
+                // Дата начала
+                androidx.compose.material3.Text("Дата начала", fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = MinTextSecondary)
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = startDateStr,
+                            onValueChange = { startDateStr = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(currentAccent),
+                            modifier = androidx.compose.ui.Modifier.weight(1f)
+                        )
+                        androidx.compose.material3.Icon(
+                            Icons.Outlined.CalendarToday,
+                            contentDescription = null,
+                            tint = MinTextSecondary.copy(alpha = 0.6f),
+                            modifier = androidx.compose.ui.Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Дата окончания
+                androidx.compose.material3.Text("Дата окончания", fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = MinTextSecondary)
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    androidx.compose.foundation.layout.Row(
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = endDateStr,
+                            onValueChange = { endDateStr = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(currentAccent),
+                            modifier = androidx.compose.ui.Modifier.weight(1f)
+                        )
+                        androidx.compose.material3.Icon(
+                            Icons.Outlined.CalendarToday,
+                            contentDescription = null,
+                            tint = MinTextSecondary.copy(alpha = 0.6f),
+                            modifier = androidx.compose.ui.Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                // Место пребывания
+                androidx.compose.material3.Text("Место пребывания", fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = MinTextSecondary)
                 androidx.compose.foundation.layout.Box(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
@@ -5573,15 +5642,15 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         .padding(horizontal = 12.dp, vertical = 10.dp)
                 ) {
                     androidx.compose.foundation.text.BasicTextField(
-                        value = orviNote,
-                        onValueChange = { orviNote = it },
+                        value = placeOfStay,
+                        onValueChange = { placeOfStay = it },
                         textStyle = androidx.compose.ui.text.TextStyle(color = MinTextPrimary, fontSize = 14.sp),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(currentAccent),
                         modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
                         decorationBox = { inner ->
-                            if (orviNote.isEmpty()) {
+                            if (placeOfStay.isEmpty()) {
                                 androidx.compose.material3.Text(
-                                    "Например: с 17.11 по 20.11",
+                                    "Республика Беларусь, г. Минск...",
                                     color = MinTextSecondary.copy(alpha = 0.5f),
                                     fontSize = 14.sp
                                 )
@@ -5591,74 +5660,204 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     )
                 }
 
-                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                // Текст инструкции по подписи
+                androidx.compose.material3.Text(
+                    "Оставьте Вашу подпись в расположенном ниже квадратном поле и нажмите «Подписать».",
+                    fontSize = 12.sp,
+                    color = MinTextSecondary
+                )
+
+                // Квадратное поле для подписи (Canvas)
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .size(200.dp)
+                        .align(androidx.compose.ui.Alignment.CenterHorizontally)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isDarkTheme) androidx.compose.ui.graphics.Color(0xFF1E1F24) else androidx.compose.ui.graphics.Color(0xFFFFFFFF))
+                        .border(1.dp, if (isSigned) currentAccent else MinBorder, RoundedCornerShape(12.dp))
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    isSigned = false
+                                    currentStroke = listOf(offset)
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    currentStroke = currentStroke + change.position
+                                },
+                                onDragEnd = {
+                                    if (currentStroke.isNotEmpty()) {
+                                        signaturePoints = signaturePoints + listOf(currentStroke)
+                                        currentStroke = emptyList()
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    androidx.compose.foundation.Canvas(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+                        val strokeColor = if (isDarkTheme) androidx.compose.ui.graphics.Color.White else androidx.compose.ui.graphics.Color.Black
+                        for (stroke in signaturePoints) {
+                            for (i in 0 until stroke.size - 1) {
+                                drawLine(
+                                    color = strokeColor,
+                                    start = stroke[i],
+                                    end = stroke[i + 1],
+                                    strokeWidth = 4f,
+                                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                )
+                            }
+                        }
+                        for (i in 0 until currentStroke.size - 1) {
+                            drawLine(
+                                color = strokeColor,
+                                start = currentStroke[i],
+                                end = currentStroke[i + 1],
+                                strokeWidth = 4f,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            )
+                        }
+                    }
+                    if (signaturePoints.isEmpty() && currentStroke.isEmpty()) {
+                        androidx.compose.material3.Text(
+                            "Поле для подписи",
+                            color = MinTextSecondary.copy(alpha = 0.4f),
+                            fontSize = 12.sp,
+                            modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center)
+                        )
+                    }
+                }
+
+                // Кнопки Очистить и Подписать
                 androidx.compose.foundation.layout.Row(
                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                 ) {
                     androidx.compose.foundation.layout.Box(
                         modifier = androidx.compose.ui.Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
-                            .clickable { showOrviDialog = false },
-                        contentAlignment = androidx.compose.ui.Alignment.Center
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, MinBorder, RoundedCornerShape(10.dp))
+                            .clickable {
+                                AppHapticManager.playClick()
+                                signaturePoints = emptyList()
+                                currentStroke = emptyList()
+                                isSigned = false
+                            }
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
                     ) {
-                        androidx.compose.material3.Text("Отмена", fontSize = 14.sp, color = MinTextSecondary)
+                        androidx.compose.material3.Text("Очистить", fontSize = 13.sp, color = MinTextPrimary)
                     }
-
+                    androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.width(12.dp))
                     androidx.compose.foundation.layout.Box(
                         modifier = androidx.compose.ui.Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(currentAccent)
-                            .clickable(enabled = !isPosting) {
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSigned) currentAccent.copy(alpha = 0.2f) else currentAccent)
+                            .border(1.dp, if (isSigned) currentAccent else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(10.dp))
+                            .clickable {
                                 AppHapticManager.playClick()
-                                isPosting = true
-                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                    val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
-                                    val token = prefs.getString("auth_token", "") ?: ""
-                                    var ok = false
-                                    try {
-                                        val payload = org.json.JSONObject().apply {
-                                            put("reason", orviReason)
-                                            if (orviNote.isNotBlank()) put("note", orviNote)
-                                            put("certificateType", "ОРВИ")
-                                        }
-                                        val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
-                                        val reqBuilder = Request.Builder()
-                                            .url("https://iis.bsuir.by/api/v1/omissions/create")
-                                            .addHeader("User-Agent", "Mozilla/5.0")
-                                            .addHeader("Accept", "application/json, text/plain, */*")
-                                            .post(reqBody)
-                                        if (token.isNotBlank()) reqBuilder.addHeader("Cookie", token)
-                                        NetworkClient.executeWithAuth(reqBuilder.build(), context).use { resp ->
-                                            ok = resp.isSuccessful
-                                        }
-                                    } catch (_: Exception) {}
-
-                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        isPosting = false
-                                        showOrviDialog = false
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            if (ok) "Заявка на ОРВИ успешно подана" else "Заявка на ОРВИ отправлена в деканат",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
+                                if (signaturePoints.isNotEmpty() || currentStroke.isNotEmpty()) {
+                                    isSigned = true
                                 }
-                            },
-                        contentAlignment = androidx.compose.ui.Alignment.Center
+                            }
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
                     ) {
                         androidx.compose.material3.Text(
-                            if (isPosting) "Отправка..." else "Подать заявку",
-                            fontSize = 14.sp,
+                            if (isSigned) "Подписано ✓" else "Подписать",
+                            fontSize = 13.sp,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                            color = MinCardBg
+                            color = if (isSigned) currentAccent else MinCardBg
                         )
                     }
+                }
+
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(8.dp))
+
+                // Кнопка Отправить заявку
+                val canSubmit = placeOfStay.isNotBlank() && isSigned && !isPosting
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (canSubmit) currentAccent else MinBorder.copy(alpha = 0.5f))
+                        .clickable(enabled = canSubmit) {
+                            AppHapticManager.playClick()
+                            isPosting = true
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                                val token = prefs.getString("auth_token", "") ?: ""
+                                var ok = false
+                                var errorMsg = ""
+                                try {
+                                    // Generate base64 PNG signature
+                                    val bmp = android.graphics.Bitmap.createBitmap(200, 200, android.graphics.Bitmap.Config.ARGB_8888)
+                                    val canvas = android.graphics.Canvas(bmp)
+                                    val paint = android.graphics.Paint().apply {
+                                        color = android.graphics.Color.BLACK
+                                        strokeWidth = 4f
+                                        style = android.graphics.Paint.Style.STROKE
+                                        strokeCap = android.graphics.Paint.Cap.ROUND
+                                    }
+                                    for (stroke in signaturePoints) {
+                                        for (i in 0 until stroke.size - 1) {
+                                            canvas.drawLine(stroke[i].x, stroke[i].y, stroke[i + 1].x, stroke[i + 1].y, paint)
+                                        }
+                                    }
+                                    val baos = java.io.ByteArrayOutputStream()
+                                    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, baos)
+                                    val sigBase64 = "data:image/png;base64," + android.util.Base64.encodeToString(baos.toByteArray(), android.util.Base64.NO_WRAP)
+
+                                    // ISO formatted dates YYYY-MM-DD
+                                    fun toIso(d: String): String {
+                                        val parts = d.split(".", "-")
+                                        return if (parts.size == 3 && parts[0].length <= 2) {
+                                            "%04d-%02d-%02d".format(parts[2].toInt(), parts[1].toInt(), parts[0].toInt())
+                                        } else d
+                                    }
+
+                                    val payload = org.json.JSONObject().apply {
+                                        put("file", org.json.JSONObject.NULL)
+                                        put("startDate", toIso(startDateStr))
+                                        put("endDate", toIso(endDateStr))
+                                        put("placeOfStay", placeOfStay.trim())
+                                        put("signature", sigBase64)
+                                    }
+                                    val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                                    val reqBuilder = Request.Builder()
+                                        .url("https://iis.bsuir.by/api/v1/omissions/create")
+                                        .addHeader("User-Agent", "Mozilla/5.0")
+                                        .addHeader("Accept", "application/json, text/plain, */*")
+                                        .post(reqBody)
+                                    if (token.isNotBlank()) reqBuilder.addHeader("Cookie", token)
+                                    NetworkClient.executeWithAuth(reqBuilder.build(), context).use { resp ->
+                                        ok = resp.isSuccessful
+                                        if (resp.code == 409) {
+                                            errorMsg = "Вы превысили лимит дней на заявление студента в текущем месяце"
+                                        }
+                                    }
+                                } catch (_: Exception) {}
+
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    isPosting = false
+                                    if (ok) {
+                                        showOrviDialog = false
+                                        android.widget.Toast.makeText(context, "Заявка успешно отправлена", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val msg = if (errorMsg.isNotBlank()) errorMsg else "Заявка отправлена в деканат"
+                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                        showOrviDialog = false
+                                    }
+                                }
+                            }
+                        },
+                    contentAlignment = androidx.compose.ui.Alignment.Center
+                ) {
+                    androidx.compose.material3.Text(
+                        if (isPosting) "Отправка..." else "Отправить заявку",
+                        fontSize = 15.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                        color = if (canSubmit) MinCardBg else MinTextSecondary
+                    )
                 }
             }
         }
