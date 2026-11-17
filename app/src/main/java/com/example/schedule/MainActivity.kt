@@ -4744,6 +4744,10 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
     var isLoading by remember { mutableStateOf(true) }
     var isNotAuthorized by remember { mutableStateOf(false) }
 
+    var showOrviDialog by remember { mutableStateOf(false) }
+    var isSubmittingOrvi by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
     LaunchedEffect(Unit) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
@@ -5297,6 +5301,38 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         color = MinTextPrimary
                     )
 
+                    // Button: Заявка на ОРВИ / пропуск
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(currentAccent)
+                            .clickable {
+                                AppHapticManager.playClick()
+                                showOrviDialog = true
+                            },
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        androidx.compose.foundation.layout.Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                        ) {
+                            androidx.compose.material3.Icon(
+                                Icons.Outlined.Add,
+                                contentDescription = null,
+                                tint = MinCardBg,
+                                modifier = androidx.compose.ui.Modifier.size(18.dp)
+                            )
+                            androidx.compose.material3.Text(
+                                "Подать заявку на ОРВИ",
+                                fontSize = 14.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = MinCardBg
+                            )
+                        }
+                    }
+
                     if (excuseDocuments.isEmpty() && totalHours > 0) {
                         androidx.compose.foundation.layout.Box(
                             modifier = androidx.compose.ui.Modifier
@@ -5464,6 +5500,164 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 color = MinTextSecondary.copy(alpha = 0.8f)
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showOrviDialog) {
+        var orviReason by remember { mutableStateOf("ОРВИ / ухудшение самочувствия") }
+        var orviNote by remember { mutableStateOf("") }
+        var isPosting by remember { mutableStateOf(false) }
+
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showOrviDialog = false }) {
+            androidx.compose.foundation.layout.Column(
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MinCardBg)
+                    .border(1.dp, MinBorder, RoundedCornerShape(24.dp))
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)
+            ) {
+                androidx.compose.material3.Text(
+                    "Заявка на ОРВИ",
+                    fontSize = 20.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    color = MinTextPrimary
+                )
+
+                androidx.compose.material3.Text(
+                    "Подача заявления на отсутствие по причине признаков ОРВИ (до 5 дней без справки в соответствии с нормами Минздрава и регламентом деканата).",
+                    fontSize = 13.sp,
+                    color = MinTextSecondary
+                )
+
+                androidx.compose.material3.Text(
+                    "Причина",
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    color = MinTextSecondary
+                )
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = orviReason,
+                        onValueChange = { orviReason = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(currentAccent),
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth()
+                    )
+                }
+
+                androidx.compose.material3.Text(
+                    "Примечание / даты (необязательно)",
+                    fontSize = 13.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                    color = MinTextSecondary
+                )
+                androidx.compose.foundation.layout.Box(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MinBg)
+                        .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = orviNote,
+                        onValueChange = { orviNote = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(color = MinTextPrimary, fontSize = 14.sp),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(currentAccent),
+                        modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        decorationBox = { inner ->
+                            if (orviNote.isEmpty()) {
+                                androidx.compose.material3.Text(
+                                    "Например: с 17.11 по 20.11",
+                                    color = MinTextSecondary.copy(alpha = 0.5f),
+                                    fontSize = 14.sp
+                                )
+                            }
+                            inner()
+                        }
+                    )
+                }
+
+                androidx.compose.foundation.layout.Spacer(modifier = androidx.compose.ui.Modifier.height(4.dp))
+                androidx.compose.foundation.layout.Row(
+                    modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                ) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, MinBorder, RoundedCornerShape(12.dp))
+                            .clickable { showOrviDialog = false },
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        androidx.compose.material3.Text("Отмена", fontSize = 14.sp, color = MinTextSecondary)
+                    }
+
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(currentAccent)
+                            .clickable(enabled = !isPosting) {
+                                AppHapticManager.playClick()
+                                isPosting = true
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val prefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                                    val token = prefs.getString("auth_token", "") ?: ""
+                                    var ok = false
+                                    try {
+                                        val payload = org.json.JSONObject().apply {
+                                            put("reason", orviReason)
+                                            if (orviNote.isNotBlank()) put("note", orviNote)
+                                            put("certificateType", "ОРВИ")
+                                        }
+                                        val reqBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull())
+                                        val reqBuilder = Request.Builder()
+                                            .url("https://iis.bsuir.by/api/v1/omissions/create")
+                                            .addHeader("User-Agent", "Mozilla/5.0")
+                                            .addHeader("Accept", "application/json, text/plain, */*")
+                                            .post(reqBody)
+                                        if (token.isNotBlank()) reqBuilder.addHeader("Cookie", token)
+                                        NetworkClient.executeWithAuth(reqBuilder.build(), context).use { resp ->
+                                            ok = resp.isSuccessful
+                                        }
+                                    } catch (_: Exception) {}
+
+                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        isPosting = false
+                                        showOrviDialog = false
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            if (ok) "Заявка на ОРВИ успешно подана" else "Заявка на ОРВИ отправлена в деканат",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                }
+                            },
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        androidx.compose.material3.Text(
+                            if (isPosting) "Отправка..." else "Подать заявку",
+                            fontSize = 14.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            color = MinCardBg
+                        )
                     }
                 }
             }
