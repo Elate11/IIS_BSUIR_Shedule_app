@@ -5533,6 +5533,8 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
         var currentStroke by remember { mutableStateOf<List<androidx.compose.ui.geometry.Offset>>(emptyList()) }
         var isPosting by remember { mutableStateOf(false) }
         var isSignatureFullscreen by remember { mutableStateOf(false) }
+        var showStartDatePicker by remember { mutableStateOf(false) }
+        var showEndDatePicker by remember { mutableStateOf(false) }
 
         // Fetch permanent address default if available
         LaunchedEffect(Unit) {
@@ -5558,10 +5560,21 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                 onDismissRequest = { isSignatureFullscreen = false },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
+                val dialogWindowProvider = androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider
+                LaunchedEffect(dialogWindowProvider) {
+                    dialogWindowProvider?.window?.let { window ->
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                            window.attributes = window.attributes.apply {
+                                blurBehindRadius = 64
+                            }
+                        }
+                    }
+                }
                 androidx.compose.foundation.layout.Box(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxSize()
-                        .background(MinBg)
+                        .background(MinBg.copy(alpha = 0.94f))
                 ) {
                     androidx.compose.foundation.layout.Column(
                         modifier = androidx.compose.ui.Modifier
@@ -5774,8 +5787,13 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         androidx.compose.material3.Icon(
                             Icons.Outlined.CalendarToday,
                             contentDescription = null,
-                            tint = MinTextSecondary.copy(alpha = 0.6f),
-                            modifier = androidx.compose.ui.Modifier.size(18.dp)
+                            tint = currentAccent,
+                            modifier = androidx.compose.ui.Modifier
+                                .size(20.dp)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    showStartDatePicker = true
+                                }
                         )
                     }
                 }
@@ -5805,8 +5823,13 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         androidx.compose.material3.Icon(
                             Icons.Outlined.CalendarToday,
                             contentDescription = null,
-                            tint = MinTextSecondary.copy(alpha = 0.6f),
-                            modifier = androidx.compose.ui.Modifier.size(18.dp)
+                            tint = currentAccent,
+                            modifier = androidx.compose.ui.Modifier
+                                .size(20.dp)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    showEndDatePicker = true
+                                }
                         )
                     }
                 }
@@ -5903,7 +5926,7 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                         androidx.compose.foundation.layout.Column(
                             modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.Center),
                             horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
                         ) {
                             androidx.compose.material3.Icon(
                                 Icons.Outlined.Draw,
@@ -5915,12 +5938,9 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                                 "Нажмите, чтобы расписаться на весь экран",
                                 fontSize = 13.sp,
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                                color = MinTextPrimary
-                            )
-                            androidx.compose.material3.Text(
-                                "Откроется удобный полноэкранный холст",
-                                fontSize = 11.sp,
-                                color = MinTextSecondary
+                                color = MinTextPrimary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp)
                             )
                         }
                     }
@@ -6016,6 +6036,50 @@ fun MinAbsencesScreen(MinBg: androidx.compose.ui.graphics.Color, MinCardBg: andr
                     )
                 }
             }
+        }
+
+        if (showStartDatePicker) {
+            val parts = startDateStr.split(".", "-")
+            val pDay = parts.getOrNull(0)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.DAY_OF_MONTH)
+            val pMonth = parts.getOrNull(1)?.toIntOrNull() ?: (nowCal.get(java.util.Calendar.MONTH) + 1)
+            val pYear = parts.getOrNull(2)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.YEAR)
+            IosDatePickerDialog(
+                initialDay = pDay,
+                initialMonth = pMonth,
+                initialYear = pYear,
+                onDismiss = { showStartDatePicker = false },
+                onDateSelected = { d, m, y ->
+                    startDateStr = "%02d.%02d.%04d".format(d, m, y)
+                    showStartDatePicker = false
+                },
+                MinTextPrimary = MinTextPrimary,
+                MinTextSecondary = MinTextSecondary,
+                MinCardBg = MinCardBg,
+                MinAccent = currentAccent,
+                MinBg = MinBg
+            )
+        }
+
+        if (showEndDatePicker) {
+            val parts = endDateStr.split(".", "-")
+            val pDay = parts.getOrNull(0)?.toIntOrNull() ?: endCal.get(java.util.Calendar.DAY_OF_MONTH)
+            val pMonth = parts.getOrNull(1)?.toIntOrNull() ?: (endCal.get(java.util.Calendar.MONTH) + 1)
+            val pYear = parts.getOrNull(2)?.toIntOrNull() ?: endCal.get(java.util.Calendar.YEAR)
+            IosDatePickerDialog(
+                initialDay = pDay,
+                initialMonth = pMonth,
+                initialYear = pYear,
+                onDismiss = { showEndDatePicker = false },
+                onDateSelected = { d, m, y ->
+                    endDateStr = "%02d.%02d.%04d".format(d, m, y)
+                    showEndDatePicker = false
+                },
+                MinTextPrimary = MinTextPrimary,
+                MinTextSecondary = MinTextSecondary,
+                MinCardBg = MinCardBg,
+                MinAccent = currentAccent,
+                MinBg = MinBg
+            )
         }
     }
 }
@@ -10741,6 +10805,13 @@ fun MinCustomizationView(
                     val scope = androidx.compose.runtime.rememberCoroutineScope()
                     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
                         if (uri != null) {
+                            // Instantly apply the selected URI to display wallpaper immediately without delay
+                            onBgModeChange("Gallery")
+                            onBgImageUriChange(uri.toString())
+                            context.imageLoader.memoryCache?.clear()
+                            context.imageLoader.diskCache?.clear()
+
+                            // Persist to internal storage custom_background.png in background
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                                 try {
                                     val bgFile = java.io.File(context.filesDir, "custom_background.png")
@@ -10756,11 +10827,6 @@ fun MinCustomizationView(
                                     }
                                 } catch (e: Exception) {
                                     e.printStackTrace()
-                                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                        context.imageLoader.memoryCache?.clear()
-                                        context.imageLoader.diskCache?.clear()
-                                        onBgImageUriChange(uri.toString())
-                                    }
                                 }
                             }
                         }

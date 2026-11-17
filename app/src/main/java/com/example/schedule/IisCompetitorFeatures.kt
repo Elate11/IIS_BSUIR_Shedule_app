@@ -1204,6 +1204,8 @@ fun MinStudyCertificatesAndSheetsScreen(
         var currentStroke by remember { mutableStateOf<List<androidx.compose.ui.geometry.Offset>>(emptyList()) }
         var isPosting by remember { mutableStateOf(false) }
         var isSignatureFullscreen by remember { mutableStateOf(false) }
+        var showStartDatePicker by remember { mutableStateOf(false) }
+        var showEndDatePicker by remember { mutableStateOf(false) }
 
         // Fetch permanent address default if available
         LaunchedEffect(Unit) {
@@ -1228,10 +1230,21 @@ fun MinStudyCertificatesAndSheetsScreen(
                 onDismissRequest = { isSignatureFullscreen = false },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
+                val dialogWindowProvider = androidx.compose.ui.platform.LocalView.current.parent as? androidx.compose.ui.window.DialogWindowProvider
+                LaunchedEffect(dialogWindowProvider) {
+                    dialogWindowProvider?.window?.let { window ->
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                            window.attributes = window.attributes.apply {
+                                blurBehindRadius = 64
+                            }
+                        }
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MinBg)
+                        .background(MinBg.copy(alpha = 0.94f))
                 ) {
                     Column(
                         modifier = Modifier
@@ -1444,8 +1457,13 @@ fun MinStudyCertificatesAndSheetsScreen(
                         Icon(
                             Icons.Outlined.CalendarToday,
                             contentDescription = null,
-                            tint = MinTextSecondary.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp)
+                            tint = currentAccent,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    showStartDatePicker = true
+                                }
                         )
                     }
                 }
@@ -1475,8 +1493,13 @@ fun MinStudyCertificatesAndSheetsScreen(
                         Icon(
                             Icons.Outlined.CalendarToday,
                             contentDescription = null,
-                            tint = MinTextSecondary.copy(alpha = 0.6f),
-                            modifier = Modifier.size(18.dp)
+                            tint = currentAccent,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable {
+                                    AppHapticManager.playClick()
+                                    showEndDatePicker = true
+                                }
                         )
                     }
                 }
@@ -1573,7 +1596,7 @@ fun MinStudyCertificatesAndSheetsScreen(
                         Column(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
                                 Icons.Outlined.Draw,
@@ -1585,12 +1608,9 @@ fun MinStudyCertificatesAndSheetsScreen(
                                 "Нажмите, чтобы расписаться на весь экран",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MinTextPrimary
-                            )
-                            Text(
-                                "Откроется удобный полноэкранный холст",
-                                fontSize = 11.sp,
-                                color = MinTextSecondary
+                                color = MinTextPrimary,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 16.dp)
                             )
                         }
                     }
@@ -1685,6 +1705,50 @@ fun MinStudyCertificatesAndSheetsScreen(
                     )
                 }
             }
+        }
+
+        if (showStartDatePicker) {
+            val parts = startDateStr.split(".", "-")
+            val pDay = parts.getOrNull(0)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.DAY_OF_MONTH)
+            val pMonth = parts.getOrNull(1)?.toIntOrNull() ?: (nowCal.get(java.util.Calendar.MONTH) + 1)
+            val pYear = parts.getOrNull(2)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.YEAR)
+            IosDatePickerDialog(
+                initialDay = pDay,
+                initialMonth = pMonth,
+                initialYear = pYear,
+                onDismiss = { showStartDatePicker = false },
+                onDateSelected = { d, m, y ->
+                    startDateStr = "%02d.%02d.%04d".format(d, m, y)
+                    showStartDatePicker = false
+                },
+                MinTextPrimary = MinTextPrimary,
+                MinTextSecondary = MinTextSecondary,
+                MinCardBg = MinCardBg,
+                MinAccent = currentAccent,
+                MinBg = MinBg
+            )
+        }
+
+        if (showEndDatePicker) {
+            val parts = endDateStr.split(".", "-")
+            val pDay = parts.getOrNull(0)?.toIntOrNull() ?: endCal.get(java.util.Calendar.DAY_OF_MONTH)
+            val pMonth = parts.getOrNull(1)?.toIntOrNull() ?: (endCal.get(java.util.Calendar.MONTH) + 1)
+            val pYear = parts.getOrNull(2)?.toIntOrNull() ?: endCal.get(java.util.Calendar.YEAR)
+            IosDatePickerDialog(
+                initialDay = pDay,
+                initialMonth = pMonth,
+                initialYear = pYear,
+                onDismiss = { showEndDatePicker = false },
+                onDateSelected = { d, m, y ->
+                    endDateStr = "%02d.%02d.%04d".format(d, m, y)
+                    showEndDatePicker = false
+                },
+                MinTextPrimary = MinTextPrimary,
+                MinTextSecondary = MinTextSecondary,
+                MinCardBg = MinCardBg,
+                MinAccent = currentAccent,
+                MinBg = MinBg
+            )
         }
     }
 }
