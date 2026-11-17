@@ -1015,8 +1015,8 @@ fun AppleRadialMenu(
             }
 
             // Satellite discs blossoming dynamically from the center
-            // В центре дефолтный компактный радиус 96dp (не разлетается далеко), в углах/краях 128dp
-            val baseRadiusDp = if (isCorner || isEdge) 128f else 96f
+            // В центре компактный радиус 96dp, в углах просторный 144dp
+            val baseRadiusDp = if (isCorner) 144f else if (isEdge) 124f else 96f
             val currentRadiusDp = baseRadiusDp * bloomProgress
             items.forEachIndexed { i, item ->
                 val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
@@ -1044,6 +1044,12 @@ fun AppleRadialMenu(
                 val spinAngle = (1f - bloomProgress.coerceIn(0f, 1f)) * (if (i % 2 == 0) 35f else -35f)
                 val bloomFade = (bloomProgress * 1.2f).coerceIn(0f, 1f)
 
+                // Радиальное смещение подписи от центра пальца: исключает наложение подписей по дуге
+                val cosA = kotlin.math.cos(angleRad)
+                val sinA = kotlin.math.sin(angleRad)
+                val labelX = (cosA * 36.0).dp
+                val labelY = (sinA * 36.0).dp
+
                 Box(
                     modifier = Modifier
                         .offset(x = xOffset.dp, y = yOffset.dp)
@@ -1051,68 +1057,61 @@ fun AppleRadialMenu(
                         .graphicsLayer { rotationZ = spinAngle },
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .shadow(
+                                elevation = if (isSelected) 10.dp else 5.dp,
+                                shape = CircleShape,
+                                spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
+                                ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
+                            )
+                            .clip(CircleShape)
+                            .background(itemBg)
+                            .border(1.dp, itemBorder, CircleShape)
+                            .clickable(
+                                interactionSource = itemInteraction,
+                                indication = null,
+                                onClick = {
+                                    AppHapticManager.playClick()
+                                    onSelectIndex(item.index)
+                                    onDismiss()
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .shadow(
-                                    elevation = if (isSelected) 10.dp else 5.dp,
-                                    shape = CircleShape,
-                                    spotColor = if (isSelected) activeColor.copy(alpha = 0.75f) else Color.Black.copy(alpha = 0.35f),
-                                    ambientColor = if (isSelected) activeColor.copy(alpha = 0.30f) else Color.Black.copy(alpha = 0.10f)
-                                )
-                                .clip(CircleShape)
-                                .background(itemBg)
-                                .border(1.dp, itemBorder, CircleShape)
-                                .clickable(
-                                    interactionSource = itemInteraction,
-                                    indication = null,
-                                    onClick = {
-                                        AppHapticManager.playClick()
-                                        onSelectIndex(item.index)
-                                        onDismiss()
-                                    }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = item.title,
-                                tint = iconColor,
-                                modifier = Modifier.size(23.dp)
-                            )
-                        }
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = item.title,
+                            tint = iconColor,
+                            modifier = Modifier.size(23.dp)
+                        )
+                    }
 
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(AppleTokens.RadiusPill))
-                                .background(
-                                    if (isSelected) activeColor.copy(alpha = 0.45f)
-                                    else Color(0xD818181A)
-                                )
-                                .border(
-                                    0.5.dp,
-                                    if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
-                                    RoundedCornerShape(AppleTokens.RadiusPill)
-                                )
-                                .padding(horizontal = 7.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = item.title,
-                                style = AppleTypography.finePrint().copy(
-                                    fontSize = 10.5.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                ),
-                                color = Color.White,
-                                maxLines = 1,
-                                softWrap = false
+                    Box(
+                        modifier = (if (isCorner || isEdge) Modifier.offset(x = labelX, y = labelY) else Modifier.offset(y = 34.dp))
+                            .clip(RoundedCornerShape(AppleTokens.RadiusPill))
+                            .background(
+                                if (isSelected) activeColor.copy(alpha = 0.45f)
+                                else Color(0xD818181A)
                             )
-                        }
+                            .border(
+                                0.5.dp,
+                                if (isSelected) activeColor.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.12f),
+                                RoundedCornerShape(AppleTokens.RadiusPill)
+                            )
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = item.title,
+                            style = AppleTypography.finePrint().copy(
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            ),
+                            color = Color.White,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
