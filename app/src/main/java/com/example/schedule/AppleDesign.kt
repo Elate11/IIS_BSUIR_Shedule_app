@@ -901,11 +901,11 @@ fun AppleRadialMenu(
     val targetCenterXDp = with(density) { touchPosition?.x?.toDp() } ?: (screenWidthDp / 2)
     val targetCenterYDp = with(density) { touchPosition?.y?.toDp() } ?: (screenHeightDp / 2)
 
-    val margin = 48.dp
-    val clampedXDp = targetCenterXDp.coerceIn(margin, screenWidthDp - margin)
-    val clampedYDp = targetCenterYDp.coerceIn(margin + 20.dp, screenHeightDp - margin - 30.dp)
+    // Center is placed EXACTLY under the finger, no artificial offset
+    val exactCenterXDp = targetCenterXDp
+    val exactCenterYDp = targetCenterYDp
 
-    // Corner / Edge proximity detection in Dp
+    // Corner / Edge proximity detection in Dp relative to the real finger position
     val isNearLeft = targetCenterXDp < 160.dp
     val isNearRight = targetCenterXDp > (screenWidthDp - 160.dp)
     val isNearTop = targetCenterYDp < 220.dp
@@ -936,7 +936,7 @@ fun AppleRadialMenu(
         // Radial container positioned EXACTLY under the finger
         Box(
             modifier = Modifier
-                .offset(x = clampedXDp - halfSizeDp, y = clampedYDp - halfSizeDp)
+                .offset(x = exactCenterXDp - halfSizeDp, y = exactCenterYDp - halfSizeDp)
                 .size(menuDiameterDp)
                 .scale(enterScale)
                 .alpha(enterAlpha),
