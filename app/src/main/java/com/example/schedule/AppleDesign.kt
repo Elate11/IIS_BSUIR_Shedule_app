@@ -910,7 +910,7 @@ fun AppleRadialMenu(
     val isEdge = !isCorner && (isNearLeft || isNearRight || isNearTop || isNearBottom)
 
     // Clamping center point to avoid cutting off icons or labels on screen edges
-    val minSafeMargin = if (isCorner) 44.dp else if (isEdge) 36.dp else 24.dp
+    val minSafeMargin = if (isCorner) 52.dp else if (isEdge) 48.dp else 24.dp
     val exactCenterXDp = rawCenterXDp.coerceIn(minSafeMargin, screenWidthDp - minSafeMargin)
     val exactCenterYDp = rawCenterYDp.coerceIn(minSafeMargin, screenHeightDp - minSafeMargin)
 
@@ -1018,11 +1018,12 @@ fun AppleRadialMenu(
 
             // Satellite discs blossoming dynamically from the center along radial rays
             // Polar Outward Ray Alignment:
-            // R_icon = 135dp for corners/edges (dist between icons ~60dp > 54dp icon size)
-            // R_label = R_icon + 48dp = 183dp (dist between labels ~81dp > label size)
-            // Icons and labels travel on the exact same radial ray outward, guaranteeing zero overlap.
-            val baseRadiusIconDp = if (isCorner || isEdge) 135f else 100f
-            val labelRayOffsetDp = if (isCorner || isEdge) 48f else 0f
+            // R_icon = 145dp for corners, 135dp for edges, 100dp for center
+            // R_label = R_icon + 52dp for corners, R_icon + 48dp for edges
+            // Guaranteed minimum distance between adjacent icons: >= 70dp (icon size 52dp -> 18dp pure gap)
+            // Text is strictly on the same ray further outward -> 0% overlap with any icon or other label.
+            val baseRadiusIconDp = if (isCorner) 145f else if (isEdge) 135f else 100f
+            val labelRayOffsetDp = if (isCorner) 52f else if (isEdge) 48f else 0f
             val currentRadiusIconDp = baseRadiusIconDp * bloomProgress
             val currentRadiusLabelDp = (baseRadiusIconDp + labelRayOffsetDp) * bloomProgress
 
@@ -1053,13 +1054,13 @@ fun AppleRadialMenu(
                 val bloomFade = (bloomProgress * 1.2f).coerceIn(0f, 1f)
 
                 if (isCorner || isEdge) {
-                    // 1. Separate Round Icon Disc
+                    // 1. Separate Round Icon Disc (52dp)
                     Box(
                         modifier = Modifier
                             .offset(x = iconX.dp, y = iconY.dp)
                             .scale(itemScale * bloomFade)
                             .graphicsLayer { rotationZ = spinAngle }
-                            .size(54.dp)
+                            .size(52.dp)
                             .shadow(
                                 elevation = if (isSelected) 10.dp else 4.dp,
                                 shape = CircleShape,
@@ -1084,7 +1085,7 @@ fun AppleRadialMenu(
                             imageVector = item.icon,
                             contentDescription = item.title,
                             tint = iconColor,
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(25.dp)
                         )
                     }
 
@@ -1108,12 +1109,12 @@ fun AppleRadialMenu(
                                     onDismiss()
                                 }
                             )
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                            .padding(horizontal = 7.dp, vertical = 2.5.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = item.title,
-                            style = AppleTypography.finePrint().copy(fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                            style = AppleTypography.finePrint().copy(fontSize = 10.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
                             color = Color.White,
                             maxLines = 1,
                             softWrap = false
@@ -1198,37 +1199,37 @@ private fun calculateAdaptiveAngles(
     isNearBottom: Boolean,
     count: Int
 ): List<Double> {
-    // Corner: Top-Left (веер вправо-вниз от 0° до 90°)
+    // Corner: Top-Left (веер вправо-вниз от ~3° до ~87°, delta=28°)
     if (isNearTop && isNearLeft) {
-        return distributeAngles(start = 0.05 * Math.PI, end = 0.45 * Math.PI, count = count)
+        return distributeAngles(start = Math.toRadians(3.0), end = Math.toRadians(87.0), count = count)
     }
-    // Corner: Top-Right (веер влево-вниз от 90° до 180°)
+    // Corner: Top-Right (веер влево-вниз от ~93° до ~177°, delta=28°)
     if (isNearTop && isNearRight) {
-        return distributeAngles(start = 0.55 * Math.PI, end = 0.95 * Math.PI, count = count)
+        return distributeAngles(start = Math.toRadians(93.0), end = Math.toRadians(177.0), count = count)
     }
-    // Corner: Bottom-Left (веер вправо-вверх от -90° до 0°)
+    // Corner: Bottom-Left (веер вправо-вверх от ~-87° до ~-3°, delta=28°)
     if (isNearBottom && isNearLeft) {
-        return distributeAngles(start = -0.45 * Math.PI, end = -0.05 * Math.PI, count = count)
+        return distributeAngles(start = Math.toRadians(-87.0), end = Math.toRadians(-3.0), count = count)
     }
-    // Corner: Bottom-Right (веер влево-вверх от -180° до -90°)
+    // Corner: Bottom-Right (веер влево-вверх от ~-177° до ~-93°, delta=28°)
     if (isNearBottom && isNearRight) {
-        return distributeAngles(start = -0.95 * Math.PI, end = -0.55 * Math.PI, count = count)
+        return distributeAngles(start = Math.toRadians(-177.0), end = Math.toRadians(-93.0), count = count)
     }
-    // Edge: Left (полукруг вправо от -65° до +65°)
+    // Edge: Left (полукруг вправо от -58° до +58°)
     if (isNearLeft) {
-        return distributeAngles(start = -Math.PI * 0.36, end = Math.PI * 0.36, count = count)
+        return distributeAngles(start = Math.toRadians(-58.0), end = Math.toRadians(58.0), count = count)
     }
-    // Edge: Right (полукруг влево от 115° до 245°)
+    // Edge: Right (полукруг влево от 122° до 238°)
     if (isNearRight) {
-        return distributeAngles(start = Math.PI * 0.64, end = Math.PI * 1.36, count = count)
+        return distributeAngles(start = Math.toRadians(122.0), end = Math.toRadians(238.0), count = count)
     }
-    // Edge: Top (полукруг вниз от 25° до 155°)
+    // Edge: Top (полукруг вниз от 40° до 140°)
     if (isNearTop) {
-        return distributeAngles(start = Math.PI * 0.15, end = Math.PI * 0.85, count = count)
+        return distributeAngles(start = Math.toRadians(40.0), end = Math.toRadians(140.0), count = count)
     }
-    // Edge: Bottom (полукруг вверх от -155° до -25°)
+    // Edge: Bottom (полукруг вверх от -140° до -40°)
     if (isNearBottom) {
-        return distributeAngles(start = -Math.PI * 0.85, end = -Math.PI * 0.15, count = count)
+        return distributeAngles(start = Math.toRadians(-140.0), end = Math.toRadians(-40.0), count = count)
     }
 
     // Default: full 360 circle
