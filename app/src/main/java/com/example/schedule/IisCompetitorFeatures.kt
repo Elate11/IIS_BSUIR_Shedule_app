@@ -1843,8 +1843,10 @@ fun MinHeadmanJournalScreen(
                         }
                         opts.firstOrNull()?.let { loadSubjectAttendance(it) }
                     } else {
-                        // Load group students fromcached_group_info for preview mode
-                        val cachedGroup = prefs.getString("cached_group_info", null)
+                        // Load group students from cached_user_group_info or cached_group_students for preview mode
+                        val cachedGroup = prefs.getString("cached_user_group_info", null)
+                            ?: prefs.getString("cached_group_students", null)
+                            ?: prefs.getString("cached_group_info", null)
                         val fallbackStudents = mutableListOf<HeadmanStudentEntry>()
                         if (!cachedGroup.isNullOrBlank()) {
                             try {
