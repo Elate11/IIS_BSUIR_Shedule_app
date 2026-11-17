@@ -9054,6 +9054,8 @@ fun MinNotesCalendar(
     viewMonth: Int, viewYear: Int,
     selectedDay: Int, selectedMonth: Int, selectedYear: Int,
     highlightedDates: Set<String>,
+    minDateCalendar: java.util.Calendar? = null,
+    maxDateCalendar: java.util.Calendar? = null,
     MinTextPrimary: Color, MinTextSecondary: Color,
     MinBorder: Color, MinAccent: Color, MinBg: Color,
     onDaySelected: (Int, Int, Int) -> Unit,
@@ -9102,11 +9104,22 @@ fun MinNotesCalendar(
             Row(modifier = Modifier.fillMaxWidth()) {
                 for (col in 0 until 7) {
                     val dayNum = row * 7 + col - firstDayOfWeek + 1
-                    val isValid = dayNum in 1..daysInMonth
-                    val dateStr = if (isValid) "%02d.%02d.%04d".format(dayNum, viewMonth + 1, viewYear) else ""
+                    val inMonth = dayNum in 1..daysInMonth
+                    val isWithinMin = !inMonth || minDateCalendar == null || {
+                        val c = java.util.Calendar.getInstance().apply { set(viewYear, viewMonth, dayNum, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0) }
+                        val minC = (minDateCalendar.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0); set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0) }
+                        c.timeInMillis >= minC.timeInMillis
+                    }()
+                    val isWithinMax = !inMonth || maxDateCalendar == null || {
+                        val c = java.util.Calendar.getInstance().apply { set(viewYear, viewMonth, dayNum, 23, 59, 59); set(java.util.Calendar.MILLISECOND, 999) }
+                        val maxC = (maxDateCalendar.clone() as java.util.Calendar).apply { set(java.util.Calendar.HOUR_OF_DAY, 23); set(java.util.Calendar.MINUTE, 59); set(java.util.Calendar.SECOND, 59); set(java.util.Calendar.MILLISECOND, 999) }
+                        c.timeInMillis <= maxC.timeInMillis
+                    }()
+                    val isValid = inMonth && isWithinMin && isWithinMax
+                    val dateStr = if (inMonth) "%02d.%02d.%04d".format(dayNum, viewMonth + 1, viewYear) else ""
                     val isHighlighted = isValid && highlightedDates.contains(dateStr)
                     val isSelected = isValid && dayNum == selectedDay && viewMonth == selectedMonth && viewYear == selectedYear
-                    val isToday = isValid && dayNum == curDay && viewMonth == curMonth && viewYear == curYear
+                    val isToday = inMonth && dayNum == curDay && viewMonth == curMonth && viewYear == curYear
 
                     val cellBg = when {
                         isSelected -> MinAccent
@@ -9121,13 +9134,13 @@ fun MinNotesCalendar(
                             .then(if (isValid) Modifier.clickable { onDaySelected(dayNum, viewMonth, viewYear) } else Modifier),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isValid) {
+                        if (inMonth) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                                 Text(
                                     dayNum.toString(),
                                     fontSize = 16.sp,
                                     fontWeight = if (isSelected || isHighlighted || isToday) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (isSelected) MinBg else MinTextPrimary
+                                    color = if (isSelected) MinBg else if (isValid) MinTextPrimary else MinTextSecondary.copy(alpha = 0.3f)
                                 )
                                 if (isToday) {
                                     Spacer(modifier = Modifier.height(2.dp))
@@ -9135,7 +9148,7 @@ fun MinNotesCalendar(
                                         modifier = Modifier
                                             .size(4.dp)
                                             .clip(CircleShape)
-                                            .background(if (isSelected) MinBg else MinAccent)
+                                            .background(if (isSelected) MinBg else if (isValid) MinAccent else MinTextSecondary.copy(alpha = 0.3f))
                                     )
                                 } else if (isHighlighted && !isSelected) {
                                     Spacer(modifier = Modifier.height(2.dp))
@@ -12326,6 +12339,8 @@ fun IosDatePickerDialog(
     initialMonth: Int,
     initialYear: Int,
     highlightedDates: Set<String> = emptySet(),
+    minDateCalendar: java.util.Calendar? = null,
+    maxDateCalendar: java.util.Calendar? = null,
     onDismiss: () -> Unit,
     onDateSelected: (Int, Int, Int) -> Unit,
     MinTextPrimary: androidx.compose.ui.graphics.Color,
@@ -12379,6 +12394,8 @@ fun IosDatePickerDialog(
                     selectedMonth = tempMonth,
                     selectedYear = tempYear,
                     highlightedDates = highlightedDates,
+                    minDateCalendar = minDateCalendar,
+                    maxDateCalendar = maxDateCalendar,
                     MinTextPrimary = MinTextPrimary,
                     MinTextSecondary = MinTextSecondary,
                     MinBorder = Color.Transparent,

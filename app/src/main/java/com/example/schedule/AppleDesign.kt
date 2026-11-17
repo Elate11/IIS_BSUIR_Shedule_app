@@ -901,8 +901,24 @@ fun AppleRadialMenu(
     val targetCenterXDp = with(density) { touchPosition?.x?.toDp() } ?: (screenWidthDp / 2)
     val targetCenterYDp = with(density) { touchPosition?.y?.toDp() } ?: (screenHeightDp / 2)
 
-    val clampedXDp = targetCenterXDp.coerceIn(halfSizeDp + 8.dp, (screenWidthDp - halfSizeDp - 8.dp).coerceAtLeast(halfSizeDp + 8.dp))
-    val clampedYDp = targetCenterYDp.coerceIn(halfSizeDp + 24.dp, (screenHeightDp - halfSizeDp - 24.dp).coerceAtLeast(halfSizeDp + 24.dp))
+    val margin = 36.dp
+    val clampedXDp = targetCenterXDp.coerceIn(margin, screenWidthDp - margin)
+    val clampedYDp = targetCenterYDp.coerceIn(margin + 36.dp, screenHeightDp - margin - 48.dp)
+
+    // Corner / Edge proximity detection in Dp
+    val isNearLeft = targetCenterXDp < 140.dp
+    val isNearRight = targetCenterXDp > (screenWidthDp - 140.dp)
+    val isNearTop = targetCenterYDp < 180.dp
+    val isNearBottom = targetCenterYDp > (screenHeightDp - 200.dp)
+
+    val count = items.size
+    val angles = calculateAdaptiveAngles(
+        isNearLeft = isNearLeft,
+        isNearRight = isNearRight,
+        isNearTop = isNearTop,
+        isNearBottom = isNearBottom,
+        count = count
+    )
 
     val activeColor = accentColor ?: if (isDarkTheme) AppleTokens.SkyLinkBlue else AppleTokens.ActionBlue
 
@@ -1000,9 +1016,8 @@ fun AppleRadialMenu(
             // Satellite discs blossoming dynamically from the center
             val targetRadiusDp = 112f
             val currentRadiusDp = targetRadiusDp * bloomProgress
-            val count = items.size
             items.forEachIndexed { i, item ->
-                val angleRad = (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count)
+                val angleRad = angles.getOrElse(i) { (-Math.PI / 2.0) + (i * 2.0 * Math.PI / count) }
                 val xOffset = (currentRadiusDp * kotlin.math.cos(angleRad)).toFloat()
                 val yOffset = (currentRadiusDp * kotlin.math.sin(angleRad)).toFloat()
 
@@ -1101,6 +1116,61 @@ fun AppleRadialMenu(
             }
         }
     }
+}
+
+/**
+ * Calculates adaptive radial item angles based on proximity to screen corners or edges.
+ */
+private fun calculateAdaptiveAngles(
+    isNearLeft: Boolean,
+    isNearRight: Boolean,
+    isNearTop: Boolean,
+    isNearBottom: Boolean,
+    count: Int
+): List<Double> {
+    // Corner: Top-Left (веер вправо-вниз от 10° до 80°)
+    if (isNearTop && isNearLeft) {
+        return distributeAngles(start = Math.PI * 0.08, end = Math.PI * 0.44, count = count)
+    }
+    // Corner: Top-Right (веер влево-вниз от 100° до 170°)
+    if (isNearTop && isNearRight) {
+        return distributeAngles(start = Math.PI * 0.56, end = Math.PI * 0.92, count = count)
+    }
+    // Corner: Bottom-Left (веер вправо-вверх от -10° до -80°)
+    if (isNearBottom && isNearLeft) {
+        return distributeAngles(start = -Math.PI * 0.44, end = -Math.PI * 0.08, count = count)
+    }
+    // Corner: Bottom-Right (веер влево-вверх от -170° до -100°)
+    if (isNearBottom && isNearRight) {
+        return distributeAngles(start = -Math.PI * 0.92, end = -Math.PI * 0.56, count = count)
+    }
+    // Edge: Left (веер вправо от -65° до +65°)
+    if (isNearLeft) {
+        return distributeAngles(start = -Math.PI / 2.6, end = Math.PI / 2.6, count = count)
+    }
+    // Edge: Right (веер влево от 115° до 245°)
+    if (isNearRight) {
+        return distributeAngles(start = Math.PI - (Math.PI / 2.6), end = Math.PI + (Math.PI / 2.6), count = count)
+    }
+    // Edge: Top (веер вниз от 25° до 155°)
+    if (isNearTop) {
+        return distributeAngles(start = Math.PI * 0.14, end = Math.PI * 0.86, count = count)
+    }
+    // Edge: Bottom (веер вверх от -155° до -25°)
+    if (isNearBottom) {
+        return distributeAngles(start = -Math.PI * 0.86, end = -Math.PI * 0.14, count = count)
+    }
+
+    // Default: full 360 circle
+    return (0 until count).map { i ->
+        (-Math.PI / 2.0) + (i.toDouble() * 2.0 * Math.PI / count.toDouble())
+    }
+}
+
+private fun distributeAngles(start: Double, end: Double, count: Int): List<Double> {
+    if (count <= 1) return listOf(start)
+    val step = (end - start) / (count - 1)
+    return (0 until count).map { start + (it * step) }
 }
 
 

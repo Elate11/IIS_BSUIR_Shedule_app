@@ -1712,13 +1712,33 @@ fun MinStudyCertificatesAndSheetsScreen(
             val pDay = parts.getOrNull(0)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.DAY_OF_MONTH)
             val pMonth = parts.getOrNull(1)?.toIntOrNull() ?: (nowCal.get(java.util.Calendar.MONTH) + 1)
             val pYear = parts.getOrNull(2)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.YEAR)
+
+            val minStartCal = java.util.Calendar.getInstance()
+            val maxStartCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 1) }
+
             IosDatePickerDialog(
                 initialDay = pDay,
                 initialMonth = pMonth,
                 initialYear = pYear,
+                minDateCalendar = minStartCal,
+                maxDateCalendar = maxStartCal,
                 onDismiss = { showStartDatePicker = false },
                 onDateSelected = { d, m, y ->
                     startDateStr = "%02d.%02d.%04d".format(d, m, y)
+                    // Auto-adjust end date if needed
+                    val selStart = java.util.Calendar.getInstance().apply { set(y, m - 1, d, 0, 0, 0) }
+                    val currentEnd = java.util.Calendar.getInstance().apply {
+                        val eParts = endDateStr.split(".", "-")
+                        set(eParts.getOrNull(2)?.toIntOrNull() ?: y, (eParts.getOrNull(1)?.toIntOrNull() ?: m) - 1, eParts.getOrNull(0)?.toIntOrNull() ?: d, 0, 0, 0)
+                    }
+                    val maxAllowedEnd = (selStart.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_MONTH, 4) }
+                    if (currentEnd.timeInMillis < selStart.timeInMillis || currentEnd.timeInMillis > maxAllowedEnd.timeInMillis) {
+                        endDateStr = "%02d.%02d.%04d".format(
+                            maxAllowedEnd.get(java.util.Calendar.DAY_OF_MONTH),
+                            maxAllowedEnd.get(java.util.Calendar.MONTH) + 1,
+                            maxAllowedEnd.get(java.util.Calendar.YEAR)
+                        )
+                    }
                     showStartDatePicker = false
                 },
                 MinTextPrimary = MinTextPrimary,
@@ -1734,10 +1754,21 @@ fun MinStudyCertificatesAndSheetsScreen(
             val pDay = parts.getOrNull(0)?.toIntOrNull() ?: endCal.get(java.util.Calendar.DAY_OF_MONTH)
             val pMonth = parts.getOrNull(1)?.toIntOrNull() ?: (endCal.get(java.util.Calendar.MONTH) + 1)
             val pYear = parts.getOrNull(2)?.toIntOrNull() ?: endCal.get(java.util.Calendar.YEAR)
+
+            val sParts = startDateStr.split(".", "-")
+            val sD = sParts.getOrNull(0)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.DAY_OF_MONTH)
+            val sM = sParts.getOrNull(1)?.toIntOrNull() ?: (nowCal.get(java.util.Calendar.MONTH) + 1)
+            val sY = sParts.getOrNull(2)?.toIntOrNull() ?: nowCal.get(java.util.Calendar.YEAR)
+
+            val minEndCal = java.util.Calendar.getInstance().apply { set(sY, sM - 1, sD, 0, 0, 0) }
+            val maxEndCal = (minEndCal.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_MONTH, 4) }
+
             IosDatePickerDialog(
                 initialDay = pDay,
                 initialMonth = pMonth,
                 initialYear = pYear,
+                minDateCalendar = minEndCal,
+                maxDateCalendar = maxEndCal,
                 onDismiss = { showEndDatePicker = false },
                 onDateSelected = { d, m, y ->
                     endDateStr = "%02d.%02d.%04d".format(d, m, y)
