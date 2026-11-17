@@ -2616,12 +2616,12 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 0.dp),
+                        .heightIn(min = 280.dp, max = 560.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    androidx.compose.foundation.pager.HorizontalPager(
+                    androidx.compose.foundation.pager.VerticalPager(
                         state = lessonPagerState,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight()
                     ) { page ->
                         val lesson = currentDayLessons[page]
                         var displayedGroups by remember(lesson) {
@@ -2668,7 +2668,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
-                                            Icons.Outlined.KeyboardArrowLeft,
+                                            Icons.Outlined.KeyboardArrowUp,
                                             contentDescription = "Предыдущая пара",
                                             tint = if (page > 0) MinTextPrimary else MinTextSecondary.copy(alpha = 0.25f)
                                         )
@@ -2691,7 +2691,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                                         modifier = Modifier.size(32.dp)
                                     ) {
                                         Icon(
-                                            Icons.Outlined.KeyboardArrowRight,
+                                            Icons.Outlined.KeyboardArrowDown,
                                             contentDescription = "Следующая пара",
                                             tint = if (page < currentDayLessons.size - 1) MinTextPrimary else MinTextSecondary.copy(alpha = 0.25f)
                                         )

@@ -20,9 +20,9 @@
             android:layout_width="48dp"
             android:layout_height="38dp"
             android:gravity="center"
-            android:text="‹"
+            android:text="▲"
             android:textColor="#FFFFFF"
-            android:textSize="26sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
 
         <TextView
@@ -43,9 +43,9 @@
             android:layout_width="48dp"
             android:layout_height="38dp"
             android:gravity="center"
-            android:text="›"
+            android:text="▼"
             android:textColor="#FFFFFF"
-            android:textSize="26sp"
+            android:textSize="20sp"
             android:textStyle="bold" />
     </LinearLayout>
 
