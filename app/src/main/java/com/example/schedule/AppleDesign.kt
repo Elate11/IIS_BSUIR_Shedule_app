@@ -1044,11 +1044,9 @@ fun AppleRadialMenu(
                 val spinAngle = (1f - bloomProgress.coerceIn(0f, 1f)) * (if (i % 2 == 0) 35f else -35f)
                 val bloomFade = (bloomProgress * 1.2f).coerceIn(0f, 1f)
 
-                // Радиальное смещение подписи от центра пальца: исключает наложение подписей по дуге
-                val cosA = kotlin.math.cos(angleRad)
-                val sinA = kotlin.math.sin(angleRad)
-                val labelX = (cosA * 36.0).dp
-                val labelY = (sinA * 36.0).dp
+                // Радиальное смещение подписи от центра пальца: строго НАД или ПОД кнопкой (40dp за ее границы)
+                val isUpperHalf = kotlin.math.sin(angleRad) < 0
+                val labelOffsetY = if (isUpperHalf) (-38).dp else 38.dp
 
                 Box(
                     modifier = Modifier
@@ -1089,7 +1087,8 @@ fun AppleRadialMenu(
                     }
 
                     Box(
-                        modifier = (if (isCorner || isEdge) Modifier.offset(x = labelX, y = labelY) else Modifier.offset(y = 34.dp))
+                        modifier = Modifier
+                            .offset(y = labelOffsetY)
                             .clip(RoundedCornerShape(AppleTokens.RadiusPill))
                             .background(
                                 if (isSelected) activeColor.copy(alpha = 0.45f)

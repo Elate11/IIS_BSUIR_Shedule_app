@@ -12351,9 +12351,9 @@ fun IosDatePickerDialog(
 ) {
     val pickerText = MinTextPrimary
     var tempDay by remember { mutableStateOf(initialDay) }
-    var tempMonth by remember { mutableStateOf(initialMonth) }
+    var tempMonth by remember { mutableStateOf(initialMonth - 1) }
     var tempYear by remember { mutableStateOf(initialYear) }
-    var viewMonth by remember { mutableStateOf(initialMonth) }
+    var viewMonth by remember { mutableStateOf(initialMonth - 1) }
     var viewYear by remember { mutableStateOf(initialYear) }
 
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
@@ -12435,7 +12435,7 @@ fun IosDatePickerDialog(
                     Button(
                         onClick = {
                             AppHapticManager.playClick()
-                            onDateSelected(tempDay, tempMonth, tempYear)
+                            onDateSelected(tempDay, tempMonth + 1, tempYear)
                             onDismiss()
                         },
                         modifier = Modifier.weight(1f).height(48.dp),
