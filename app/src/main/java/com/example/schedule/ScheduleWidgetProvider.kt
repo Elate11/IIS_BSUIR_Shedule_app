@@ -290,9 +290,9 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                                 views.setTextColor(def.endId, secondaryColor)
 
                                 val typeColor = when (r.typeAbbrev.uppercase()) {
-                                    "ЛК" -> if (isDarkTheme) Color.parseColor("#4CC38A") else Color.parseColor("#16A34A")
-                                    "ПЗ" -> if (isDarkTheme) Color.parseColor("#52A9FF") else Color.parseColor("#2563EB")
-                                    "ЛР" -> if (isDarkTheme) Color.parseColor("#E5484D") else Color.parseColor("#DC2626")
+                                    "ЛК" -> if (isDarkTheme) Color.parseColor("#4ADE80") else Color.parseColor("#15803D")
+                                    "ПЗ" -> if (isDarkTheme) Color.parseColor("#C084FC") else Color.parseColor("#7E22CE")
+                                    "ЛР" -> if (isDarkTheme) Color.parseColor("#FB923C") else Color.parseColor("#C2410C")
                                     else -> primaryColor
                                 }
                                 views.setTextViewText(def.typeId, r.typeAbbrev)

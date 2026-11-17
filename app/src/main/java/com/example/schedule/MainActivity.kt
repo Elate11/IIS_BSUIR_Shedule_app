@@ -3373,7 +3373,8 @@ fun MinLessonCard(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // 2. Subtle Pill / Indicator for Lesson Type
+            // 2. Pill / Indicator for Lesson Type with custom type colors:
+            // ЛК -> зеленый, ЛР -> оранжевый, ПЗ -> фиолетовый
             val lessonTypeBadge = when {
                 lesson.lessonType.contains("ЛК", ignoreCase = true) -> "ЛК"
                 lesson.lessonType.contains("ПЗ", ignoreCase = true) -> "ПЗ"
@@ -3382,14 +3383,38 @@ fun MinLessonCard(
                 else -> lesson.lessonType.take(3)
             }
             if (lessonTypeBadge.isNotBlank()) {
+                val (badgeBg, badgeText) = when (lessonTypeBadge.uppercase()) {
+                    "ЛК" -> {
+                        // Зеленый фон
+                        if (isDarkTheme) Color(0xFF1E4620).copy(alpha = 0.85f) to Color(0xFF4ADE80)
+                        else Color(0xFFDCFCE7) to Color(0xFF15803D)
+                    }
+                    "ЛР" -> {
+                        // Оранжевый фон
+                        if (isDarkTheme) Color(0xFF5C2B0A).copy(alpha = 0.85f) to Color(0xFFFB923C)
+                        else Color(0xFFFFEDD5) to Color(0xFFC2410C)
+                    }
+                    "ПЗ" -> {
+                        // Фиолетовый фон
+                        if (isDarkTheme) Color(0xFF3B1E54).copy(alpha = 0.85f) to Color(0xFFC084FC)
+                        else Color(0xFFF3E8FF) to Color(0xFF7E22CE)
+                    }
+                    else -> {
+                        if (lesson.isActive) MinAccent to MinCardBg
+                        else MinCardBg to MinTextSecondary
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(
-                            if (lesson.isActive) MinAccent
-                            else MinCardBg
+                        .background(badgeBg)
+                        .border(
+                            1.dp,
+                            if (lessonTypeBadge.uppercase() in listOf("ЛК", "ЛР", "ПЗ")) badgeText.copy(alpha = 0.35f)
+                            else if (lesson.isActive) Color.Transparent else MinBorder,
+                            RoundedCornerShape(6.dp)
                         )
-                        .border(1.dp, if (lesson.isActive) Color.Transparent else MinBorder, RoundedCornerShape(6.dp))
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -3397,9 +3422,9 @@ fun MinLessonCard(
                         text = lessonTypeBadge,
                         style = AppleTypography.finePrint().copy(
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Bold
                         ),
-                        color = if (lesson.isActive) MinCardBg else MinTextSecondary,
+                        color = badgeText,
                         maxLines = 1,
                         softWrap = false
                     )
