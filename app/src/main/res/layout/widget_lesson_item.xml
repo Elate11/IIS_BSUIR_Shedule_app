@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_item_root"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingVertical="4dp">
+
+    <!-- Time Column -->
+    <LinearLayout
+        android:layout_width="56dp"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/w_item_start"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:singleLine="true"
+            android:text="09:00"
+            android:textColor="#FFFFFF"
+            android:textSize="17sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/w_item_end"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:singleLine="true"
+            android:text="10:20"
+            android:textColor="#9AA0A6"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- Lesson Type Pill / Label -->
+    <TextView
+        android:id="@+id/w_item_type"
+        android:layout_width="44dp"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="6dp"
+        android:gravity="center"
+        android:singleLine="true"
+        android:text="ЛК"
+        android:textColor="#52A9FF"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <!-- Subject + Teacher -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:id="@+id/w_item_subj"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Предмет"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/w_item_teacher"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Преподаватель"
+            android:textColor="#9AA0A6"
+            android:textSize="14sp" />
+    </LinearLayout>
+
+    <!-- Auditory -->
+    <TextView
+        android:id="@+id/w_item_aud"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:singleLine="true"
+        android:text="611-2"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+</LinearLayout>

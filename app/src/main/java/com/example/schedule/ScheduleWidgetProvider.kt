@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
 import kotlinx.coroutines.CoroutineScope
@@ -24,59 +25,27 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
         val prefs = context.applicationContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         when (intent.action) {
             ACTION_REFRESH_WIDGET, ACTION_TODAY_WIDGET -> {
-                prefs.edit().putInt("widget_day_offset", 0).putInt("widget_scroll_offset", 0).apply()
+                prefs.edit().putInt("widget_day_offset", 0).apply()
                 updateAllWidgets(context)
             }
             ACTION_PREV_DAY -> {
                 val cur = prefs.getInt("widget_day_offset", 0)
-                prefs.edit().putInt("widget_day_offset", (cur - 1).coerceIn(-7, 30)).putInt("widget_scroll_offset", 0).apply()
+                prefs.edit().putInt("widget_day_offset", (cur - 1).coerceIn(-7, 30)).apply()
                 updateAllWidgets(context)
             }
             ACTION_NEXT_DAY -> {
                 val cur = prefs.getInt("widget_day_offset", 0)
-                prefs.edit().putInt("widget_day_offset", (cur + 1).coerceIn(-7, 30)).putInt("widget_scroll_offset", 0).apply()
-                updateAllWidgets(context)
-            }
-            ACTION_SCROLL_UP -> {
-                val cur = prefs.getInt("widget_scroll_offset", 0)
-                prefs.edit().putInt("widget_scroll_offset", (cur - 1).coerceAtLeast(0)).apply()
-                updateAllWidgets(context)
-            }
-            ACTION_SCROLL_DOWN -> {
-                val cur = prefs.getInt("widget_scroll_offset", 0)
-                val maxOffset = prefs.getInt("widget_scroll_max", 0)
-                prefs.edit().putInt("widget_scroll_offset", (cur + 1).coerceAtMost(maxOffset)).apply()
+                prefs.edit().putInt("widget_day_offset", (cur + 1).coerceIn(-7, 30)).apply()
                 updateAllWidgets(context)
             }
         }
     }
-
-    private data class WidgetLessonRow(
-        val startTime: String,
-        val endTime: String,
-        val typeAbbrev: String,
-        val subject: String,
-        val teacher: String,
-        val auditory: String
-    )
-
-    private data class RowViewIds(
-        val containerId: Int,
-        val startId: Int,
-        val endId: Int,
-        val typeId: Int,
-        val subjId: Int,
-        val teacherId: Int,
-        val audId: Int
-    )
 
     companion object {
         const val ACTION_REFRESH_WIDGET = "com.example.schedule.ACTION_REFRESH_WIDGET"
         const val ACTION_PREV_DAY = "com.example.schedule.ACTION_WIDGET_PREV_DAY"
         const val ACTION_NEXT_DAY = "com.example.schedule.ACTION_WIDGET_NEXT_DAY"
         const val ACTION_TODAY_WIDGET = "com.example.schedule.ACTION_WIDGET_TODAY"
-        const val ACTION_SCROLL_UP = "com.example.schedule.ACTION_WIDGET_SCROLL_UP"
-        const val ACTION_SCROLL_DOWN = "com.example.schedule.ACTION_WIDGET_SCROLL_DOWN"
 
         fun updateAllWidgets(context: Context) {
             val appContext = context.applicationContext
@@ -90,7 +59,6 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     ?: "510902"
                 val subgroup = groupPrefs.getInt("subgroup", 0)
                 val dayOffset = prefs.getInt("widget_day_offset", 0)
-                val scrollOffset = prefs.getInt("widget_scroll_offset", 0)
 
                 val isDarkTheme = prefs.getBoolean("isDarkTheme", true)
                 val customPrimary = prefs.getInt("customPrimaryColor", -1)
@@ -116,29 +84,7 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                 }
 
                 var subtitle = "Расписание"
-                val rows = mutableListOf<WidgetLessonRow>()
-
-                fun mapLesson(l: BsuirLesson): WidgetLessonRow {
-                    val emp = l.employees?.firstOrNull()
-                    val teacherShort = if (emp != null) {
-                        val ln = emp.lastName ?: ""
-                        val fn = emp.firstName?.firstOrNull()?.let { "$it." } ?: ""
-                        val mn = emp.middleName?.firstOrNull()?.let { "$it." } ?: ""
-                        "$ln $fn $mn".trim()
-                    } else "Не указан"
-                    val subBit = if (l.numSubgroup != null && l.numSubgroup != 0) " (${l.numSubgroup} п.)" else ""
-                    val cleanAud = (l.auditories?.firstOrNull() ?: "—")
-                        .replace(Regex("(?i)ауд\\.?\\s*"), "")
-                        .trim()
-                    return WidgetLessonRow(
-                        startTime = l.startLessonTime ?: "",
-                        endTime = l.endLessonTime ?: "",
-                        typeAbbrev = l.lessonTypeAbbrev ?: "ЗАН",
-                        subject = "${l.subject ?: "Пара"}$subBit",
-                        teacher = teacherShort,
-                        auditory = cleanAud
-                    )
-                }
+                var hasLessons = false
 
                 try {
                     val cachedResp = if (targetGroup.any { it.isLetter() }) {
@@ -146,7 +92,6 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     } else {
                         BsuirApi.getCachedGroupSchedule(targetGroup)
                     }
-                    // Use cached response first if user is flipping days, or fetch if cache is empty
                     val resp = cachedResp ?: if (targetGroup.any { it.isLetter() }) {
                         BsuirApi.getEmployeeSchedule(targetGroup)
                     } else {
@@ -180,9 +125,8 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     }
 
                     if (targetLessons.isNotEmpty()) {
-                        targetLessons.forEach { rows.add(mapLesson(it)) }
+                        hasLessons = true
                     } else if (schedules.isEmpty()) {
-                        // Offline fallback to DataManager cached Lesson list
                         val dm = DataManager(appContext)
                         val localLessons = dm.getLessonsForTarget(targetGroup).ifEmpty { dm.getLessons() }
                         val localForDay = localLessons.filter { l ->
@@ -190,31 +134,12 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                                 (l.weeks.isEmpty() || l.weeks.contains(targetWeek)) &&
                                 (subgroup == 0 || l.subgroup == 0 || l.subgroup == subgroup)
                         }
-                        localForDay.forEach { l ->
-                            val subBit = if (l.subgroup != 0) " (${l.subgroup} п.)" else ""
-                            rows.add(
-                                WidgetLessonRow(
-                                    startTime = l.startTime,
-                                    endTime = l.endTime,
-                                    typeAbbrev = l.lessonType.ifBlank { "ЗАН" },
-                                    subject = "${l.title}$subBit",
-                                    teacher = l.teacherName.ifBlank { "Не указан" },
-                                    auditory = l.auditory.replace(Regex("(?i)ауд\\.?\\s*"), "").trim().ifBlank { "—" }
-                                )
-                            )
-                        }
+                        hasLessons = localForDay.isNotEmpty()
                     }
                 } catch (_: Exception) {}
 
                 val manager = AppWidgetManager.getInstance(appContext)
                 val ids = manager.getAppWidgetIds(ComponentName(appContext, ScheduleWidgetProvider::class.java))
-                val rowDefs = listOf(
-                    RowViewIds(R.id.widget_row_1, R.id.w_r1_start, R.id.w_r1_end, R.id.w_r1_type, R.id.w_r1_subj, R.id.w_r1_teacher, R.id.w_r1_aud),
-                    RowViewIds(R.id.widget_row_2, R.id.w_r2_start, R.id.w_r2_end, R.id.w_r2_type, R.id.w_r2_subj, R.id.w_r2_teacher, R.id.w_r2_aud),
-                    RowViewIds(R.id.widget_row_3, R.id.w_r3_start, R.id.w_r3_end, R.id.w_r3_type, R.id.w_r3_subj, R.id.w_r3_teacher, R.id.w_r3_aud),
-                    RowViewIds(R.id.widget_row_4, R.id.w_r4_start, R.id.w_r4_end, R.id.w_r4_type, R.id.w_r4_subj, R.id.w_r4_teacher, R.id.w_r4_aud),
-                    RowViewIds(R.id.widget_row_5, R.id.w_r5_start, R.id.w_r5_end, R.id.w_r5_type, R.id.w_r5_subj, R.id.w_r5_teacher, R.id.w_r5_aud)
-                )
 
                 for (widgetId in ids) {
                     val views = RemoteViews(appContext.packageName, R.layout.widget_schedule)
@@ -288,89 +213,33 @@ class ScheduleWidgetProvider : AppWidgetProvider() {
                     )
                     views.setOnClickPendingIntent(R.id.widget_subtitle, todayPending)
 
-                    val scrollUpIntent = Intent(appContext, ScheduleWidgetProvider::class.java).apply {
-                        action = ACTION_SCROLL_UP
+                    // Set up RemoteViewsService for scrollable ListView
+                    val serviceIntent = Intent(appContext, ScheduleWidgetService::class.java).apply {
+                        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+                        // Make intent URI unique so RemoteViewsFactory re-binds on update
+                        data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME) + "&time=${System.currentTimeMillis()}")
                     }
-                    val scrollUpPending = PendingIntent.getBroadcast(
-                        appContext,
-                        5,
-                        scrollUpIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                    )
-                    views.setOnClickPendingIntent(R.id.widget_scroll_up_btn, scrollUpPending)
+                    views.setRemoteAdapter(R.id.widget_list_view, serviceIntent)
 
-                    val scrollDownIntent = Intent(appContext, ScheduleWidgetProvider::class.java).apply {
-                        action = ACTION_SCROLL_DOWN
-                    }
-                    val scrollDownPending = PendingIntent.getBroadcast(
+                    val listClickIntent = Intent(appContext, MainActivity::class.java)
+                    val listClickPending = PendingIntent.getActivity(
                         appContext,
-                        6,
-                        scrollDownIntent,
-                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                        10,
+                        listClickIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
                     )
-                    views.setOnClickPendingIntent(R.id.widget_scroll_down_btn, scrollDownPending)
+                    views.setPendingIntentTemplate(R.id.widget_list_view, listClickPending)
 
-                    if (rows.isEmpty()) {
+                    if (!hasLessons) {
                         views.setViewVisibility(R.id.widget_empty, View.VISIBLE)
-                        views.setViewVisibility(R.id.widget_scroll_bar, View.GONE)
-                        rowDefs.forEach { views.setViewVisibility(it.containerId, View.GONE) }
+                        views.setViewVisibility(R.id.widget_list_view, View.GONE)
                     } else {
                         views.setViewVisibility(R.id.widget_empty, View.GONE)
-                        val totalLessons = rows.size
-                        val maxScroll = (totalLessons - 5).coerceAtLeast(0)
-                        prefs.edit().putInt("widget_scroll_max", maxScroll).apply()
-                        val currentOffset = scrollOffset.coerceIn(0, maxScroll)
-
-                        if (totalLessons > 5) {
-                            views.setViewVisibility(R.id.widget_scroll_bar, View.VISIBLE)
-                            val endIdx = (currentOffset + 5).coerceAtMost(totalLessons)
-                            views.setTextViewText(R.id.widget_scroll_info, "${currentOffset + 1}-$endIdx из $totalLessons")
-                            views.setTextColor(R.id.widget_scroll_info, secondaryColor)
-                            views.setTextColor(R.id.widget_scroll_up_btn, if (currentOffset > 0) primaryColor else secondaryColor)
-                            views.setTextColor(R.id.widget_scroll_down_btn, if (currentOffset < maxScroll) primaryColor else secondaryColor)
-                        } else {
-                            views.setViewVisibility(R.id.widget_scroll_bar, View.GONE)
-                        }
-
-                        for (i in rowDefs.indices) {
-                            val def = rowDefs[i]
-                            val lessonIndex = currentOffset + i
-                            if (lessonIndex < rows.size) {
-                                val r = rows[lessonIndex]
-                                views.setViewVisibility(def.containerId, View.VISIBLE)
-                                views.setTextViewText(def.startId, r.startTime)
-                                views.setTextColor(def.startId, primaryColor)
-                                views.setTextViewText(def.endId, r.endTime)
-                                views.setTextColor(def.endId, secondaryColor)
-
-                                val typeColor = when (r.typeAbbrev.uppercase()) {
-                                    "ЛК" -> if (isDarkTheme) Color.parseColor("#4ADE80") else Color.parseColor("#15803D")
-                                    "ПЗ" -> if (isDarkTheme) Color.parseColor("#C084FC") else Color.parseColor("#7E22CE")
-                                    "ЛР" -> if (isDarkTheme) Color.parseColor("#FB923C") else Color.parseColor("#C2410C")
-                                    else -> primaryColor
-                                }
-                                views.setTextViewText(def.typeId, r.typeAbbrev)
-                                views.setTextColor(def.typeId, typeColor)
-
-                                views.setTextViewText(def.subjId, r.subject)
-                                views.setTextColor(def.subjId, primaryColor)
-
-                                if (r.teacher.isNotBlank() && r.teacher != "Не указан") {
-                                    views.setViewVisibility(def.teacherId, View.VISIBLE)
-                                    views.setTextViewText(def.teacherId, r.teacher)
-                                    views.setTextColor(def.teacherId, secondaryColor)
-                                } else {
-                                    views.setViewVisibility(def.teacherId, View.GONE)
-                                }
-
-                                views.setTextViewText(def.audId, r.auditory)
-                                views.setTextColor(def.audId, primaryColor)
-                            } else {
-                                views.setViewVisibility(def.containerId, View.GONE)
-                            }
-                        }
+                        views.setViewVisibility(R.id.widget_list_view, View.VISIBLE)
                     }
+
                     manager.updateAppWidget(widgetId, views)
+                    manager.notifyAppWidgetViewDataChanged(widgetId, R.id.widget_list_view)
                 }
             }
         }
