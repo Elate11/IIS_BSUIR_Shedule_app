@@ -7,7 +7,8 @@
 ## Установка
 
 Готовый установочный файл находится прямо в репозитории:
-[Скачать IIS_BSUIR_Schedule.apk](https://github.com/shustmaks7/IIS_BSUIR_Shedule_app/raw/main/IIS_BSUIR_Schedule.apk)
+- [Скачать IIS_BSUIR_Schedule.apk](https://github.com/Elate11/IIS_BSUIR_Shedule_app/raw/main/IIS_BSUIR_Schedule.apk)
+- [Зеркало (release/IIS_BSUIR_Schedule.apk)](https://github.com/Elate11/IIS_BSUIR_Shedule_app/raw/main/release/IIS_BSUIR_Schedule.apk)
 
 ---
 
