@@ -1638,7 +1638,10 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val prefs = remember { context.getSharedPreferences("group_prefs", android.content.Context.MODE_PRIVATE) }
     val schedulePrefs = remember { context.getSharedPreferences("schedule_prefs", android.content.Context.MODE_PRIVATE) }
     var isDateRailVisible by remember { mutableStateOf(schedulePrefs.getBoolean("date_rail_visible", true)) }
-    var lessons by remember(effectiveGroup) {
+    var isScheduleRefreshing by remember { mutableStateOf(false) }
+    var scheduleRefreshTrigger by remember { mutableIntStateOf(0) }
+    val scheduleListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    var lessons by remember(effectiveGroup, scheduleRefreshTrigger) {
         val localTarget = dataManager.getLessonsForTarget(effectiveGroup)
         val initial = if (localTarget.isNotEmpty()) localTarget else if (inlineTeacherData == null) dataManager.getLessons() else emptyList()
         mutableStateOf(initial)
@@ -1773,7 +1776,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         return newLessons to parsedExams
     }
 
-    LaunchedEffect(effectiveGroup) {
+    LaunchedEffect(effectiveGroup, scheduleRefreshTrigger) {
         BsuirApi.initCache(context)
         val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
         val targetGrp = if (effectiveGroup == "114001" && realLoginGrp != null) realLoginGrp else effectiveGroup
@@ -1783,31 +1786,33 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
         }
 
         // 1. Instant local load from device memory (DataManager & BsuirApi disk cache)
-        val cachedTargetLessons = dataManager.getLessonsForTarget(targetGrp)
-        if (cachedTargetLessons.isNotEmpty()) {
-            lessons = cachedTargetLessons
-        } else {
-            val diskResp = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                if (effectiveGroup.any { it.isLetter() }) {
-                    BsuirApi.getCachedEmployeeSchedule(effectiveGroup)
-                } else {
-                    BsuirApi.getCachedGroupSchedule(effectiveGroup)
+        if (scheduleRefreshTrigger == 0) {
+            val cachedTargetLessons = dataManager.getLessonsForTarget(targetGrp)
+            if (cachedTargetLessons.isNotEmpty()) {
+                lessons = cachedTargetLessons
+            } else {
+                val diskResp = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    if (effectiveGroup.any { it.isLetter() }) {
+                        BsuirApi.getCachedEmployeeSchedule(effectiveGroup)
+                    } else {
+                        BsuirApi.getCachedGroupSchedule(effectiveGroup)
+                    }
+                }
+                if (diskResp != null) {
+                    val (diskLessons, diskExams) = parseScheduleResponse(diskResp)
+                    if (diskLessons.isNotEmpty()) {
+                        lessons = diskLessons
+                        dataManager.saveLessonsForTarget(targetGrp, diskLessons)
+                    }
+                    if (diskExams.isNotEmpty()) {
+                        sessionExams = diskExams
+                        dataManager.saveExams(targetGrp, diskExams)
+                    }
                 }
             }
-            if (diskResp != null) {
-                val (diskLessons, diskExams) = parseScheduleResponse(diskResp)
-                if (diskLessons.isNotEmpty()) {
-                    lessons = diskLessons
-                    dataManager.saveLessonsForTarget(targetGrp, diskLessons)
-                }
-                if (diskExams.isNotEmpty()) {
-                    sessionExams = diskExams
-                    dataManager.saveExams(targetGrp, diskExams)
-                }
-            }
+            sessionExams = dataManager.getExams(targetGrp)
+            sessionPeriod = dataManager.getSessionPeriod(targetGrp)
         }
-        sessionExams = dataManager.getExams(targetGrp)
-        sessionPeriod = dataManager.getSessionPeriod(targetGrp)
 
         // 2. Background network sync (updates device memory seamlessly when online)
         val response = if (effectiveGroup.any { it.isLetter() }) {
@@ -1847,6 +1852,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
             val cached = dataManager.getLessonsForTarget(targetGrp).ifEmpty { dataManager.getLessons() }
             lessons = cached
         }
+        isScheduleRefreshing = false
     }
 
     var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -1965,21 +1971,35 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     Box(modifier = Modifier.fillMaxSize().let { if (isDialogOpen) it.blur(16.dp) else it }) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize()
-            .padding(end = if (isSessionMode || !isDateRailVisible) 16.dp else 46.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-                if (styleType == StyleType.Techno) {
-                    rotationX = (-tiltY * 3.5f).coerceIn(-6f, 6f)
-                    rotationY = (tiltX * 4.5f).coerceIn(-7f, 7f)
-                    cameraDistance = 10f * density
+        ApplePullToRefreshContainer(
+            isRefreshing = isScheduleRefreshing,
+            onRefresh = {
+                if (!isScheduleRefreshing) {
+                    isScheduleRefreshing = true
+                    scheduleRefreshTrigger++
                 }
             },
-        contentPadding = PaddingValues(start = 20.dp, end = 2.dp, top = 24.dp, bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
+            accentColor = MinAccent,
+            indicatorColor = MinTextPrimary,
+            canScrollBackward = { scheduleListState.canScrollBackward }
+        ) { pullOffsetDp ->
+            LazyColumn(
+                state = scheduleListState,
+                modifier = Modifier.fillMaxSize()
+                    .offset(y = pullOffsetDp)
+                    .padding(end = if (isSessionMode || !isDateRailVisible) 16.dp else 46.dp)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        if (styleType == StyleType.Techno) {
+                            rotationX = (-tiltY * 3.5f).coerceIn(-6f, 6f)
+                            rotationY = (tiltX * 4.5f).coerceIn(-7f, 7f)
+                            cameraDistance = 10f * density
+                        }
+                    },
+                contentPadding = PaddingValues(start = 20.dp, end = 2.dp, top = 24.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
         item {
             Column {
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -2539,6 +2559,7 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
                     )
                 }
             }
+        }
         }
     }
 
@@ -4340,22 +4361,38 @@ fun MinMarksScreen(
         label = "refreshAnim"
     )
 
+    val marksListState = androidx.compose.foundation.lazy.rememberLazyListState()
+
     androidx.compose.foundation.layout.Box(
         modifier = androidx.compose.ui.Modifier
             .fillMaxSize()
             .background(appleBg)
     ) {
-        androidx.compose.foundation.lazy.LazyColumn(
-            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 20.dp,
-                end = 20.dp,
-                top = 28.dp,
-                bottom = 48.dp
-            ),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)
-        ) {
-            // 1. Header with Title & Refresh Action
+        ApplePullToRefreshContainer(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                if (!isRefreshing) {
+                    loadData(true)
+                }
+            },
+            accentColor = appleAccent,
+            indicatorColor = appleTextPrimary,
+            canScrollBackward = { marksListState.canScrollBackward }
+        ) { pullOffsetDp ->
+            androidx.compose.foundation.lazy.LazyColumn(
+                state = marksListState,
+                modifier = androidx.compose.ui.Modifier
+                    .fillMaxSize()
+                    .offset(y = pullOffsetDp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 20.dp,
+                    end = 20.dp,
+                    top = 28.dp,
+                    bottom = 48.dp
+                ),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp)
+            ) {
+            // 1. Header with Title
             item {
                 androidx.compose.foundation.layout.Row(
                     modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
@@ -4372,27 +4409,6 @@ fun MinMarksScreen(
                                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
                             ),
                             color = appleTextPrimary
-                        )
-                    }
-
-                    // Refresh Button
-                    androidx.compose.foundation.layout.Box(
-                        modifier = androidx.compose.ui.Modifier
-                            .size(40.dp)
-                            .clip(androidx.compose.foundation.shape.CircleShape)
-                            .clickable {
-                                AppHapticManager.playClick()
-                                loadData(true)
-                            },
-                        contentAlignment = androidx.compose.ui.Alignment.Center
-                    ) {
-                        androidx.compose.material3.Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Outlined.Refresh,
-                            contentDescription = "Обновить",
-                            tint = appleAccent,
-                            modifier = androidx.compose.ui.Modifier
-                                .size(20.dp)
-                                .graphicsLayer { rotationZ = if (isRefreshing) refreshRotation else 0f }
                         )
                     }
                 }
@@ -4869,6 +4885,7 @@ fun MinMarksScreen(
                     }
                 }
             }
+        }
         }
     }
 }
@@ -7575,8 +7592,11 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     val gson = remember { com.google.gson.Gson() }
 
     var predefinedSubjects by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isNotesRefreshing by remember { mutableStateOf(false) }
+    var notesRefreshTrigger by remember { mutableIntStateOf(0) }
+    val notesListState = androidx.compose.foundation.lazy.rememberLazyListState()
     
-    androidx.compose.runtime.LaunchedEffect(selectedGroup) {
+    androidx.compose.runtime.LaunchedEffect(selectedGroup, notesRefreshTrigger) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val appPrefs = context.getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
@@ -7619,6 +7639,10 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    isNotesRefreshing = false
+                }
             }
         }
     }
@@ -8458,11 +8482,30 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 36.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        ApplePullToRefreshContainer(
+            isRefreshing = isNotesRefreshing,
+            onRefresh = {
+                if (!isNotesRefreshing) {
+                    isNotesRefreshing = true
+                    try {
+                        val type = object : com.google.gson.reflect.TypeToken<List<Note>>() {}.type
+                        notes = com.google.gson.Gson().fromJson<List<Note>>(prefs.getString("notes_data", "[]"), type) ?: emptyList()
+                    } catch (e: Exception) {}
+                    notesRefreshTrigger++
+                }
+            },
+            accentColor = MinAccent,
+            indicatorColor = MinTextPrimary,
+            canScrollBackward = { notesListState.canScrollBackward }
+        ) { pullOffsetDp ->
+            LazyColumn(
+                state = notesListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .offset(y = pullOffsetDp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 36.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             // Header with Title & View Mode Toggle
             item {
                 Row(
@@ -8763,6 +8806,7 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
                     }
                 }
             }
+        }
         }
 
         // Floating Action Button in Bottom-Right Corner

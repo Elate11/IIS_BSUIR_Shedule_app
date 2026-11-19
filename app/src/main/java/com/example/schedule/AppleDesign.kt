@@ -27,6 +27,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -1243,5 +1246,125 @@ private fun distributeAngles(start: Double, end: Double, count: Int): List<Doubl
     val step = (end - start) / (count - 1)
     return (0 until count).map { start + (it * step) }
 }
+
+/**
+ * Universal Apple Pull-To-Refresh Container
+ * Supports smooth iOS/Apple-style rubber-banding, spring bounce, haptic feedback on trigger,
+ * and a tactile rotating indicator.
+ */
+@Composable
+fun ApplePullToRefreshContainer(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    accentColor: Color = Color(0xFF007AFF),
+    indicatorColor: Color = Color.White,
+    canScrollBackward: () -> Boolean,
+    content: @Composable (pullOffsetDp: Dp) -> Unit
+) {
+    var pullDistance by remember { mutableFloatStateOf(0f) }
+    val maxPullDistance = 120f
+    val triggerDistance = 64f
+
+    val animatedOffset by animateFloatAsState(
+        targetValue = if (isRefreshing) triggerDistance else pullDistance.coerceIn(0f, maxPullDistance),
+        animationSpec = spring(
+            dampingRatio = 0.72f,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+        ),
+        label = "pullOffset"
+    )
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                // If user scrolls upwards while pull is active, consume and reduce pull
+                if (available.y < 0 && pullDistance > 0f) {
+                    val consumed = available.y
+                    pullDistance = (pullDistance + available.y * 0.5f).coerceAtLeast(0f)
+                    return androidx.compose.ui.geometry.Offset(0f, consumed)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                // When at the very top of content and dragging downwards
+                if (available.y > 0 && !canScrollBackward() && !isRefreshing) {
+                    val oldDist = pullDistance
+                    val newDist = pullDistance + available.y * 0.45f
+                    if (oldDist < triggerDistance && newDist >= triggerDistance) {
+                        AppHapticManager.playClick()
+                    }
+                    pullDistance = newDist
+                    return available
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (pullDistance >= triggerDistance && !isRefreshing) {
+                    AppHapticManager.playClick()
+                    onRefresh()
+                }
+                pullDistance = 0f
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(nestedScrollConnection)
+    ) {
+        // Pull-to-refresh Indicator
+        if (animatedOffset > 4f || isRefreshing) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(animatedOffset.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isRefreshing) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = accentColor,
+                        strokeWidth = 2.5.dp
+                    )
+                } else {
+                    val progress = (animatedOffset / triggerDistance).coerceIn(0f, 1f)
+                    val rotation = progress * 180f
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.25f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle, // subtle indicator icon or arrow
+                            contentDescription = "Потяните для обновления",
+                            tint = if (progress >= 1f) accentColor else indicatorColor.copy(alpha = 0.7f),
+                            modifier = Modifier
+                                .size(20.dp)
+                                .graphicsLayer { rotationZ = rotation }
+                        )
+                    }
+                }
+            }
+        }
+
+        // Main content displaced smoothly downwards by animatedOffset
+        content(animatedOffset.dp)
+    }
+}
+
 
 
