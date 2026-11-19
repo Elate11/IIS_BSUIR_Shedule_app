@@ -1068,6 +1068,15 @@ fun MinimalistApp() {
     ) }
     androidx.compose.runtime.LaunchedEffect(styleType) { sharedPreferences.edit().putString("styleType", styleType.name).apply() }
 
+    var navMode by remember { mutableStateOf(
+        when (sharedPreferences.getString("navMode", "Hold")) {
+            "Swipe" -> NavigationMode.Swipe
+            "Buttons" -> NavigationMode.Buttons
+            else -> NavigationMode.Hold
+        }
+    ) }
+    androidx.compose.runtime.LaunchedEffect(navMode) { sharedPreferences.edit().putString("navMode", navMode.name).apply() }
+
     val isTechnoStyle = styleType == StyleType.Techno
 
     val actualBg = if (isTechnoStyle) Color(0xFF000000)
@@ -1155,8 +1164,8 @@ fun MinimalistApp() {
         var touchChargeOffset by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
         val touchChargeAnim = remember { androidx.compose.animation.core.Animatable(0f) }
 
-        Box(
-            modifier = Modifier
+        val rootModifier = if (navMode == NavigationMode.Hold) {
+            Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
                     awaitPointerEventScope {
@@ -1203,6 +1212,12 @@ fun MinimalistApp() {
                         }
                     }
                 }
+        } else {
+            Modifier.fillMaxSize()
+        }
+
+        Box(
+            modifier = rootModifier
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
             if (bgMode == "Gallery" && bgImageUri != null) {
@@ -1241,13 +1256,143 @@ fun MinimalistApp() {
             }
             
             Scaffold(
-                bottomBar = {},
+                bottomBar = {
+                    if (navMode == NavigationMode.Buttons) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 24.dp, end = 24.dp, bottom = 12.dp)
+                                .navigationBarsPadding(),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (styleType == StyleType.Techno) {
+                                    // ASCII terminal nav bar
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(56.dp)
+                                            .background(Color(0xFF0D0D0D).copy(alpha = 0.97f))
+                                            .border(1.dp, MinTextPrimary.copy(alpha = 0.8f)),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceEvenly
+                                    ) {
+                                        val labels = listOf("[SCH]", "[MRK]", "[NTS]", "[PRF]")
+                                        items.forEachIndexed { index, _ ->
+                                            val isSelected = selectedItem == index
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .border(if (isSelected) 1.dp else 0.dp, if (isSelected) MinTextPrimary else Color.Transparent)
+                                                    .clickable {
+                                                        AppHapticManager.playClick()
+                                                        coroutineScope.launch { pagerState.scrollToPage(index) }
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = if (isSelected) "> ${labels[index]}" else labels[index],
+                                                    fontFamily = vt323FontFamily,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (isSelected) MinTextPrimary else MinTextSecondary
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Box(modifier = Modifier.fillMaxWidth().height(72.dp)) {
+                                        // Animated Sliding Bubble
+                                        androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                            val tabWidth = maxWidth / items.size
+                                            val indicatorOffset by androidx.compose.animation.core.animateDpAsState(
+                                                targetValue = tabWidth * selectedItem,
+                                                animationSpec = androidx.compose.animation.core.spring(
+                                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                                                )
+                                            )
+                                            Box(
+                                                modifier = Modifier.offset(x = indicatorOffset).width(tabWidth).fillMaxHeight(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(width = 64.dp, height = 48.dp)
+                                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                                                        .background(MinAccent.copy(alpha = 0.22f))
+                                                )
+                                            }
+                                        }
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            items.forEachIndexed { index, item ->
+                                                val isSelected = selectedItem == index
+                                                
+                                                Box(
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .fillMaxHeight()
+                                                        .clickable(
+                                                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                                            indication = null,
+                                                            onClick = { 
+                                                                AppHapticManager.playClick()
+                                                                coroutineScope.launch {
+                                                                    if (transitionsEnabled) {
+                                                                        pagerState.animateScrollToPage(
+                                                                            page = index,
+                                                                            animationSpec = tween((500 / transitionSpeedMultiplier).toInt())
+                                                                        )
+                                                                    } else {
+                                                                        pagerState.scrollToPage(index)
+                                                                    }
+                                                                }
+                                                            }
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        icons[index], 
+                                                        contentDescription = item, 
+                                                        modifier = Modifier.size(28.dp),
+                                                        tint = if (isSelected) MinTextPrimary else MinTextSecondary
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                } // end else (Minimal nav bar)
+                                if (styleType == StyleType.Minimal) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        items.indices.forEach { index ->
+                                            val isSelected = selectedItem == index
+                                            val color by androidx.compose.animation.animateColorAsState(if (isSelected) MinTextPrimary else MinTextSecondary.copy(alpha = 0.3f))
+                                            val size by androidx.compose.animation.core.animateDpAsState(if (isSelected) 6.dp else 4.dp)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(size)
+                                                    .clip(CircleShape)
+                                                    .background(color)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
                 containerColor = Color.Transparent
             ) { paddingValues ->
                 Box(modifier = Modifier.padding(paddingValues).fillMaxSize().background(Color.Transparent)) {
                 androidx.compose.foundation.pager.HorizontalPager(
                     state = pagerState,
-                    userScrollEnabled = false,
+                    userScrollEnabled = (navMode == NavigationMode.Swipe),
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
                     val pageOffset = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
@@ -1301,52 +1446,56 @@ fun MinimalistApp() {
                                 if (it != null) {
                                     isDarkTheme = it.luminance() < 0.5f
                                 }
-                            }, { bgMode = it }, { bgImageUri = it }, { bgBlur = it }, { bgDim = it }, { bgEmoji = it }, { customParticleColor = it }, { styleType = it })
+                            }, { bgMode = it }, { bgImageUri = it }, { bgBlur = it }, { bgDim = it }, { bgEmoji = it }, { customParticleColor = it }, { styleType = it },
+                            navMode = navMode,
+                            onNavModeChange = { navMode = it })
                         }
                     }
                 }
             }
         }
 
-        AppleTouchChargingAura(
-            touchOffset = touchChargeOffset,
-            progress = touchChargeAnim.value,
-            isDarkTheme = isDarkTheme,
-            accentColor = MinAccent
-        )
+        if (navMode == NavigationMode.Hold) {
+            AppleTouchChargingAura(
+                touchOffset = touchChargeOffset,
+                progress = touchChargeAnim.value,
+                isDarkTheme = isDarkTheme,
+                accentColor = MinAccent
+            )
 
-        AppleRadialMenu(
-            isOpen = showRadialMenu,
-            onDismiss = { showRadialMenu = false },
-            items = listOf(
-                RadialNavMenuItem("Расписание", Icons.Outlined.DateRange, 0),
-                RadialNavMenuItem("Оценки", Icons.Outlined.CheckCircle, 1),
-                RadialNavMenuItem("Заметки", Icons.Outlined.Edit, 2),
-                RadialNavMenuItem("Профиль", Icons.Outlined.Person, 3)
-            ),
-            selectedIndex = pagerState.currentPage,
-            onSelectIndex = { index ->
-                if (index != pagerState.currentPage) {
-                    coroutineScope.launch {
-                        if (transitionsEnabled) {
-                            val duration = ((420f / transitionSpeedMultiplier.coerceAtLeast(0.5f)).toInt()).coerceIn(150, 1000)
-                            pagerState.animateScrollToPage(
-                                page = index,
-                                animationSpec = tween(
-                                    durationMillis = duration,
-                                    easing = androidx.compose.animation.core.FastOutSlowInEasing
+            AppleRadialMenu(
+                isOpen = showRadialMenu,
+                onDismiss = { showRadialMenu = false },
+                items = listOf(
+                    RadialNavMenuItem("Расписание", Icons.Outlined.DateRange, 0),
+                    RadialNavMenuItem("Оценки", Icons.Outlined.CheckCircle, 1),
+                    RadialNavMenuItem("Заметки", Icons.Outlined.Edit, 2),
+                    RadialNavMenuItem("Профиль", Icons.Outlined.Person, 3)
+                ),
+                selectedIndex = pagerState.currentPage,
+                onSelectIndex = { index ->
+                    if (index != pagerState.currentPage) {
+                        coroutineScope.launch {
+                            if (transitionsEnabled) {
+                                val duration = ((420f / transitionSpeedMultiplier.coerceAtLeast(0.5f)).toInt()).coerceIn(150, 1000)
+                                pagerState.animateScrollToPage(
+                                    page = index,
+                                    animationSpec = tween(
+                                        durationMillis = duration,
+                                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                    )
                                 )
-                            )
-                        } else {
-                            pagerState.scrollToPage(index)
+                            } else {
+                                pagerState.scrollToPage(index)
+                            }
                         }
                     }
-                }
-            },
-            isDarkTheme = isDarkTheme,
-            accentColor = MinAccent,
-            touchPosition = radialTouchPosition
-        )
+                },
+                isDarkTheme = isDarkTheme,
+                accentColor = MinAccent,
+                touchPosition = radialTouchPosition
+            )
+        }
     }
     } // closes appContent lambda
 
@@ -9164,7 +9313,7 @@ fun MinNotesCalendar(
 }
 
 @Composable
-fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, isDarkTheme: Boolean, currentAccent: Color, particlesEnabled: Boolean, particleSizeMultiplier: Float, transitionsEnabled: Boolean, transitionType: TransitionType, transitionSpeedMultiplier: Float, fontFamily: androidx.compose.ui.text.font.FontFamily, textSizeMultiplier: Float, bgMode: String, bgImageUri: String?, bgBlur: Float, bgDim: Float, bgEmoji: String, customParticleColor: Color?, onThemeToggle: () -> Unit, onAccentChange: (Color) -> Unit, onParticlesToggle: (Boolean) -> Unit, onParticleSizeChange: (Float) -> Unit, onTransitionsToggle: (Boolean) -> Unit, onTransitionTypeChange: (TransitionType) -> Unit, onTransitionSpeedChange: (Float) -> Unit, onFontChange: (androidx.compose.ui.text.font.FontFamily) -> Unit, onTextSizeChange: (Float) -> Unit, onPrimaryColorChange: (Color?) -> Unit, onBackgroundColorChange: (Color?) -> Unit, onBgModeChange: (String) -> Unit, onBgImageUriChange: (String?) -> Unit, onBgBlurChange: (Float) -> Unit, onBgDimChange: (Float) -> Unit, onBgEmojiChange: (String) -> Unit, onParticleColorChange: (Color?) -> Unit, onStyleChange: (StyleType) -> Unit) {
+fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrimary: Color, MinTextSecondary: Color, isDarkTheme: Boolean, currentAccent: Color, particlesEnabled: Boolean, particleSizeMultiplier: Float, transitionsEnabled: Boolean, transitionType: TransitionType, transitionSpeedMultiplier: Float, fontFamily: androidx.compose.ui.text.font.FontFamily, textSizeMultiplier: Float, bgMode: String, bgImageUri: String?, bgBlur: Float, bgDim: Float, bgEmoji: String, customParticleColor: Color?, onThemeToggle: () -> Unit, onAccentChange: (Color) -> Unit, onParticlesToggle: (Boolean) -> Unit, onParticleSizeChange: (Float) -> Unit, onTransitionsToggle: (Boolean) -> Unit, onTransitionTypeChange: (TransitionType) -> Unit, onTransitionSpeedChange: (Float) -> Unit, onFontChange: (androidx.compose.ui.text.font.FontFamily) -> Unit, onTextSizeChange: (Float) -> Unit, onPrimaryColorChange: (Color?) -> Unit, onBackgroundColorChange: (Color?) -> Unit, onBgModeChange: (String) -> Unit, onBgImageUriChange: (String?) -> Unit, onBgBlurChange: (Float) -> Unit, onBgDimChange: (Float) -> Unit, onBgEmojiChange: (String) -> Unit, onParticleColorChange: (Color?) -> Unit, onStyleChange: (StyleType) -> Unit, navMode: NavigationMode = NavigationMode.Hold, onNavModeChange: (NavigationMode) -> Unit = {}) {
     var showCustomization by remember { mutableStateOf(false) }
     var showGradebook by remember { mutableStateOf(false) }
     var showMarks by remember { mutableStateOf(false) }
@@ -9483,7 +9632,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
     if (showCustomization) {
         androidx.activity.compose.BackHandler(onBack = { showCustomization = false })
-        MinCustomizationView(MinBg, MinBorder, MinTextPrimary, MinTextSecondary, isDarkTheme, currentAccent, particlesEnabled, particleSizeMultiplier, transitionsEnabled, transitionType, transitionSpeedMultiplier, fontFamily, textSizeMultiplier, bgMode, bgImageUri, bgBlur, bgDim, bgEmoji, customParticleColor, onThemeToggle, onAccentChange, onParticlesToggle, onParticleSizeChange, onTransitionsToggle, onTransitionTypeChange, onTransitionSpeedChange, onFontChange, onTextSizeChange, onPrimaryColorChange, onBackgroundColorChange, onBgModeChange, onBgImageUriChange, onBgBlurChange, onBgDimChange, onBgEmojiChange, onParticleColorChange, onStyleChange) {
+        MinCustomizationView(MinBg, MinBorder, MinTextPrimary, MinTextSecondary, isDarkTheme, currentAccent, particlesEnabled, particleSizeMultiplier, transitionsEnabled, transitionType, transitionSpeedMultiplier, fontFamily, textSizeMultiplier, bgMode, bgImageUri, bgBlur, bgDim, bgEmoji, customParticleColor, onThemeToggle, onAccentChange, onParticlesToggle, onParticleSizeChange, onTransitionsToggle, onTransitionTypeChange, onTransitionSpeedChange, onFontChange, onTextSizeChange, onPrimaryColorChange, onBackgroundColorChange, onBgModeChange, onBgImageUriChange, onBgBlurChange, onBgDimChange, onBgEmojiChange, onParticleColorChange, onStyleChange, navMode = navMode, onNavModeChange = onNavModeChange) {
             showCustomization = false
         }
     } else if (showGradebook) {
@@ -10610,7 +10759,7 @@ fun InfoDialog(
 
 @Composable
 fun MinCustomizationView(
-    MinBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean, currentAccent: androidx.compose.ui.graphics.Color, particlesEnabled: Boolean, particleSizeMultiplier: Float, transitionsEnabled: Boolean, transitionType: TransitionType, transitionSpeedMultiplier: Float, fontFamily: androidx.compose.ui.text.font.FontFamily, textSizeMultiplier: Float, bgMode: String, bgImageUri: String?, bgBlur: Float, bgDim: Float, bgEmoji: String, customParticleColor: androidx.compose.ui.graphics.Color?, onThemeToggle: () -> Unit, onAccentChange: (androidx.compose.ui.graphics.Color) -> Unit, onParticlesToggle: (Boolean) -> Unit, onParticleSizeChange: (Float) -> Unit, onTransitionsToggle: (Boolean) -> Unit, onTransitionTypeChange: (TransitionType) -> Unit, onTransitionSpeedChange: (Float) -> Unit, onFontChange: (androidx.compose.ui.text.font.FontFamily) -> Unit, onTextSizeChange: (Float) -> Unit, onPrimaryColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBackgroundColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBgModeChange: (String) -> Unit, onBgImageUriChange: (String?) -> Unit, onBgBlurChange: (Float) -> Unit, onBgDimChange: (Float) -> Unit, onBgEmojiChange: (String) -> Unit, onParticleColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onStyleChange: (StyleType) -> Unit, onBack: () -> Unit
+    MinBg: androidx.compose.ui.graphics.Color, MinBorder: androidx.compose.ui.graphics.Color, MinTextPrimary: androidx.compose.ui.graphics.Color, MinTextSecondary: androidx.compose.ui.graphics.Color, isDarkTheme: Boolean, currentAccent: androidx.compose.ui.graphics.Color, particlesEnabled: Boolean, particleSizeMultiplier: Float, transitionsEnabled: Boolean, transitionType: TransitionType, transitionSpeedMultiplier: Float, fontFamily: androidx.compose.ui.text.font.FontFamily, textSizeMultiplier: Float, bgMode: String, bgImageUri: String?, bgBlur: Float, bgDim: Float, bgEmoji: String, customParticleColor: androidx.compose.ui.graphics.Color?, onThemeToggle: () -> Unit, onAccentChange: (androidx.compose.ui.graphics.Color) -> Unit, onParticlesToggle: (Boolean) -> Unit, onParticleSizeChange: (Float) -> Unit, onTransitionsToggle: (Boolean) -> Unit, onTransitionTypeChange: (TransitionType) -> Unit, onTransitionSpeedChange: (Float) -> Unit, onFontChange: (androidx.compose.ui.text.font.FontFamily) -> Unit, onTextSizeChange: (Float) -> Unit, onPrimaryColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBackgroundColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onBgModeChange: (String) -> Unit, onBgImageUriChange: (String?) -> Unit, onBgBlurChange: (Float) -> Unit, onBgDimChange: (Float) -> Unit, onBgEmojiChange: (String) -> Unit, onParticleColorChange: (androidx.compose.ui.graphics.Color?) -> Unit, onStyleChange: (StyleType) -> Unit, navMode: NavigationMode = NavigationMode.Hold, onNavModeChange: (NavigationMode) -> Unit = {}, onBack: () -> Unit
 ) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -11225,6 +11374,69 @@ fun MinCustomizationView(
                 )
             }
         }
+
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MinBorder, thickness = 1.dp)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Переключение между окнами", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = MinTextSecondary)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val navModes = listOf(
+                NavigationMode.Hold to "Зажатие",
+                NavigationMode.Swipe to "Свайп",
+                NavigationMode.Buttons to "Кнопки"
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                navModes.forEach { (mode, label) ->
+                    val isSelected = navMode == mode
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (isSelected) MinTextPrimary.copy(alpha = 0.12f) else Color.Transparent)
+                            .border(
+                                if (isSelected) 2.dp else 1.dp,
+                                if (isSelected) MinTextPrimary else MinBorder,
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable {
+                                AppHapticManager.playClick()
+                                onNavModeChange(mode)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AutoResizedText(
+                            label,
+                            fontSize = 15.sp,
+                            minFontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) MinTextPrimary else MinTextSecondary,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            val modeDescription = when (navMode) {
+                NavigationMode.Hold -> "Зажатием пальца: удержание для вызова меню"
+                NavigationMode.Swipe -> "Свайпом влево и вправо: перелистывание экранов жестом"
+                NavigationMode.Buttons -> "Кнопками: 4 кнопки навигации внизу экрана"
+            }
+            Text(
+                text = modeDescription,
+                fontSize = 14.sp,
+                color = MinTextSecondary,
+                lineHeight = 18.sp
+            )
+        }
     }
 }
 
@@ -11579,6 +11791,8 @@ enum class TransitionType(val title: String) { Slide("Слайд"), Fade("Выц
 
 enum class StyleType(val title: String) { Minimal("Минимализм"), Techno("Техно") }
 val LocalStyleType = androidx.compose.runtime.compositionLocalOf { StyleType.Minimal }
+
+enum class NavigationMode(val title: String) { Hold("Зажатие"), Swipe("Свайп"), Buttons("Кнопки") }
 
 @Composable
 fun ScanlineOverlay() {
