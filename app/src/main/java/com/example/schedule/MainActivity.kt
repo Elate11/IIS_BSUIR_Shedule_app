@@ -9591,7 +9591,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 available: androidx.compose.ui.geometry.Offset,
                 source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
             ): androidx.compose.ui.geometry.Offset {
-                if (available.y > 0 && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                if (available.y > 0 && kotlin.math.abs(available.y) > (kotlin.math.abs(available.x) * 1.5f) && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
                     val newDistance = pullDistance + available.y * 0.45f
                     if (pullDistance < 70f && newDistance >= 70f) {
                         AppHapticManager.playClick()

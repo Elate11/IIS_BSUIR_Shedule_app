@@ -1295,8 +1295,9 @@ fun ApplePullToRefreshContainer(
                 available: androidx.compose.ui.geometry.Offset,
                 source: NestedScrollSource
             ): androidx.compose.ui.geometry.Offset {
-                // When at the very top of content and dragging downwards
-                if (available.y > 0 && !canScrollBackward() && !isRefreshing) {
+                // When at the very top of content and dragging strictly downwards
+                // Ignore diagonal / horizontal gestures to prevent interfering with HorizontalPager swipe
+                if (available.y > 0 && kotlin.math.abs(available.y) > (kotlin.math.abs(available.x) * 1.5f) && !canScrollBackward() && !isRefreshing) {
                     val oldDist = pullDistance
                     val newDist = pullDistance + available.y * 0.45f
                     if (oldDist < triggerDistance && newDist >= triggerDistance) {
