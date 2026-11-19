@@ -1633,6 +1633,13 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     val schedulePrefs = remember { context.getSharedPreferences("schedule_prefs", android.content.Context.MODE_PRIVATE) }
     var isDateRailVisible by remember { mutableStateOf(schedulePrefs.getBoolean("date_rail_visible", true)) }
     var isScheduleRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isScheduleRefreshing) {
+        if (isScheduleRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            isScheduleRefreshing = false
+        }
+    }
     var scheduleRefreshTrigger by remember { mutableIntStateOf(0) }
     val scheduleListState = androidx.compose.foundation.lazy.rememberLazyListState()
     var lessons by remember(effectiveGroup, scheduleRefreshTrigger) {
@@ -4038,6 +4045,13 @@ fun MinMarksScreen(
     var subjectsList by remember { mutableStateOf<List<AcademicSubjectProgress>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            isRefreshing = false
+        }
+    }
     var studentRating by remember { mutableStateOf<Double?>(null) }
     var studentRatingPosition by remember { mutableStateOf<Int?>(null) }
     var selectedFilter by remember { mutableIntStateOf(0) } // 0: Все, 1: Лабораторные, 2: С оценками
@@ -6428,6 +6442,13 @@ fun MinGroupScreen(
 
     var isRefreshing by remember { mutableStateOf(false) }
 
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            isRefreshing = false
+        }
+    }
+
     suspend fun performFetch(forceReauth: Boolean = false) {
         withContext(kotlinx.coroutines.Dispatchers.IO) {
             var token = prefs.getString("auth_token", "") ?: ""
@@ -7599,6 +7620,13 @@ fun MinNotesScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPrim
 
     var predefinedSubjects by remember { mutableStateOf<List<String>>(emptyList()) }
     var isNotesRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isNotesRefreshing) {
+        if (isNotesRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            isNotesRefreshing = false
+        }
+    }
     var notesRefreshTrigger by remember { mutableIntStateOf(0) }
     val notesListState = androidx.compose.foundation.lazy.rememberLazyListState()
     
@@ -9469,8 +9497,23 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
 
     var isRefreshing by remember { mutableStateOf(false) }
     var pullDistance by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            isRefreshing = false
+            pullDistance = 0f
+        }
+    }
+
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing) {
+            pullDistance = 0f
+        }
+    }
+
     val animatedPullOffset by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isRefreshing) 72f else pullDistance.coerceIn(0f, 130f),
+        targetValue = if (isRefreshing) 56f else pullDistance.coerceIn(0f, 110f),
         animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
     )
 
@@ -9591,7 +9634,7 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                 available: androidx.compose.ui.geometry.Offset,
                 source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
             ): androidx.compose.ui.geometry.Offset {
-                if (available.y > 0 && kotlin.math.abs(available.y) > (kotlin.math.abs(available.x) * 1.5f) && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
+                if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.Drag && available.y > 0 && kotlin.math.abs(available.y) > (kotlin.math.abs(available.x) * 1.5f) && listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
                     val newDistance = pullDistance + available.y * 0.45f
                     if (pullDistance < 70f && newDistance >= 70f) {
                         AppHapticManager.playClick()
@@ -10182,6 +10225,13 @@ fun MinNotificationsScreen(
     var notifications by remember { mutableStateOf<List<DeanNotificationItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            isRefreshing = false
+        }
+    }
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("Все") }
     val context = androidx.compose.ui.platform.LocalContext.current

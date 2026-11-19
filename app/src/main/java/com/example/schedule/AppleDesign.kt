@@ -1267,8 +1267,23 @@ fun ApplePullToRefreshContainer(
     val maxPullDistance = 120f
     val triggerDistance = 70f
 
+    // Safety watchdog: under ANY circumstances, pull-to-refresh will automatically dismiss after 2.5s
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            kotlinx.coroutines.delay(2500L)
+            pullDistance = 0f
+        }
+    }
+
+    // If refreshing becomes false, immediately reset pull distance
+    LaunchedEffect(isRefreshing) {
+        if (!isRefreshing) {
+            pullDistance = 0f
+        }
+    }
+
     val animatedOffset by animateFloatAsState(
-        targetValue = if (isRefreshing) triggerDistance else pullDistance.coerceIn(0f, 130f),
+        targetValue = if (isRefreshing) 56f else pullDistance.coerceIn(0f, 110f),
         animationSpec = spring(
             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
         ),
@@ -1295,9 +1310,9 @@ fun ApplePullToRefreshContainer(
                 available: androidx.compose.ui.geometry.Offset,
                 source: NestedScrollSource
             ): androidx.compose.ui.geometry.Offset {
-                // When at the very top of content and dragging strictly downwards
-                // Ignore diagonal / horizontal gestures to prevent interfering with HorizontalPager swipe
-                if (available.y > 0 && kotlin.math.abs(available.y) > (kotlin.math.abs(available.x) * 1.5f) && !canScrollBackward() && !isRefreshing) {
+                // When dragging strictly downwards by touch finger (source == Drag)
+                // Ignore fling / momentum inertia so fast scrolling to top doesn't accidentally trigger refresh
+                if (source == NestedScrollSource.Drag && available.y > 0 && kotlin.math.abs(available.y) > (kotlin.math.abs(available.x) * 1.5f) && !canScrollBackward() && !isRefreshing) {
                     val oldDist = pullDistance
                     val newDist = pullDistance + available.y * 0.45f
                     if (oldDist < triggerDistance && newDist >= triggerDistance) {
@@ -1310,11 +1325,12 @@ fun ApplePullToRefreshContainer(
             }
 
             override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
-                if (pullDistance >= triggerDistance && !isRefreshing) {
+                val shouldTrigger = pullDistance >= triggerDistance && !isRefreshing
+                pullDistance = 0f
+                if (shouldTrigger) {
                     AppHapticManager.playClick()
                     onRefresh()
                 }
-                pullDistance = 0f
                 return androidx.compose.ui.unit.Velocity.Zero
             }
         }
@@ -1325,18 +1341,18 @@ fun ApplePullToRefreshContainer(
             .fillMaxSize()
             .nestedScroll(nestedScrollConnection)
     ) {
-        // Pull-to-refresh Indicator (exactly like in Profile: CircularProgressIndicator when refreshing, rotating refresh icon when dragging, disappears immediately when done)
-        if (animatedOffset > 0f || isRefreshing) {
+        // Pull-to-refresh Indicator
+        if (animatedOffset > 4f || isRefreshing) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(animatedOffset.dp)
-                    .padding(top = 12.dp),
+                    .padding(top = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (isRefreshing) {
                     androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(26.dp),
+                        modifier = Modifier.size(24.dp),
                         color = indicatorColor,
                         strokeWidth = 2.5.dp
                     )
@@ -1347,7 +1363,7 @@ fun ApplePullToRefreshContainer(
                         contentDescription = "Потяните для обновления",
                         tint = if (animatedOffset >= triggerDistance) indicatorColor else indicatorColor.copy(alpha = 0.5f),
                         modifier = Modifier
-                            .size(26.dp)
+                            .size(24.dp)
                             .graphicsLayer { rotationZ = rotation }
                     )
                 }
