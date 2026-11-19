@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
@@ -1264,12 +1265,11 @@ fun ApplePullToRefreshContainer(
 ) {
     var pullDistance by remember { mutableFloatStateOf(0f) }
     val maxPullDistance = 120f
-    val triggerDistance = 64f
+    val triggerDistance = 70f
 
     val animatedOffset by animateFloatAsState(
-        targetValue = if (isRefreshing) triggerDistance else pullDistance.coerceIn(0f, maxPullDistance),
+        targetValue = if (isRefreshing) triggerDistance else pullDistance.coerceIn(0f, 130f),
         animationSpec = spring(
-            dampingRatio = 0.72f,
             stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
         ),
         label = "pullOffset"
@@ -1324,39 +1324,31 @@ fun ApplePullToRefreshContainer(
             .fillMaxSize()
             .nestedScroll(nestedScrollConnection)
     ) {
-        // Pull-to-refresh Indicator
-        if (animatedOffset > 4f || isRefreshing) {
+        // Pull-to-refresh Indicator (exactly like in Profile: CircularProgressIndicator when refreshing, rotating refresh icon when dragging, disappears immediately when done)
+        if (animatedOffset > 0f || isRefreshing) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(animatedOffset.dp),
+                    .height(animatedOffset.dp)
+                    .padding(top = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (isRefreshing) {
                     androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = accentColor,
+                        modifier = Modifier.size(26.dp),
+                        color = indicatorColor,
                         strokeWidth = 2.5.dp
                     )
                 } else {
-                    val progress = (animatedOffset / triggerDistance).coerceIn(0f, 1f)
-                    val rotation = progress * 180f
-                    Box(
+                    val rotation = (animatedOffset / triggerDistance * 180f).coerceIn(0f, 180f)
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = "Потяните для обновления",
+                        tint = if (animatedOffset >= triggerDistance) indicatorColor else indicatorColor.copy(alpha = 0.5f),
                         modifier = Modifier
-                            .size(32.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.25f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.CheckCircle, // subtle indicator icon or arrow
-                            contentDescription = "Потяните для обновления",
-                            tint = if (progress >= 1f) accentColor else indicatorColor.copy(alpha = 0.7f),
-                            modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer { rotationZ = rotation }
-                        )
-                    }
+                            .size(26.dp)
+                            .graphicsLayer { rotationZ = rotation }
+                    )
                 }
             }
         }
