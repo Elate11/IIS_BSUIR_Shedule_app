@@ -1401,17 +1401,15 @@ fun MinimalistApp() {
                         .graphicsLayer {
                             if (transitionsEnabled) {
                                 when (transitionType) {
-                                    TransitionType.Slide -> { } // Default slide behavior
+                                    TransitionType.Slide -> { } // Default slide behavior handled naturally by HorizontalPager
                                     TransitionType.Fade -> {
                                         alpha = (1f - kotlin.math.abs(pageOffset)).coerceIn(0f, 1f)
-                                        translationX = pageOffset * size.width
                                     }
                                     TransitionType.Scale -> {
                                         val s = (1f - (kotlin.math.abs(pageOffset) * 0.25f)).coerceIn(0f, 1f)
                                         scaleX = s
                                         scaleY = s
                                         alpha = (1f - kotlin.math.abs(pageOffset)).coerceIn(0f, 1f)
-                                        translationX = pageOffset * size.width
                                     }
                                     TransitionType.Cube -> {
                                         cameraDistance = 12f * density
@@ -1428,12 +1426,8 @@ fun MinimalistApp() {
                                         val clampedOffset = pageOffset.coerceIn(-1f, 1f)
                                         rotationY = clampedOffset * 180f
                                         alpha = if (kotlin.math.abs(clampedOffset) > 0.5f) 0f else 1f
-                                        translationX = pageOffset * size.width
                                     }
                                 }
-                            } else {
-                                translationX = pageOffset * size.width
-                                alpha = if (pageOffset == 0f) 1f else 0f
                             }
                         }
                     ) {
