@@ -1777,82 +1777,89 @@ fun MinScheduleScreen(MinBg: Color, actualBg: Color, MinCardBg: Color, MinBorder
     }
 
     LaunchedEffect(effectiveGroup, scheduleRefreshTrigger) {
-        BsuirApi.initCache(context)
-        val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
-        val targetGrp = if (effectiveGroup == "114001" && realLoginGrp != null) realLoginGrp else effectiveGroup
-        if (targetGrp != effectiveGroup && inlineTeacherData == null) {
-            onGroupSelected(targetGrp)
-            return@LaunchedEffect
-        }
+        try {
+            BsuirApi.initCache(context)
+            val realLoginGrp = prefs.getString("login_group", null)?.takeIf { it.isNotBlank() && it != "114001" }
+            val targetGrp = if (effectiveGroup == "114001" && realLoginGrp != null) realLoginGrp else effectiveGroup
+            if (targetGrp != effectiveGroup && inlineTeacherData == null) {
+                onGroupSelected(targetGrp)
+                return@LaunchedEffect
+            }
 
-        // 1. Instant local load from device memory (DataManager & BsuirApi disk cache)
-        if (scheduleRefreshTrigger == 0) {
-            val cachedTargetLessons = dataManager.getLessonsForTarget(targetGrp)
-            if (cachedTargetLessons.isNotEmpty()) {
-                lessons = cachedTargetLessons
+            // 1. Instant local load from device memory (DataManager & BsuirApi disk cache)
+            if (scheduleRefreshTrigger == 0) {
+                val cachedTargetLessons = dataManager.getLessonsForTarget(targetGrp)
+                if (cachedTargetLessons.isNotEmpty()) {
+                    lessons = cachedTargetLessons
+                } else {
+                    val diskResp = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        if (effectiveGroup.any { it.isLetter() }) {
+                            BsuirApi.getCachedEmployeeSchedule(effectiveGroup)
+                        } else {
+                            BsuirApi.getCachedGroupSchedule(effectiveGroup)
+                        }
+                    }
+                    if (diskResp != null) {
+                        val (diskLessons, diskExams) = parseScheduleResponse(diskResp)
+                        if (diskLessons.isNotEmpty()) {
+                            lessons = diskLessons
+                            dataManager.saveLessonsForTarget(targetGrp, diskLessons)
+                        }
+                        if (diskExams.isNotEmpty()) {
+                            sessionExams = diskExams
+                            dataManager.saveExams(targetGrp, diskExams)
+                        }
+                    }
+                }
+                sessionExams = dataManager.getExams(targetGrp)
+                sessionPeriod = dataManager.getSessionPeriod(targetGrp)
+            }
+
+            // 2. Background network sync with a strict 4.5s timeout so the spinning indicator NEVER gets stuck
+            val response = kotlinx.coroutines.withTimeoutOrNull(4500L) {
+                if (effectiveGroup.any { it.isLetter() }) {
+                    BsuirApi.getEmployeeSchedule(effectiveGroup)
+                } else {
+                    BsuirApi.getGroupSchedule(effectiveGroup)
+                }
+            }
+
+            val (newLessons, parsedExams) = parseScheduleResponse(response)
+
+            if (response != null) {
+                val startEx = response.startExamsDate ?: ""
+                val endEx = response.endExamsDate ?: ""
+                dataManager.saveSessionPeriod(targetGrp, startEx, endEx)
+                sessionPeriod = startEx to endEx
+
+                dataManager.saveExams(targetGrp, parsedExams)
+                sessionExams = parsedExams
             } else {
-                val diskResp = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    if (effectiveGroup.any { it.isLetter() }) {
-                        BsuirApi.getCachedEmployeeSchedule(effectiveGroup)
-                    } else {
-                        BsuirApi.getCachedGroupSchedule(effectiveGroup)
-                    }
-                }
-                if (diskResp != null) {
-                    val (diskLessons, diskExams) = parseScheduleResponse(diskResp)
-                    if (diskLessons.isNotEmpty()) {
-                        lessons = diskLessons
-                        dataManager.saveLessonsForTarget(targetGrp, diskLessons)
-                    }
-                    if (diskExams.isNotEmpty()) {
-                        sessionExams = diskExams
-                        dataManager.saveExams(targetGrp, diskExams)
-                    }
-                }
+                sessionExams = dataManager.getExams(targetGrp)
+                sessionPeriod = dataManager.getSessionPeriod(targetGrp)
             }
-            sessionExams = dataManager.getExams(targetGrp)
-            sessionPeriod = dataManager.getSessionPeriod(targetGrp)
-        }
 
-        // 2. Background network sync (updates device memory seamlessly when online)
-        val response = if (effectiveGroup.any { it.isLetter() }) {
-            BsuirApi.getEmployeeSchedule(effectiveGroup)
-        } else {
-            BsuirApi.getGroupSchedule(effectiveGroup)
-        }
-
-        val (newLessons, parsedExams) = parseScheduleResponse(response)
-
-        if (response != null) {
-            val startEx = response.startExamsDate ?: ""
-            val endEx = response.endExamsDate ?: ""
-            dataManager.saveSessionPeriod(targetGrp, startEx, endEx)
-            sessionPeriod = startEx to endEx
-
-            dataManager.saveExams(targetGrp, parsedExams)
-            sessionExams = parsedExams
-        } else {
-            sessionExams = dataManager.getExams(targetGrp)
-            sessionPeriod = dataManager.getSessionPeriod(targetGrp)
-        }
-
-        if (newLessons.isNotEmpty()) {
-            dataManager.saveLessonsForTarget(targetGrp, newLessons)
-            lessons = newLessons
-            // Pre-warm teacher schedules in background and store in device memory for offline use
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
-                try {
-                    val teachers = newLessons.mapNotNull { it.teacherUrlId.takeIf { id -> id.isNotBlank() } }.distinct()
-                    teachers.forEach { uid ->
-                        BsuirApi.getOrFetchEmployeeSchedule(uid)
-                    }
-                } catch (e: Exception) { /* ignore */ }
+            if (newLessons.isNotEmpty()) {
+                dataManager.saveLessonsForTarget(targetGrp, newLessons)
+                lessons = newLessons
+                // Pre-warm teacher schedules in background and store in device memory for offline use
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        val teachers = newLessons.mapNotNull { it.teacherUrlId.takeIf { id -> id.isNotBlank() } }.distinct()
+                        teachers.forEach { uid ->
+                            BsuirApi.getOrFetchEmployeeSchedule(uid)
+                        }
+                    } catch (e: Exception) { /* ignore */ }
+                }
+            } else if (lessons.isEmpty()) {
+                val cached = dataManager.getLessonsForTarget(targetGrp).ifEmpty { dataManager.getLessons() }
+                lessons = cached
             }
-        } else if (lessons.isEmpty()) {
-            val cached = dataManager.getLessonsForTarget(targetGrp).ifEmpty { dataManager.getLessons() }
-            lessons = cached
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isScheduleRefreshing = false
         }
-        isScheduleRefreshing = false
     }
 
     var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -4305,6 +4312,11 @@ fun MinMarksScreen(
                             isRefreshing = false
                         }
                     } catch (e: Exception) {
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            isLoading = false
+                            isRefreshing = false
+                        }
+                    } finally {
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             isLoading = false
                             isRefreshing = false
@@ -9601,10 +9613,15 @@ fun MinProfileScreen(MinBg: Color, MinCardBg: Color, MinBorder: Color, MinTextPr
                     isRefreshing = true
                     AppHapticManager.playClick()
                     scope.launch {
-                        fetchProfileData(forceRefresh = true)
-                        kotlinx.coroutines.delay(500)
-                        isRefreshing = false
-                        pullDistance = 0f
+                        try {
+                            fetchProfileData(forceRefresh = true)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            kotlinx.coroutines.delay(400)
+                            isRefreshing = false
+                            pullDistance = 0f
+                        }
                     }
                 } else {
                     pullDistance = 0f
